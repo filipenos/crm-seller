@@ -1,0 +1,282 @@
+import { useEffect, useState } from 'react'
+import type {
+  ChatMessage,
+  InternalStatus,
+  Order,
+  OrderEvent,
+  StatusHistoryEntry
+} from '@shared/types'
+import { INTERNAL_STATUSES, INTERNAL_STATUS_LABELS } from '@shared/types'
+
+const EVENT_ICONS: Record<OrderEvent['source'], string> = {
+  logistics: '🚚',
+  rating: '⭐',
+  finance: '💰',
+  status: '📋'
+}
+
+interface Props {
+  orderSn: string
+  onClose: () => void
+  onToast: (msg: string) => void
+}
+
+export default function OrderDetail({ orderSn, onClose, onToast }: Props): React.JSX.Element {
+  const [order, setOrder] = useState<Order | null>(null)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [history, setHistory] = useState<StatusHistoryEntry[]>([])
+  const [events, setEvents] = useState<OrderEvent[]>([])
+  const [childName, setChildName] = useState('')
+  const [note, setNote] = useState('')
+
+  const load = async (): Promise<void> => {
+    const o = await window.api.orders.get(orderSn)
+    setOrder(o)
+    setChildName(o?.childName ?? '')
+    setNote(o?.note ?? '')
+    setMessages(await window.api.messages.byOrder(orderSn))
+    setHistory(await window.api.orders.statusHistory(orderSn))
+    setEvents(await window.api.events.byOrder(orderSn))
+  }
+
+  useEffect(() => {
+    void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderSn])
+
+  if (!order) return <div className="drawer-backdrop" onClick={onClose} />
+
+  const saveChildName = async (): Promise<void> => {
+    await window.api.orders.setChildName(orderSn, childName)
+    onToast('Nome salvo')
+    void load()
+  }
+
+  const saveNote = async (): Promise<void> => {
+    await window.api.orders.setNote(orderSn, note)
+    onToast('Observação salva')
+  }
+
+  const setStatus = async (status: InternalStatus): Promise<void> => {
+    await window.api.orders.setStatus(orderSn, status)
+    void load()
+  }
+
+  const useAsName = (text: string): void => {
+    setChildName(text.trim())
+  }
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <div className="drawer">
+        <header className="drawer-header">
+          <div>
+            <h2 className="mono">{order.orderSn}</h2>
+            <div className="muted">
+              {order.buyerName ?? order.buyerUsername ?? '-'}
+              {order.buyerUsername ? ` (@${order.buyerUsername})` : ''}
+            </div>
+          </div>
+          <button className="close-btn" onClick={onClose}>
+            ✕
+          </button>
+        </header>
+
+        <section>
+          <h3>Status interno</h3>
+          <div className="status-buttons">
+            {INTERNAL_STATUSES.map((s) => (
+              <button
+                key={s}
+                className={`badge-btn st-${s} ${order.internalStatus === s ? 'current' : ''}`}
+                onClick={() => setStatus(s)}
+              >
+                {INTERNAL_STATUS_LABELS[s]}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h3>Personalização</h3>
+          <div className="field-row">
+            <input
+              placeholder="Nome da criança"
+              value={childName}
+              onChange={(e) => setChildName(e.target.value)}
+            />
+            <button onClick={saveChildName}>Salvar</button>
+          </div>
+          <div className="field-row">
+            <textarea
+              placeholder="Observações do pedido…"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+            />
+            <button onClick={saveNote}>Salvar</button>
+          </div>
+        </section>
+
+        <section>
+          <h3>Itens</h3>
+          <ul className="item-list">
+            {order.items.length === 0 && <li className="muted">Sem itens sincronizados</li>}
+            {order.items.map((i) => (
+              <li key={i.id}>
+                <b>{i.quantity}x</b> {i.itemName}
+                {i.modelName && <span className="muted"> — {i.modelName}</span>}
+              </li>
+            ))}
+          </ul>
+          <div className="muted small">
+            Shopee: {order.shopeeStatus ?? '-'}
+            {order.trackingNumber ? ` · Rastreio: ${order.trackingNumber}` : ''}
+            {order.totalAmount != null
+              ? ` · Total: ${order.currency ?? 'R$'} ${order.totalAmount.toFixed(2)}`
+              : ''}
+          </div>
+          <div className="shopee-flags">
+            {order.deliveredAt && (
+              <span className="flag ok">
+                ✅ Entregue em {new Date(order.deliveredAt).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+            {order.ratingStar != null && (
+              <span className="flag" title={order.ratingComment ?? ''}>
+                ⭐ Avaliado: {order.ratingStar}/5
+              </span>
+            )}
+            {order.escrowReleasedAt && (
+              <span className="flag ok">
+                💰 Pagamento recebido
+                {order.escrowAmount != null ? ` (R$ ${order.escrowAmount.toFixed(2)})` : ''} em{' '}
+                {new Date(order.escrowReleasedAt).toLocaleDateString('pt-BR')}
+              </span>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <div className="section-title-row">
+            <h3>Linha do tempo Shopee</h3>
+            <button
+              className="small-btn"
+              onClick={async () => {
+                onToast('Atualizando rastreio…')
+                const r = await window.api.orders.refreshTracking(orderSn)
+                if (!r.ok) onToast(`Erro no rastreio: ${r.error}`)
+                else
+                  onToast(
+                    r.newEvents > 0
+                      ? `${r.newEvents} novo(s) evento(s): ${r.latestStatus}`
+                      : 'Rastreio sem novidades'
+                  )
+                void load()
+              }}
+            >
+              🔄 Atualizar rastreio
+            </button>
+          </div>
+          {events.length === 0 ? (
+            <div className="muted">
+              Nenhum evento ainda — rastreio, avaliação e pagamento aparecem aqui após a
+              sincronização.
+            </div>
+          ) : (
+            <ul className="timeline">
+              {[...events].reverse().map((e) => (
+                <li key={e.eventKey}>
+                  <span className="timeline-icon">{EVENT_ICONS[e.source]}</span>
+                  <div>
+                    <div>{e.description}</div>
+                    <div className="muted small">
+                      {new Date(e.happenedAt).toLocaleString('pt-BR')}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section>
+          <h3>Ações</h3>
+          <div className="action-buttons">
+            <button
+              onClick={async () => {
+                const r = await window.api.orders.createFolder(orderSn)
+                onToast(r.ok ? `Pasta criada: ${r.path}` : `Erro: ${r.error}`)
+                void load()
+              }}
+            >
+              📁 Criar pasta (template)
+            </button>
+            <button
+              onClick={async () => {
+                const r = await window.api.orders.openFolder(orderSn)
+                if (!r.ok) onToast(`Erro: ${r.error}`)
+              }}
+            >
+              📂 Abrir pasta
+            </button>
+            <button
+              onClick={async () => {
+                onToast('Gerando etiqueta…')
+                const r = await window.api.orders.generateLabel(orderSn)
+                onToast(r.ok ? `Etiqueta salva: ${r.path}` : `Erro: ${r.error}`)
+                void load()
+              }}
+            >
+              🏷️ Gerar etiqueta
+            </button>
+          </div>
+          {order.folderPath && (
+            <div className="muted small mono">Pasta: {order.folderPath}</div>
+          )}
+        </section>
+
+        <section>
+          <h3>Mensagens do cliente</h3>
+          <div className="chat">
+            {messages.length === 0 && (
+              <div className="muted">Nenhuma mensagem sincronizada deste comprador.</div>
+            )}
+            {messages.map((m) => (
+              <div key={m.messageId} className={`chat-msg ${m.direction}`}>
+                <div className="chat-content">
+                  {m.content}
+                  {m.imageUrl && (
+                    <img src={m.imageUrl} alt="" className="chat-img" />
+                  )}
+                </div>
+                <div className="chat-meta">
+                  {new Date(m.createdAt).toLocaleString('pt-BR')}
+                  {m.direction === 'in' && m.content && (
+                    <button className="link-btn" onClick={() => useAsName(m.content)}>
+                      usar como nome
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h3>Histórico de status</h3>
+          <ul className="history">
+            {history.map((h) => (
+              <li key={h.id}>
+                <span className="muted">{new Date(h.changedAt).toLocaleString('pt-BR')}</span>{' '}
+                {h.fromStatus ? `${h.fromStatus} → ` : ''}
+                <b>{h.toStatus}</b>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </>
+  )
+}

@@ -1,0 +1,53 @@
+# Dependências e artefatos de build
+node_modules/
+out/
+dist/
+*.tsbuildinfo
+
+# --- Dados do app: NUNCA versionar ---
+# Em uso normal nada disso cai aqui (fica em app.getPath('userData'):
+# %APPDATA%\crm-seller, ~/Library/Application Support/crm-seller,
+# ~/.config/crm-seller). As regras abaixo são rede de segurança para quando o
+# app roda apontado para dentro do projeto — CRM_DB_PATH em teste, uma pasta de
+# pedidos escolhida aqui, um dump de diagnóstico copiado para cá.
+
+# Banco SQLite: pedidos, compradores, mensagens do chat, configurações
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Sessão do Seller Center (cookies de login da conta Shopee)
+Partitions/
+*cookies*
+
+# Diagnóstico do probe: respostas cruas da Shopee com dados reais de pedido
+debug/
+api-urls.json
+api-samples.json
+card-*.json
+
+# Pastas de produção geradas pelo app (nome de criança, etiquetas, arquivos)
+Pedidos/
+Templates/
+
+# Credenciais e certificados de assinatura
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# --- Ferramentas e sistema ---
+# Preferências e permissões locais do Claude Code (caminhos da máquina);
+# .claude/settings.json, se existir, é compartilhado e deve ser versionado.
+.claude/settings.local.json
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

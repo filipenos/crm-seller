@@ -1,0 +1,53 @@
+name: Release
+
+# Publica o instalador Windows nas Releases do GitHub. É esse artefato que o
+# app instalado consulta para se atualizar sozinho (electron-updater).
+#
+# Como disparar:
+#   npm version 0.2.0        # sobe a versão e cria a tag v0.2.0
+#   git push --follow-tags
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write # necessário para criar a release e subir os artefatos
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # O postinstall (electron-builder install-app-deps) recompila o
+      # better-sqlite3 para o Electron do Windows aqui no runner — é por isso
+      # que o build não sai do Ubuntu/Mac.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - name: Build e publicação do instalador
+        run: npm run build:win -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # O electron-builder descobre o repositório pelo remote do git. Se isso
+      # falhar, ele ainda gera o instalador — só que sem feed, e o app
+      # instalado nunca mais se atualiza. Melhor quebrar aqui do que descobrir
+      # depois de distribuir.
+      - name: Conferir se o instalador saiu com o feed de atualização
+        shell: pwsh
+        run: |
+          $f = 'dist/win-unpacked/resources/app-update.yml'
+          if (!(Test-Path $f)) { throw "app-update.yml não foi gerado" }
+          $content = Get-Content $f -Raw
+          Write-Host $content
+          if ($content -notmatch 'provider:\s*github') {
+            throw "app-update.yml sem provider github — o app instalado não conseguiria se atualizar"
+          }

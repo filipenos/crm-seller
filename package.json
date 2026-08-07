@@ -1,0 +1,44 @@
+{
+  "name": "crm-seller",
+  "version": "0.1.0",
+  "description": "CRM local para pedidos personalizados (Shopee)",
+  "main": "out/main/index.js",
+  "author": "Filipe Peixoto <filipenos@gmail.com>",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "dev:linux": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "postinstall": "electron-builder install-app-deps",
+    "build:win": "electron-vite build && electron-builder --win",
+    "build:mac": "electron-vite build && electron-builder --mac",
+    "build:linux": "electron-vite build && electron-builder --linux"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.2",
+    "electron-updater": "^6.8.9",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.2": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true,
+    "electron@43.2.0": true
+  }
+}

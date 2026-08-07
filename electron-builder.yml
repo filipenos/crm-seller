@@ -1,0 +1,36 @@
+appId: com.filipenos.crmseller
+productName: CRM Seller
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  - '**/*.node'
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  # Instalação por usuário, em pasta fixa: é o que permite a atualização se
+  # instalar sozinha, sem pedir permissão de administrador toda vez.
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  shortcutName: CRM Seller
+# Feed das atualizações. owner/repo vêm do remote git (ou de GITHUB_REPOSITORY
+# no CI), então o instalador já sai apontando para o repositório certo.
+publish:
+  provider: github
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.business
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  maintainer: Filipe Peixoto <filipenos@gmail.com>
+npmRebuild: true

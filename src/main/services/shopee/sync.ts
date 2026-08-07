@@ -1,0 +1,236 @@
+import { BrowserWindow } from 'electron'
+import type { ShopeeConnectionStatus, SyncResult, TrackingRefreshResult } from '@shared/types'
+import {
+  fetchConversations,
+  fetchMessages,
+  fetchOrders,
+  fetchRatings,
+  fetchTrackingInfo,
+  fetchWalletTransactions
+} from './client'
+import { isConnected } from './session'
+import {
+  getOrder,
+  setEscrow,
+  setLogisticsStatus,
+  setRating,
+  upsertShopeeOrder
+} from '../orders'
+import { upsertConversation, upsertMessage } from '../messages'
+import { recordEvent } from '../events'
+import { getSettings } from '../settings'
+
+/** Palavras que indicam entrega concluída num checkpoint de rastreio. */
+const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
+
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+
+const state: ShopeeConnectionStatus = {
+  connected: false,
+  shopName: null,
+  lastSyncAt: null,
+  lastSyncError: null,
+  syncing: false
+}
+
+let timer: NodeJS.Timeout | null = null
+
+function broadcast(channel: string, payload: unknown): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload)
+  }
+}
+
+export async function getConnectionStatus(): Promise<ShopeeConnectionStatus> {
+  state.connected = await isConnected()
+  return { ...state }
+}
+
+export async function syncAll(): Promise<SyncResult> {
+  if (state.syncing) {
+    return {
+      ok: false,
+      ordersUpserted: 0,
+      newOrders: 0,
+      messagesUpserted: 0,
+      eventsCreated: 0,
+      error: 'Sincronização já em andamento'
+    }
+  }
+  state.syncing = true
+  broadcast('shopee:status-changed', await getConnectionStatus())
+
+  const result: SyncResult = {
+    ok: true,
+    ordersUpserted: 0,
+    newOrders: 0,
+    messagesUpserted: 0,
+    eventsCreated: 0,
+    error: null
+  }
+  const errors: string[] = []
+
+  try {
+    if (!(await isConnected())) {
+      throw new Error('Não conectado à Shopee. Abra Configurações e faça login no Seller Center.')
+    }
+
+    // Pedidos
+    try {
+      const orders = await fetchOrders()
+      for (const o of orders) {
+        const isNew = upsertShopeeOrder(o)
+        result.ordersUpserted++
+        if (isNew) result.newOrders++
+      }
+    } catch (err) {
+      errors.push(String(err instanceof Error ? err.message : err))
+    }
+
+    // Avaliações dos compradores
+    try {
+      const ratings = await fetchRatings()
+      for (const r of ratings) {
+        if (!getOrder(r.orderSn)) continue
+        setRating(r.orderSn, r.star, r.comment, r.ratedAt)
+        const stars = '★'.repeat(Math.max(1, Math.min(5, Math.round(r.star))))
+        if (
+          recordEvent({
+            orderSn: r.orderSn,
+            source: 'rating',
+            description: `Pedido avaliado com ${stars} (${r.star})${r.comment ? `: “${r.comment}”` : ''}`,
+            happenedAt: r.ratedAt ?? Date.now(),
+            rawJson: r.rawJson
+          })
+        ) {
+          result.eventsCreated++
+        }
+      }
+    } catch (err) {
+      errors.push(`avaliações: ${String(err instanceof Error ? err.message : err)}`)
+    }
+
+    // Financeiro — liberação do pagamento (escrow)
+    try {
+      const transactions = await fetchWalletTransactions()
+      for (const t of transactions) {
+        if (!getOrder(t.orderSn)) continue
+        setEscrow(t.orderSn, t.amount, t.happenedAt)
+        const amount = t.amount !== null ? ` (${BRL.format(t.amount)})` : ''
+        if (
+          recordEvent({
+            orderSn: t.orderSn,
+            source: 'finance',
+            description: `Pagamento recebido${amount} — ${t.description}`,
+            happenedAt: t.happenedAt,
+            rawJson: t.rawJson
+          })
+        ) {
+          result.eventsCreated++
+        }
+      }
+    } catch (err) {
+      errors.push(`financeiro: ${String(err instanceof Error ? err.message : err)}`)
+    }
+
+    // Conversas e mensagens
+    try {
+      const conversations = await fetchConversations()
+      for (const conv of conversations) {
+        upsertConversation(conv)
+        try {
+          const messages = await fetchMessages(conv.conversationId)
+          for (const m of messages) {
+            if (upsertMessage(m)) result.messagesUpserted++
+          }
+        } catch (err) {
+          errors.push(`conversa ${conv.conversationId}: ${String(err instanceof Error ? err.message : err)}`)
+        }
+      }
+    } catch (err) {
+      errors.push(String(err instanceof Error ? err.message : err))
+    }
+
+    state.lastSyncAt = Date.now()
+    if (errors.length > 0) {
+      result.ok =
+        result.ordersUpserted > 0 || result.messagesUpserted > 0 || result.eventsCreated > 0
+      result.error = errors.join(' | ')
+    }
+    state.lastSyncError = result.error
+  } catch (err) {
+    result.ok = false
+    result.error = String(err instanceof Error ? err.message : err)
+    state.lastSyncError = result.error
+  } finally {
+    console.log(
+      `[sync] pedidos=${result.ordersUpserted} (novos=${result.newOrders}) mensagens=${result.messagesUpserted} eventos=${result.eventsCreated}`
+    )
+    if (result.error) console.error('[sync] erros:', result.error)
+    state.syncing = false
+    broadcast('shopee:status-changed', await getConnectionStatus())
+    broadcast('data:changed', null)
+  }
+  return result
+}
+
+/**
+ * Atualiza o rastreio de UM pedido, sob demanda (botão na UI).
+ * Registra os checkpoints novos como eventos e atualiza o status logístico.
+ */
+export async function refreshTracking(orderSn: string): Promise<TrackingRefreshResult> {
+  try {
+    if (!(await isConnected())) {
+      throw new Error('Não conectado à Shopee. Faça login em Configurações.')
+    }
+    const order = getOrder(orderSn)
+    if (!order) throw new Error(`Pedido ${orderSn} não encontrado`)
+
+    const checkpoints = await fetchTrackingInfo(order.orderSn, order.shopeeOrderId)
+    if (checkpoints.length === 0) {
+      return { ok: true, newEvents: 0, latestStatus: order.logisticsStatus, error: null }
+    }
+    const latest = checkpoints.reduce((a, b) => (a.happenedAt > b.happenedAt ? a : b))
+    const delivered = checkpoints.find((c) => DELIVERED_PATTERN.test(c.description))
+    setLogisticsStatus(orderSn, latest.description, delivered?.happenedAt ?? null)
+
+    let newEvents = 0
+    for (const c of checkpoints) {
+      if (
+        recordEvent({
+          orderSn,
+          source: 'logistics',
+          description: c.description,
+          happenedAt: c.happenedAt,
+          rawJson: c.rawJson
+        })
+      ) {
+        newEvents++
+      }
+    }
+    broadcast('data:changed', null)
+    return { ok: true, newEvents, latestStatus: latest.description, error: null }
+  } catch (err) {
+    return {
+      ok: false,
+      newEvents: 0,
+      latestStatus: null,
+      error: String(err instanceof Error ? err.message : err)
+    }
+  }
+}
+
+export function startSyncScheduler(): void {
+  stopSyncScheduler()
+  const minutes = Math.max(1, getSettings().syncIntervalMinutes)
+  timer = setInterval(() => {
+    void syncAll()
+  }, minutes * 60 * 1000)
+}
+
+export function stopSyncScheduler(): void {
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
+}
