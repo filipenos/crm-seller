@@ -123,9 +123,15 @@ publica a release. **A tag precisa casar com a `version`** — é assim que o
   atualização se instalar sem pedir permissão de administrador.
 - **Em desenvolvimento nada disso roda** — só o app empacotado se atualiza.
 
-> ⚠️ O `electron-builder` descobre o repositório pelo *remote* do git. Sem
-> remote configurado, ele gera um instalador **sem feed**, que nunca se
-> atualiza. O workflow tem um passo que falha se isso acontecer.
+> ⚠️ Duas armadilhas que deixam o app instalado sem nunca se atualizar, as
+> duas sem erro nenhum no build:
+>
+> - O `electron-builder` descobre o repositório pelo *remote* do git. Sem
+>   remote, ele gera um instalador **sem feed** — o workflow tem um passo que
+>   falha nesse caso.
+> - Por padrão ele publica a release como **rascunho**, que o
+>   `electron-updater` não enxerga. Por isso a config tem
+>   `publish.releaseType: release`.
 
 **Primeira instalação no Windows**: o app não é assinado, então o SmartScreen
 mostra "Windows protegeu o computador" → *Mais informações* → *Executar assim

@@ -22,6 +22,9 @@ nsis:
 # no CI), então o instalador já sai apontando para o repositório certo.
 publish:
   provider: github
+  # Sem isto o electron-builder cria a release como RASCUNHO, que o
+  # electron-updater não enxerga — o app instalado nunca acharia a atualização.
+  releaseType: release
 mac:
   target:
     - dmg
