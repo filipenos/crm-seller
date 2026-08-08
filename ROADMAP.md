@@ -51,6 +51,28 @@ da criança), as pastas e as ações. A página de Pedidos não tem mais nada di
 Ordenação natural: prazo de postagem (`ship_by_date`), porque estourar o prazo
 gera multa da Shopee.
 
+**Leitor de QR code** (parte importante desta página): botão que abre a câmera,
+lê o QR da etiqueta e mostra de qual pedido ela é — para conferir na hora de
+embalar e de levar ao ponto de coleta.
+
+A busca por código **já funciona** e cobre os quatro formatos encontrados nas
+etiquetas reais, que não são um só:
+
+| Formato | Exemplo | Onde vem |
+|---|---|---|
+| Transportadora | `BR267984919751H` | `consignment_no` |
+| Correios | `AP325562169BR` | `tracking_number_list` |
+| Concatenado | `BR267739395145T` + `SPXLM17803704` | `tracking_number_list` |
+| Interno Shopee | `OFG239306621123993` | `package_number` |
+
+Por isso a busca casa por *trecho* nos dois campos (rastreio e pacote): um QR
+com o código concatenado não bateria numa comparação exata.
+
+Falta só a leitura da câmera. Em Electron dá para usar `getUserMedia` no
+renderer; a decodificação pode sair do `BarcodeDetector` do Chromium (sem
+dependência) ou de uma biblioteca pequena embutida, se ele não estiver
+disponível no Windows.
+
 ### 3.1 Anúncios (Shopee Ads) e custo de anúncio por venda
 
 **Objetivo:** saber quanto se gasta em anúncio e quanto disso pesa em cada venda.

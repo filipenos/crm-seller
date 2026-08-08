@@ -35,6 +35,7 @@ interface OrderRow {
   carrier: string | null
   shipping_city: string | null
   shopee_url_path: string | null
+  package_number: string | null
   logistics_phase: string | null
   stage_id: number | null
   stage_name: string | null
@@ -62,6 +63,7 @@ function rowToOrder(row: OrderRow, items: OrderItem[]): Order {
     carrier: row.carrier,
     shippingCity: row.shipping_city,
     shopeeUrlPath: row.shopee_url_path,
+    packageNumber: row.package_number,
     stageId: row.stage_id,
     stageName: row.stage_name,
     stageColor: row.stage_color,
@@ -135,11 +137,14 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
     params.push(filters.stageId)
   }
   if (filters.search) {
+    // Busca também por código de rastreio: é o que o QR da etiqueta traz, e
+    // ele às vezes vem concatenado com outro código — daí o LIKE nos dois lados.
     conditions.push(
-      '(order_sn LIKE ? OR buyer_username LIKE ? OR buyer_name LIKE ? OR child_name LIKE ?)'
+      `(order_sn LIKE ? OR buyer_username LIKE ? OR buyer_name LIKE ? OR child_name LIKE ?
+        OR tracking_number LIKE ? OR package_number LIKE ?)`
     )
-    const like = `%${filters.search}%`
-    params.push(like, like, like, like)
+    const like = `%${filters.search.trim()}%`
+    params.push(like, like, like, like, like, like)
   }
   if (filters.awaitingPayment) {
     conditions.push(`(${AWAITING_PAYMENT_WHERE})`)
@@ -396,6 +401,7 @@ export interface UpsertOrderInput {
   carrier?: string | null
   shippingCity?: string | null
   shopeeUrlPath?: string | null
+  packageNumber?: string | null
   shopeeOrderId?: string | null
   shopeeStatus?: string | null
   buyerUsername?: string | null
@@ -431,8 +437,8 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
           order_sn, shopee_order_id, shopee_status, internal_status, buyer_username, buyer_name,
           total_amount, currency, tracking_number, ship_by_date, logistics_code,
           status_description, payment_method, carrier, shipping_city, shopee_url_path,
-          created_at_shopee, updated_at_shopee, synced_at, raw_json
-        ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          package_number, created_at_shopee, updated_at_shopee, synced_at, raw_json
+        ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         input.orderSn,
         input.shopeeOrderId ?? null,
@@ -449,6 +455,7 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
         input.carrier ?? null,
         input.shippingCity ?? null,
         input.shopeeUrlPath ?? null,
+        input.packageNumber ?? null,
         input.createdAtShopee ?? null,
         input.updatedAtShopee ?? null,
         now,
@@ -474,6 +481,7 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
           carrier = COALESCE(?, carrier),
           shipping_city = COALESCE(?, shipping_city),
           shopee_url_path = COALESCE(?, shopee_url_path),
+          package_number = COALESCE(?, package_number),
           created_at_shopee = COALESCE(?, created_at_shopee),
           updated_at_shopee = COALESCE(?, updated_at_shopee),
           synced_at = ?,
@@ -494,6 +502,7 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
         input.carrier ?? null,
         input.shippingCity ?? null,
         input.shopeeUrlPath ?? null,
+        input.packageNumber ?? null,
         input.createdAtShopee ?? null,
         input.updatedAtShopee ?? null,
         now,

@@ -179,6 +179,13 @@ const migrations: string[] = [
   ALTER TABLE orders ADD COLUMN carrier TEXT;
   ALTER TABLE orders ADD COLUMN shipping_city TEXT;
   ALTER TABLE orders ADD COLUMN shopee_url_path TEXT;
+  `,
+  // 8 — o pacote tem mais de um código: o da transportadora (BR…/AP…BR dos
+  //     Correios) e o interno da Shopee (OFG…). O QR da etiqueta traz um
+  //     deles, então os dois precisam ser pesquisáveis.
+  `
+  ALTER TABLE orders ADD COLUMN package_number TEXT;
+  CREATE INDEX idx_orders_package_number ON orders(package_number);
   `
 ]
 

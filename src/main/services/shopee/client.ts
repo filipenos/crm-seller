@@ -44,6 +44,8 @@ export interface NormalizedShopeeOrder {
   shippingCity: string | null
   /** Caminho do pedido no Seller Center, para abrir direto lá. */
   shopeeUrlPath: string | null
+  /** Código interno do pacote (OFG…), diferente do rastreio da transportadora. */
+  packageNumber: string | null
   updatedAtShopee: number | null
   rawJson: string
   items: {
@@ -183,6 +185,26 @@ function cityFromAddress(address: string | null): string | null {
   const estado = semCep[semCep.length - 1]
   const cidade = semCep[semCep.length - 2]
   return cidade && estado ? `${cidade}/${estado}` : null
+}
+
+/**
+ * A Shopee manda a explicação do estado como template não interpolado:
+ * "envie o pedido antes de {timestamp} para evitar o cancelamento". O prazo é
+ * o `ship_by_date`; sem ele, a frase pela metade confunde mais que ajuda e
+ * some.
+ */
+function fillPlaceholders(text: string | null, shipByDate: number | null): string | null {
+  if (!text) return null
+  if (!text.includes('{')) return text
+  if (shipByDate === null) return null
+  return text.replace(
+    /\{timestamp\}/g,
+    new Date(shipByDate).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    })
+  )
 }
 
 /** Timestamps da Shopee vêm em segundos; normaliza para ms. */
@@ -407,7 +429,13 @@ export function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
   if (!orderSn) return null
 
   const ext = (inner.order_ext_info as AnyObj) ?? {}
-  const fulfilment = (inner.fulfilment_info as AnyObj) ?? {}
+  // No formato package_level o fulfilment_info fica dentro do pacote, não no
+  // topo — ler só o topo fazia o rastreio cair no consignment_no e perder o
+  // código real da transportadora (que é o que vai no QR da etiqueta).
+  const fulfilment =
+    (inner.fulfilment_info as AnyObj) ??
+    ((inner.package_list as AnyObj[])?.[0]?.fulfilment_info as AnyObj) ??
+    {}
   const packages = Array.isArray(inner.package_list) ? (inner.package_list as AnyObj[]) : []
   const firstPkg = packages[0] ?? {}
 
@@ -447,13 +475,17 @@ export function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
     trackingNumber,
     shipByDate: toMs(pickNumber(ext, ['ship_by_date'])),
     logisticsCode: pickNumber(ext, ['logistics_status']),
-    statusDescription: pickString(statusInfo, ['status_description.description_value']),
+    statusDescription: fillPlaceholders(
+      pickString(statusInfo, ['status_description.description_value']),
+      toMs(pickNumber(ext, ['ship_by_date']))
+    ),
     paymentMethod: pickString(payment, ['payment_method']),
     carrier: pickString(fulfilment, ['fulfilment_channel_name']) ??
       pickString((firstPkg.fulfilment_info as AnyObj) ?? {}, ['fulfilment_channel_name']),
     // O endereço vem inteiro numa string; só a cidade/estado interessa aqui.
     shippingCity: cityFromAddress(pickString(pkgExt, ['shipping_address'])),
     shopeeUrlPath: pickString(ext, ['odp_url_path_query'])?.trim() ?? null,
+    packageNumber: pickString(pkgExt, ['package_number']),
     createdAtShopee: toMs(pickNumber(ext, ['create_time', 'pay_time'])) ?? dateFromOrderSn(orderSn),
     updatedAtShopee: null,
     rawJson: JSON.stringify(card),

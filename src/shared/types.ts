@@ -115,6 +115,8 @@ export interface Order {
   carrier: string | null
   shippingCity: string | null
   shopeeUrlPath: string | null
+  /** Código interno do pacote (OFG…); o QR da etiqueta pode trazer este ou o da transportadora. */
+  packageNumber: string | null
   /** Etapa de produção cadastrada. Só faz sentido enquanto está conosco. */
   stageId: number | null
   stageName: string | null
