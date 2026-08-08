@@ -6,7 +6,7 @@ import type {
   StatusHistoryEntry,
   WorkflowStage
 } from '@shared/types'
-import { ORDER_PHASE_LABELS, isWithUs } from '@shared/types'
+import { LOGISTICS_READY_TO_POST, ORDER_TAB_LABELS, isWithUs } from '@shared/types'
 
 const EVENT_ICONS: Record<OrderEvent['source'], string> = {
   logistics: '🚚',
@@ -109,16 +109,17 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
         </header>
 
         <section>
-          <h3>Fase</h3>
-          <div className={`phase-badge big ph-${order.phase}`}>
-            {ORDER_PHASE_LABELS[order.phase]}
+          <h3>Situação</h3>
+          <div className={`phase-badge big ph-${order.tab}`}>
+            {order.shopeeStatus ?? ORDER_TAB_LABELS[order.tab]}
           </div>
-          {order.logisticsStatus && (
-            <div className="muted">🚚 {order.logisticsStatus}</div>
+          {order.logisticsCode === LOGISTICS_READY_TO_POST && (
+            <div className="ready-tag">🏷️ Etiqueta gerada — pronto para o ponto de coleta</div>
           )}
+          {order.logisticsStatus && <div className="muted">🚚 {order.logisticsStatus}</div>}
         </section>
 
-        {isWithUs(order.phase) ? (
+        {isWithUs(order.tab) ? (
           <section>
             <h3>Etapa de produção</h3>
             <div className="status-buttons">

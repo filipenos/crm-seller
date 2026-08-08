@@ -4,12 +4,12 @@ import type {
   Order,
   OrderFilters,
   OrderItem,
-  OrderPhase,
-  PhaseCounts,
+  OrderTab,
+  TabCounts,
   StatusHistoryEntry
 } from '@shared/types'
-import { INTERNAL_STATUSES, ORDER_PHASES } from '@shared/types'
-import { derivePhase } from './phases'
+import { INTERNAL_STATUSES, LOGISTICS_READY_TO_POST, ORDER_TABS } from '@shared/types'
+import { deriveTab } from './tabs'
 
 interface OrderRow {
   order_sn: string
@@ -29,6 +29,7 @@ interface OrderRow {
   updated_at_shopee: number | null
   synced_at: number | null
   logistics_status: string | null
+  logistics_code: number | null
   logistics_phase: string | null
   stage_id: number | null
   stage_name: string | null
@@ -46,11 +47,11 @@ function rowToOrder(row: OrderRow, items: OrderItem[]): Order {
     orderSn: row.order_sn,
     shopeeOrderId: row.shopee_order_id,
     shopeeStatus: row.shopee_status,
-    phase: derivePhase({
+    tab: deriveTab({
       shopeeStatus: row.shopee_status,
-      logisticsPhase: row.logistics_phase,
       escrowReleasedAt: row.escrow_released_at
     }),
+    logisticsCode: row.logistics_code,
     stageId: row.stage_id,
     stageName: row.stage_name,
     stageColor: row.stage_color,
@@ -133,6 +134,10 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
   if (filters.awaitingPayment) {
     conditions.push(`(${AWAITING_PAYMENT_WHERE})`)
   }
+  if (filters.readyToPost) {
+    conditions.push('o.logistics_code = ?')
+    params.push(LOGISTICS_READY_TO_POST)
+  }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const rows = db
@@ -149,10 +154,12 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
   const orders = rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? []))
   // Fase é derivada em JS (depende de rastreio + pagamento), então o filtro
   // por fase acontece aqui e não no SQL.
-  if (filters.phase && filters.phase !== 'TODOS') {
-    return orders.filter((o) => o.phase === filters.phase)
+  // A aba depende do pagamento, que é derivado em JS — por isso o corte é aqui.
+  if (filters.tab && filters.tab !== 'TODOS') {
+    return orders.filter((o) => o.tab === filters.tab)
   }
-  return orders
+  // Sem aba escolhida, cancelados não poluem a listagem: têm página própria.
+  return orders.filter((o) => o.tab !== 'CANCELADO')
 }
 
 /**
@@ -162,22 +169,14 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
  * e o objetivo das abas é justamente saber quantos existem em cada fase antes
  * de clicar.
  */
-export function countByPhase(): PhaseCounts {
-  const counts = Object.fromEntries(ORDER_PHASES.map((p) => [p, 0])) as PhaseCounts
-  const rows = getDb()
-    .prepare('SELECT shopee_status, logistics_phase, escrow_released_at FROM orders')
-    .all() as {
+export function countByTab(): TabCounts {
+  const counts = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as TabCounts
+  const rows = getDb().prepare('SELECT shopee_status, escrow_released_at FROM orders').all() as {
     shopee_status: string | null
-    logistics_phase: string | null
     escrow_released_at: number | null
   }[]
   for (const row of rows) {
-    const phase = derivePhase({
-      shopeeStatus: row.shopee_status,
-      logisticsPhase: row.logistics_phase,
-      escrowReleasedAt: row.escrow_released_at
-    })
-    counts[phase]++
+    counts[deriveTab({ shopeeStatus: row.shopee_status, escrowReleasedAt: row.escrow_released_at })]++
   }
   return counts
 }
@@ -267,32 +266,20 @@ export function setFolderPath(orderSn: string, folderPath: string): void {
   getDb().prepare('UPDATE orders SET folder_path = ? WHERE order_sn = ?').run(folderPath, orderSn)
 }
 
-/**
- * Grava o rastreio. A fase só avança: se um checkpoint atrasado chegar depois
- * de um mais adiantado, o pedido não volta de fase.
- */
+/** Guarda o último checkpoint do rastreio, que é detalhe do pedido. */
 export function setLogisticsStatus(
   orderSn: string,
   status: string,
-  deliveredAt: number | null,
-  phase: OrderPhase | null
+  deliveredAt: number | null
 ): void {
-  const current = getDb()
-    .prepare('SELECT logistics_phase FROM orders WHERE order_sn = ?')
-    .get(orderSn) as { logistics_phase: string | null } | undefined
-  const currentRank = ORDER_PHASES.indexOf((current?.logistics_phase ?? 'CONOSCO') as OrderPhase)
-  const nextRank = phase ? ORDER_PHASES.indexOf(phase) : -1
-  const finalPhase = nextRank > currentRank ? phase : (current?.logistics_phase ?? null)
-
   getDb()
     .prepare(
       `UPDATE orders
           SET logistics_status = ?,
-              logistics_phase = ?,
               delivered_at = COALESCE(?, delivered_at)
         WHERE order_sn = ?`
     )
-    .run(status, finalPhase, deliveredAt, orderSn)
+    .run(status, deliveredAt, orderSn)
 }
 
 export function setRating(
@@ -337,10 +324,16 @@ export function setEscrow(
  * exigir `delivered_at` deixaria de fora todo pedido cujo rastreio ninguém
  * pediu, que é a maioria.
  */
+/**
+ * Entregue/enviado e ainda sem pagamento liberado — os pedidos cuja aba só
+ * fica certa depois de consultar o extrato. São poucos (na conta real, 28),
+ * o que torna viável consultá-los todos.
+ */
 const AWAITING_PAYMENT_WHERE = `
   escrow_released_at IS NULL
-  AND (logistics_phase = 'ENTREGUE' OR shopee_status LIKE '%ntregue%' OR shopee_status LIKE '%oncluí%')
   AND COALESCE(shopee_status, '') NOT LIKE '%ancelad%'
+  AND COALESCE(shopee_status, '') NOT LIKE '%onclu%'
+  AND COALESCE(shopee_status, '') NOT LIKE '%A Enviar%'
 `
 
 export function countAwaitingPayment(): number {
@@ -388,6 +381,8 @@ export function getStatusHistory(orderSn: string): StatusHistoryEntry[] {
 
 export interface UpsertOrderInput {
   orderSn: string
+  /** 1 etiquetado · 9 aguardando · 2 enviado (order_ext_info.logistics_status). */
+  logisticsCode?: number | null
   shopeeOrderId?: string | null
   shopeeStatus?: string | null
   buyerUsername?: string | null
@@ -421,9 +416,9 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
       db.prepare(
         `INSERT INTO orders (
           order_sn, shopee_order_id, shopee_status, internal_status, buyer_username, buyer_name,
-          total_amount, currency, tracking_number, ship_by_date,
+          total_amount, currency, tracking_number, ship_by_date, logistics_code,
           created_at_shopee, updated_at_shopee, synced_at, raw_json
-        ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         input.orderSn,
         input.shopeeOrderId ?? null,
@@ -434,6 +429,7 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
         input.currency ?? null,
         input.trackingNumber ?? null,
         input.shipByDate ?? null,
+        input.logisticsCode ?? null,
         input.createdAtShopee ?? null,
         input.updatedAtShopee ?? null,
         now,
@@ -453,6 +449,7 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
           currency = COALESCE(?, currency),
           tracking_number = COALESCE(?, tracking_number),
           ship_by_date = COALESCE(?, ship_by_date),
+          logistics_code = COALESCE(?, logistics_code),
           created_at_shopee = COALESCE(?, created_at_shopee),
           updated_at_shopee = COALESCE(?, updated_at_shopee),
           synced_at = ?,
@@ -467,6 +464,7 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
         input.currency ?? null,
         input.trackingNumber ?? null,
         input.shipByDate ?? null,
+        input.logisticsCode ?? null,
         input.createdAtShopee ?? null,
         input.updatedAtShopee ?? null,
         now,

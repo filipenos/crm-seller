@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { Order, OrderPhase, PhaseCounts, WorkflowStage } from '@shared/types'
-import { ORDER_PHASES, ORDER_PHASE_LABELS, isWithUs } from '@shared/types'
+import type { Order, OrderTab, TabCounts, WorkflowStage } from '@shared/types'
+import {
+  LOGISTICS_READY_TO_POST,
+  MAIN_TABS,
+  ORDER_TAB_LABELS,
+  isWithUs
+} from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
 
 interface Props {
@@ -9,26 +14,27 @@ interface Props {
 
 export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const [orders, setOrders] = useState<Order[]>([])
-  const [phaseFilter, setPhaseFilter] = useState<OrderPhase | 'TODOS'>('TODOS')
+  const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>('TODOS')
+  const [readyToPost, setReadyToPost] = useState(false)
   const [stages, setStages] = useState<WorkflowStage[]>([])
   const [search, setSearch] = useState('')
   const [awaitingPayment, setAwaitingPayment] = useState(false)
   const [awaitingCount, setAwaitingCount] = useState(0)
-  const [counts, setCounts] = useState<PhaseCounts | null>(null)
+  const [counts, setCounts] = useState<TabCounts | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
-    void window.api.orders.list({ phase: phaseFilter, search, awaitingPayment }).then(setOrders)
+    void window.api.orders.list({ tab: tabFilter, search, awaitingPayment, readyToPost: readyToPost || undefined }).then(setOrders)
     void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
-    void window.api.orders.phaseCounts().then(setCounts)
+    void window.api.orders.tabCounts().then(setCounts)
     void window.api.stages.list().then(setStages)
-  }, [phaseFilter, search, awaitingPayment, dataVersion])
+  }, [tabFilter, search, awaitingPayment, readyToPost, dataVersion])
 
   const refresh = (): void => {
-    void window.api.orders.list({ phase: phaseFilter, search, awaitingPayment }).then(setOrders)
+    void window.api.orders.list({ tab: tabFilter, search, awaitingPayment, readyToPost: readyToPost || undefined }).then(setOrders)
     void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
-    void window.api.orders.phaseCounts().then(setCounts)
+    void window.api.orders.tabCounts().then(setCounts)
   }
 
   const showToast = (msg: string): void => {
@@ -57,10 +63,17 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     }
   }
 
-  // Os totais só aparecem sem filtro: com uma fase escolhida, o número dela
-  // seria o da própria lista e os outros só ruído.
-  const semFiltro = phaseFilter === 'TODOS' && !awaitingPayment
-  const total = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : orders.length
+  // Os totais só aparecem sem filtro: com uma aba escolhida, o número dela
+  // seria o da própria lista e os outros, ruído.
+  const semFiltro = tabFilter === 'TODOS' && !awaitingPayment && !readyToPost
+  // "Todos" não conta cancelados — eles têm página própria, como na Shopee.
+  const total = counts ? MAIN_TABS.reduce((soma, t) => soma + counts[t], 0) : orders.length
+  const prontosParaPostar = orders.filter((o) => o.logisticsCode === LOGISTICS_READY_TO_POST).length
+
+  const limpaFiltros = (): void => {
+    setAwaitingPayment(false)
+    setReadyToPost(false)
+  }
 
   return (
     <div className="page orders-page">
@@ -76,33 +89,48 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
 
       <div className="status-tabs">
         <button
-          className={phaseFilter === 'TODOS' && !awaitingPayment ? 'active' : ''}
+          className={semFiltro && tabFilter === 'TODOS' ? 'active' : ''}
           onClick={() => {
-            setPhaseFilter('TODOS')
-            setAwaitingPayment(false)
+            setTabFilter('TODOS')
+            limpaFiltros()
           }}
         >
           Todos{semFiltro ? ` (${total})` : ''}
         </button>
-        {ORDER_PHASES.map((p) => (
+        {MAIN_TABS.map((t) => (
           <button
-            key={p}
-            className={phaseFilter === p ? 'active' : ''}
+            key={t}
+            className={tabFilter === t && !readyToPost ? 'active' : ''}
             onClick={() => {
-              setPhaseFilter(p)
-              setAwaitingPayment(false)
+              setTabFilter(t)
+              limpaFiltros()
             }}
           >
-            {ORDER_PHASE_LABELS[p]}
-            {semFiltro ? ` (${counts?.[p] ?? 0})` : ''}
+            {ORDER_TAB_LABELS[t]}
+            {semFiltro ? ` (${counts?.[t] ?? 0})` : ''}
           </button>
         ))}
+        {/* Corte de produção: dentro de "A enviar", os que já têm etiqueta
+            gerada são os que podem ir para o ponto de coleta hoje. */}
+        <button
+          className={`ready-to-post ${readyToPost ? 'active' : ''}`}
+          title="Pedidos a enviar com etiqueta já gerada — prontos para levar ao ponto de coleta"
+          onClick={() => {
+            setReadyToPost(!readyToPost)
+            setTabFilter('A_ENVIAR')
+            setAwaitingPayment(false)
+          }}
+        >
+          🏷️ Prontos para postar
+          {tabFilter === 'A_ENVIAR' && !readyToPost ? ` (${prontosParaPostar})` : ''}
+        </button>
         <button
           className={`awaiting-payment ${awaitingPayment ? 'active' : ''}`}
           title="Pedidos entregues cujo pagamento ainda não foi liberado pela Shopee"
           onClick={() => {
             setAwaitingPayment(!awaitingPayment)
-            setPhaseFilter('TODOS')
+            setTabFilter('TODOS')
+            setReadyToPost(false)
           }}
         >
           💰 Aguardando pagamento{semFiltro && awaitingCount > 0 ? ` (${awaitingCount})` : ''}
@@ -122,7 +150,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
               <th>Comprador</th>
               <th>Itens</th>
               <th>Nome (person.)</th>
-              <th>Fase</th>
+              <th>Situação</th>
               <th>Etapa (produção)</th>
               <th>Ações</th>
             </tr>
@@ -139,7 +167,10 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                 </td>
                 <td>{o.childName ?? <span className="muted">—</span>}</td>
                 <td>
-                  <span className={`phase-badge ph-${o.phase}`}>{ORDER_PHASE_LABELS[o.phase]}</span>
+                  <span className={`phase-badge ph-${o.tab}`}>{o.shopeeStatus ?? ORDER_TAB_LABELS[o.tab]}</span>
+                  {o.logisticsCode === LOGISTICS_READY_TO_POST && (
+                    <div className="ready-tag">🏷️ etiqueta gerada</div>
+                  )}
                   {o.logisticsStatus && (
                     <div className="logistics-status" title={o.logisticsStatus}>
                       🚚 {o.logisticsStatus}
@@ -149,15 +180,15 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                     {o.ratingStar != null && (
                       <span title={`Avaliado: ${o.ratingStar}/5`}>⭐{o.ratingStar}</span>
                     )}
-                    <span className="muted" title="Status na Shopee">
-                      {o.shopeeStatus ?? ''}
-                    </span>
+                    {o.escrowReleasedAt && (
+                      <span title="Pagamento liberado pela Shopee">💰</span>
+                    )}
                   </div>
                 </td>
                 <td onClick={(e) => e.stopPropagation()}>
                   {/* Etapa de produção só faz sentido enquanto o pedido está
-                      conosco; depois de postado quem descreve é a fase. */}
-                  {isWithUs(o.phase) ? (
+                      conosco; depois de postado quem descreve é a Shopee. */}
+                  {isWithUs(o.tab) ? (
                     <select
                       className="status-select"
                       style={o.stageColor ? { borderLeft: `4px solid ${o.stageColor}` } : undefined}

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
 import OrdersPage from './pages/OrdersPage'
+import CancelledPage from './pages/CancelledPage'
 import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
 
-type Page = 'orders' | 'activity' | 'settings'
+type Page = 'orders' | 'cancelled' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('orders')
@@ -61,6 +62,12 @@ export default function App(): React.JSX.Element {
             Pedidos
           </button>
           <button
+            className={page === 'cancelled' ? 'active' : ''}
+            onClick={() => setPage('cancelled')}
+          >
+            Cancelados
+          </button>
+          <button
             className={page === 'activity' ? 'active' : ''}
             onClick={() => setPage('activity')}
           >
@@ -112,6 +119,7 @@ export default function App(): React.JSX.Element {
           </div>
         )}
         {page === 'orders' && <OrdersPage dataVersion={dataVersion} />}
+        {page === 'cancelled' && <CancelledPage dataVersion={dataVersion} />}
         {page === 'activity' && (
           <ActivityPage dataVersion={dataVersion} onSeen={() => void refreshUnseen()} />
         )}

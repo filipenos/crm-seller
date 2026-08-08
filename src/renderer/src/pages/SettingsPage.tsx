@@ -175,9 +175,21 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
             {syncingAll ? 'Sincronizando tudo… (pode demorar)' : '⤓ Sincronizar tudo'}
           </button>
           {dumpInfo && dumpInfo.count > 0 && (
-            <button onClick={() => window.api.shell.openPath(dumpInfo.path)}>
-              📂 Abrir pasta dos JSON ({dumpInfo.count})
-            </button>
+            <>
+              <button
+                disabled={syncingAll}
+                title="Relê os JSON salvos e reaplica o parsing — sem consultar a Shopee"
+                onClick={async () => {
+                  const r = await window.api.shopee.reprocess()
+                  setSyncAllResult(`${r.aplicados} pedidos reprocessados do disco (sem rede)`)
+                }}
+              >
+                ♻ Reprocessar salvos ({dumpInfo.count})
+              </button>
+              <button onClick={() => window.api.shell.openPath(dumpInfo.path)}>
+                📂 Abrir pasta dos JSON
+              </button>
+            </>
           )}
         </div>
         {syncAllResult && <small className="muted">{syncAllResult}</small>}

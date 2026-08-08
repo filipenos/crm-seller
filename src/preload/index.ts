@@ -6,7 +6,7 @@ import type {
   Order,
   OrderEvent,
   OrderFilters,
-  PhaseCounts,
+  TabCounts,
   ShopeeConnectionStatus,
   StageActionKind,
   StatusHistoryEntry,
@@ -33,6 +33,8 @@ const api = {
     syncAll: (): Promise<SyncResult> => ipcRenderer.invoke('shopee:syncAll'),
     orderTotal: (): Promise<number | null> => ipcRenderer.invoke('shopee:orderTotal'),
     dumpInfo: (): Promise<{ path: string; count: number }> => ipcRenderer.invoke('shopee:dumpInfo'),
+    reprocess: (): Promise<{ lidos: number; aplicados: number }> =>
+      ipcRenderer.invoke('shopee:reprocess'),
     onStatusChanged: (cb: (status: ShopeeConnectionStatus) => void): (() => void) => {
       const listener = (_e: unknown, status: ShopeeConnectionStatus): void => cb(status)
       ipcRenderer.on('shopee:status-changed', listener)
@@ -43,7 +45,7 @@ const api = {
     list: (filters: OrderFilters): Promise<Order[]> => ipcRenderer.invoke('orders:list', filters),
     awaitingPaymentCount: (): Promise<number> =>
       ipcRenderer.invoke('orders:awaitingPaymentCount'),
-    phaseCounts: (): Promise<PhaseCounts> => ipcRenderer.invoke('orders:phaseCounts'),
+    tabCounts: (): Promise<TabCounts> => ipcRenderer.invoke('orders:tabCounts'),
     get: (orderSn: string): Promise<Order | null> => ipcRenderer.invoke('orders:get', orderSn),
     setStatus: (orderSn: string, status: InternalStatus): Promise<Order | null> =>
       ipcRenderer.invoke('orders:setStatus', orderSn, status),

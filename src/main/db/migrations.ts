@@ -163,6 +163,12 @@ const migrations: string[] = [
   //     são histórico, e migração não se reescreve.
   `
   DELETE FROM stage_actions WHERE kind IN ('GERAR_ETIQUETA', 'ABRIR_MENSAGENS');
+  `,
+  // 6 — código numérico de progresso de envio. Já vinha no card e era
+  //     descartado; é ele que separa "etiqueta gerada" (1) de "aguardando" (9).
+  `
+  ALTER TABLE orders ADD COLUMN logistics_code INTEGER;
+  CREATE INDEX idx_orders_logistics_code ON orders(logistics_code);
   `
 ]
 

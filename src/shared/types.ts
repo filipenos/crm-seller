@@ -27,37 +27,38 @@ export const INTERNAL_STATUS_LABELS: Record<InternalStatus, string> = {
 }
 
 /**
- * Fase do pedido, na ordem em que acontece. O status interno de produção só
- * vale em CONOSCO — a partir de POSTADO quem manda é o rastreio da Shopee.
+ * Aba do pedido, espelhando o Seller Center — foi a agrupação validada contra
+ * a conta real (550 concluídos / 19 enviados / 26 a enviar / 85 cancelados).
+ *
+ * Cuidado: o status do card **não** determina a aba sozinho. `Entregue` e
+ * `Pedido Recebido` aparecem tanto em Enviado quanto em Concluído; quem
+ * desempata é a liberação do pagamento.
  */
-export const ORDER_PHASES = [
-  'CONOSCO',
-  'POSTADO',
-  'COLETADO',
-  'EM_TRANSITO',
-  'SAIU_PARA_ENTREGA',
-  'ENTREGUE',
-  'PAGO',
-  'CANCELADO'
-] as const
+export const ORDER_TABS = ['A_ENVIAR', 'ENVIADO', 'CONCLUIDO', 'CANCELADO'] as const
 
-export type OrderPhase = (typeof ORDER_PHASES)[number]
+export type OrderTab = (typeof ORDER_TABS)[number]
 
-export const ORDER_PHASE_LABELS: Record<OrderPhase, string> = {
-  CONOSCO: 'Conosco',
-  POSTADO: 'No ponto de coleta',
-  COLETADO: 'Coletado',
-  EM_TRANSITO: 'Em trânsito',
-  SAIU_PARA_ENTREGA: 'Saiu para entrega',
-  ENTREGUE: 'Entregue — aguardando pagamento',
-  PAGO: 'Pago',
+export const ORDER_TAB_LABELS: Record<OrderTab, string> = {
+  A_ENVIAR: 'A enviar',
+  ENVIADO: 'Enviado',
+  CONCLUIDO: 'Concluído',
   CANCELADO: 'Cancelado'
 }
 
-/** Fases em que o pedido ainda está com a gente e o status interno faz sentido. */
-export function isWithUs(phase: OrderPhase): boolean {
-  return phase === 'CONOSCO'
+/** Abas mostradas na listagem principal; cancelados ficam em página própria. */
+export const MAIN_TABS: OrderTab[] = ['A_ENVIAR', 'ENVIADO', 'CONCLUIDO']
+
+/** O pedido ainda está conosco: é só aqui que a etapa de produção vale. */
+export function isWithUs(tab: OrderTab): boolean {
+  return tab === 'A_ENVIAR'
 }
+
+/**
+ * Progresso de envio, do próprio card (`order_ext_info.logistics_status`).
+ * Confirmado comparando os pedidos etiquetados com os demais.
+ */
+export const LOGISTICS_READY_TO_POST = 1
+export const LOGISTICS_WAITING = 9
 
 /**
  * Ações que uma etapa pode oferecer. O conjunto é fechado porque cada uma
@@ -104,9 +105,11 @@ export interface Order {
   orderSn: string
   shopeeOrderId: string | null
   shopeeStatus: string | null
-  /** Derivada do rastreio + pagamento; é ela que a UI usa para agrupar. */
-  phase: OrderPhase
-  /** Etapa de produção cadastrada. Só faz sentido enquanto a fase é CONOSCO. */
+  /** Aba a que o pedido pertence, igual ao Seller Center. */
+  tab: OrderTab
+  /** Código de progresso de envio do card; separa etiquetado de aguardando. */
+  logisticsCode: number | null
+  /** Etapa de produção cadastrada. Só faz sentido enquanto está conosco. */
   stageId: number | null
   stageName: string | null
   stageColor: string | null
@@ -214,13 +217,15 @@ export interface SyncResult {
   error: string | null
 }
 
-export type PhaseCounts = Record<OrderPhase, number>
+export type TabCounts = Record<OrderTab, number>
 
 export interface OrderFilters {
   internalStatus?: InternalStatus | 'TODOS'
-  /** Fase logística; 'TODOS' não filtra. */
-  phase?: OrderPhase | 'TODOS'
-  /** Etapa de produção (só relevante em CONOSCO). */
+  /** Aba; 'TODOS' não filtra (e nunca inclui cancelados, que têm página própria). */
+  tab?: OrderTab | 'TODOS'
+  /** Só os prontos para postar (etiqueta gerada). */
+  readyToPost?: boolean
+  /** Etapa de produção (só relevante em A_ENVIAR). */
   stageId?: number
   search?: string
   /** Só pedidos entregues cujo pagamento ainda não foi liberado. */

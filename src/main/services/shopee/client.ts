@@ -33,6 +33,8 @@ export interface NormalizedShopeeOrder {
   trackingNumber: string | null
   shipByDate: number | null
   createdAtShopee: number | null
+  /** `order_ext_info.logistics_status`: 1 etiquetado · 9 aguardando · 2 enviado. */
+  logisticsCode: number | null
   updatedAtShopee: number | null
   rawJson: string
   items: {
@@ -373,7 +375,7 @@ function extractItems(groups: AnyObj[]): NormalizedShopeeOrder['items'] {
  * `package_level_order_card` (campos dentro de package_list[]). Esta função
  * normaliza as duas achatando para uma estrutura única.
  */
-function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
+export function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
   const inner = (card.order_card ?? card.package_level_order_card) as AnyObj | undefined
   if (!isObj(inner)) return null
   const header = (inner.card_header as AnyObj) ?? {}
@@ -420,6 +422,7 @@ function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
     currency: currencyNum !== null ? (CURRENCY_CODES[currencyNum] ?? String(currencyNum)) : null,
     trackingNumber,
     shipByDate: toMs(pickNumber(ext, ['ship_by_date'])),
+    logisticsCode: pickNumber(ext, ['logistics_status']),
     createdAtShopee: toMs(pickNumber(ext, ['create_time', 'pay_time'])) ?? dateFromOrderSn(orderSn),
     updatedAtShopee: null,
     rawJson: JSON.stringify(card),

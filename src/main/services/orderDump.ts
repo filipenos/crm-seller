@@ -35,6 +35,37 @@ export async function countDumps(): Promise<number> {
   }
 }
 
+/**
+ * Reaplica o parsing a todos os JSON salvos.
+ *
+ * É o que dá valor ao dump: quando o `normalizeCard` aprende a ler um campo
+ * novo — como o código de envio que separa "etiqueta gerada" —, a base inteira
+ * se atualiza sem uma requisição sequer.
+ */
+export async function reprocessDumps(
+  upsert: (card: Record<string, unknown>) => void
+): Promise<{ lidos: number; aplicados: number }> {
+  let lidos = 0
+  let aplicados = 0
+  let files: string[] = []
+  try {
+    files = (await readdir(dumpDir())).filter((f) => f.endsWith('.json'))
+  } catch {
+    return { lidos: 0, aplicados: 0 }
+  }
+  for (const file of files) {
+    try {
+      const card = JSON.parse(await readFile(join(dumpDir(), file), 'utf8'))
+      lidos++
+      upsert(card)
+      aplicados++
+    } catch (err) {
+      console.warn(`[dump] ${file} ilegível:`, err)
+    }
+  }
+  return { lidos, aplicados }
+}
+
 /** Lê um dump salvo (útil para reprocessar sem rede). */
 export async function readOrderDump(orderId: string): Promise<unknown | null> {
   try {

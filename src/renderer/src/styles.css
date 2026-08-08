@@ -895,3 +895,22 @@ code {
   line-height: 1;
   color: #64748b;
 }
+
+/* Abas espelhando o Seller Center: a cor separa o que exige ação do que já fechou. */
+.ph-A_ENVIAR { background: #fef3c7; color: #92400e; }
+.ph-ENVIADO { background: #dbeafe; color: #1e40af; }
+.ph-CONCLUIDO { background: #dcfce7; color: #166534; }
+.ph-CANCELADO { background: #fee2e2; color: #991b1b; }
+
+/* Etiqueta gerada: o pedido pode ir ao ponto de coleta hoje. */
+.ready-tag {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #7c3aed;
+}
+.status-tabs .ready-to-post.active {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}

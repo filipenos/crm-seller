@@ -107,23 +107,36 @@ das parcelas: somar tudo conta o valor duas vezes.
 Normalizações que valem para toda resposta da Shopee: `toMs` (timestamps vêm em
 segundos) e `toMoney` (valores são micro-unidades inteiras — 7810000 = 78,10).
 
-### Fases do pedido vs. etapas de produção
+### Abas do pedido vs. etapas de produção
 
-São dois eixos diferentes, e confundi-los é o erro fácil aqui:
+São dois eixos, e confundi-los é o erro fácil aqui:
 
-- **Fase** (`OrderPhase`, derivada, nunca editada à mão): conosco → postado →
-  coletado → em trânsito → saiu para entrega → entregue → pago. Sai dos
-  checkpoints do rastreio (`services/phases.ts`, casamento por padrão de texto,
-  porque a Shopee reescreve as frases) e **só avança** — checkpoint atrasado não
-  faz o pedido voltar. Cancelamento e pagamento passam por cima do rastreio.
-  Quando não há rastreio, a fase é aproximada pelo status do card, o que evita
-  puxar rastreio de centenas de pedidos só para descobrir o que já se sabe.
+- **Aba** (`OrderTab`, derivada): espelha o Seller Center — A enviar ·
+  Enviado · Concluído · Cancelado. **O status do card não decide sozinho**:
+  "Entregue" e "Pedido Recebido" aparecem em Enviado enquanto o dinheiro não
+  sai e em Concluído depois que sai, então quem desempata é
+  `escrow_released_at` (`services/tabs.ts`). Foi assim que os números fecharam
+  com a conta real: 26 / 19 / 550 / 85.
 - **Etapa** (`workflow_stages`, cadastrada pelo usuário): o fluxo de produção
-  interno, com ações configuráveis por etapa (`stage_actions`). **Só vale
-  enquanto a fase é CONOSCO** — depois de postado, a UI esconde a etapa.
+  interno, com ações configuráveis. **Só vale enquanto a aba é A_ENVIAR.**
 
-O `internal_status` original continua na tabela por causa do histórico; quem
-manda hoje é `stage_id`.
+Dentro de A enviar, `order_ext_info.logistics_status` separa o que já pode ir
+ao ponto de coleta: **1 = etiqueta gerada**, 9 = aguardando, 2 = enviado.
+
+Cancelados ficam em página própria, como na Shopee, e não entram na listagem
+nem na contagem de "Todos".
+
+### Sincronização e o dump local
+
+O botão Sincronizar busca `syncPageCount` páginas de 40 (padrão 2 — o que muda
+no dia a dia); **Configurações → Sincronizar tudo** percorre a base inteira.
+Cada card é gravado cru em `userData/pedidos-json/<order_id>.json`, e
+**Reprocessar salvos** reaplica o parsing aos 680 sem uma requisição. Sempre
+que aprender a ler um campo novo, reprocesse em vez de rebaixar tudo — foi
+assim que o código da etiqueta foi descoberto e aplicado.
+
+O índice (`search_order_list_index`) devolve só ids, mas traz
+`pagination.total` — dá para saber o tamanho da base numa requisição.
 
 ### Banco
 

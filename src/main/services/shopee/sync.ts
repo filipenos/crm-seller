@@ -17,7 +17,6 @@ import {
   upsertShopeeOrder
 } from '../orders'
 import { recordEvent } from '../events'
-import { phaseFromCheckpoints } from '../phases'
 import { getSettings } from '../settings'
 import { saveOrderDump } from '../orderDump'
 
@@ -27,11 +26,13 @@ const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
 /**
- * Quantos extratos financeiros buscar por sincronização. O endpoint é por
- * pedido: sem teto, cada sync viraria centenas de chamadas. O que sobra entra
- * na rodada seguinte.
+ * Quantos extratos financeiros buscar por sincronização.
+ *
+ * O endpoint é por pedido, mas só precisa rodar em quem está entre a postagem
+ * e o pagamento — na conta real, 26 pedidos. O teto cobre esse conjunto de uma
+ * vez sem virar centenas de chamadas; o que sobrar entra na rodada seguinte.
  */
-const INCOME_PER_SYNC = 15
+const INCOME_PER_SYNC = 30
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -201,8 +202,7 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
     }
     const latest = checkpoints.reduce((a, b) => (a.happenedAt > b.happenedAt ? a : b))
     const delivered = checkpoints.find((c) => DELIVERED_PATTERN.test(c.description))
-    const phase = phaseFromCheckpoints(checkpoints.map((c) => c.description))
-    setLogisticsStatus(orderSn, latest.description, delivered?.happenedAt ?? null, phase)
+    setLogisticsStatus(orderSn, latest.description, delivered?.happenedAt ?? null)
 
     let newEvents = 0
     for (const c of checkpoints) {

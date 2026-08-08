@@ -9,14 +9,15 @@ import type {
 import { getSettings, updateSettings } from './services/settings'
 import {
   countAwaitingPayment,
-  countByPhase,
+  countByTab,
   getOrder,
   getStatusHistory,
   listOrders,
   setChildName,
   setInternalStatus,
   setNote,
-  setOrderStage
+  setOrderStage,
+  upsertShopeeOrder
 } from './services/orders'
 import {
   addAction,
@@ -37,8 +38,8 @@ import {
   syncAll
 } from './services/shopee/sync'
 import { probeShopeeApis } from './services/shopee/probe'
-import { fetchOrderTotal } from './services/shopee/client'
-import { countDumps, dumpPath } from './services/orderDump'
+import { fetchOrderTotal, normalizeCard } from './services/shopee/client'
+import { countDumps, dumpPath, reprocessDumps } from './services/orderDump'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   countUnseenEvents,
@@ -68,6 +69,14 @@ export function registerIpcHandlers(): void {
   // Carga completa: percorre todas as páginas e grava o JSON cru de cada pedido.
   ipcMain.handle('shopee:syncAll', () => syncAll({ todasAsPaginas: true }))
   ipcMain.handle('shopee:orderTotal', () => fetchOrderTotal())
+  // Reaplica o parsing aos JSON já salvos — sem rede.
+  ipcMain.handle('shopee:reprocess', async () => {
+    const r = await reprocessDumps((card) => {
+      const order = normalizeCard(card)
+      if (order) upsertShopeeOrder(order)
+    })
+    return r
+  })
   ipcMain.handle('shopee:dumpInfo', async () => ({ path: dumpPath(), count: await countDumps() }))
   // Diagnóstico: descobre os endpoints reais do Seller Center (leva alguns minutos).
   ipcMain.handle('shopee:probe', async (): Promise<ActionResult> => {
@@ -81,7 +90,7 @@ export function registerIpcHandlers(): void {
   // Pedidos
   ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrders(filters))
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPayment())
-  ipcMain.handle('orders:phaseCounts', () => countByPhase())
+  ipcMain.handle('orders:tabCounts', () => countByTab())
   ipcMain.handle('orders:refreshTracking', (_e, orderSn: string) => refreshTracking(orderSn))
   ipcMain.handle('orders:get', (_e, orderSn: string) => getOrder(orderSn))
   ipcMain.handle('orders:setStatus', (_e, orderSn: string, status: InternalStatus) =>
