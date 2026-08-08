@@ -237,53 +237,6 @@ export async function pageFetchJson(
   return result.json
 }
 
-/** Busca um recurso binário (ex.: PDF de etiqueta) e retorna como Buffer. */
-export async function pageFetchBinary(
-  path: string,
-  init?: { method?: string; body?: unknown }
-): Promise<Buffer> {
-  const win = await ensureHiddenWindow()
-  const script = `
-    (async () => {
-      try {
-        const res = await fetch(${JSON.stringify(path)}, {
-          method: ${JSON.stringify(init?.method ?? 'GET')},
-          credentials: 'include',
-          ${init?.body !== undefined ? `headers: { 'Content-Type': 'application/json' }, body: ${JSON.stringify(JSON.stringify(init.body))},` : ''}
-        })
-        if (!res.ok) {
-          const text = await res.text()
-          return { ok: false, status: res.status, base64: null, contentType: res.headers.get('content-type'), text: text.slice(0, 300) }
-        }
-        const buf = await res.arrayBuffer()
-        let binary = ''
-        const bytes = new Uint8Array(buf)
-        for (let i = 0; i < bytes.length; i += 0x8000) {
-          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
-        }
-        return { ok: true, status: res.status, base64: btoa(binary), contentType: res.headers.get('content-type'), text: null }
-      } catch (err) {
-        return { ok: false, status: 0, base64: null, contentType: null, text: String(err) }
-      }
-    })()
-  `
-  const result = (await win.webContents.executeJavaScript(script, true)) as {
-    ok: boolean
-    status: number
-    base64: string | null
-    contentType: string | null
-    text: string | null
-  }
-  if (!result.ok || !result.base64) {
-    throw new ShopeeApiError({
-      path,
-      httpStatus: result.status,
-      message: `download falhou [${result.contentType ?? 'sem content-type'}]: ${summarizeBody(result.text)}`
-    })
-  }
-  return Buffer.from(result.base64, 'base64')
-}
-
 /** Busca o texto cru de um endpoint (para diagnóstico). */
 export async function pageFetchText(path: string): Promise<{ status: number; text: string }> {
   const win = await ensureHiddenWindow()

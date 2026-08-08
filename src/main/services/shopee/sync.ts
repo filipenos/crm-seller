@@ -1,8 +1,6 @@
 import { BrowserWindow } from 'electron'
 import type { ShopeeConnectionStatus, SyncResult, TrackingRefreshResult } from '@shared/types'
 import {
-  fetchConversations,
-  fetchMessages,
   fetchOrderIncome,
   fetchOrders,
   fetchRatings,
@@ -18,7 +16,6 @@ import {
   setRating,
   upsertShopeeOrder
 } from '../orders'
-import { upsertConversation, upsertMessage } from '../messages'
 import { recordEvent } from '../events'
 import { phaseFromCheckpoints } from '../phases'
 import { getSettings } from '../settings'
@@ -64,8 +61,7 @@ export async function syncAll(): Promise<SyncResult> {
       ok: false,
       ordersUpserted: 0,
       newOrders: 0,
-      messagesUpserted: 0,
-      eventsCreated: 0,
+        eventsCreated: 0,
       error: 'Sincronização já em andamento'
     }
   }
@@ -76,7 +72,6 @@ export async function syncAll(): Promise<SyncResult> {
     ok: true,
     ordersUpserted: 0,
     newOrders: 0,
-    messagesUpserted: 0,
     eventsCreated: 0,
     error: null
   }
@@ -156,28 +151,10 @@ export async function syncAll(): Promise<SyncResult> {
       errors.push(`financeiro: ${String(err instanceof Error ? err.message : err)}`)
     }
 
-    // Conversas e mensagens
-    try {
-      const conversations = await fetchConversations()
-      for (const conv of conversations) {
-        upsertConversation(conv)
-        try {
-          const messages = await fetchMessages(conv.conversationId)
-          for (const m of messages) {
-            if (upsertMessage(m)) result.messagesUpserted++
-          }
-        } catch (err) {
-          errors.push(`conversa ${conv.conversationId}: ${String(err instanceof Error ? err.message : err)}`)
-        }
-      }
-    } catch (err) {
-      errors.push(String(err instanceof Error ? err.message : err))
-    }
-
     state.lastSyncAt = Date.now()
     if (errors.length > 0) {
       result.ok =
-        result.ordersUpserted > 0 || result.messagesUpserted > 0 || result.eventsCreated > 0
+        result.ordersUpserted > 0 || result.eventsCreated > 0
       result.error = errors.join(' | ')
     }
     state.lastSyncError = result.error
@@ -187,7 +164,7 @@ export async function syncAll(): Promise<SyncResult> {
     state.lastSyncError = result.error
   } finally {
     console.log(
-      `[sync] pedidos=${result.ordersUpserted} (novos=${result.newOrders}) mensagens=${result.messagesUpserted} eventos=${result.eventsCreated}`
+      `[sync] pedidos=${result.ordersUpserted} (novos=${result.newOrders}) eventos=${result.eventsCreated}`
     )
     if (result.error) console.error('[sync] erros:', result.error)
     state.syncing = false

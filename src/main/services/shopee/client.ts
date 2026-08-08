@@ -1,5 +1,5 @@
 import { session as electronSession } from 'electron'
-import { pageFetchJson, pageFetchBinary, ShopeeApiError, SHOPEE_PARTITION } from './session'
+import { pageFetchJson, ShopeeApiError, SHOPEE_PARTITION } from './session'
 
 /** Moeda numérica da Shopee → código ISO. 9 = BRL. */
 const CURRENCY_CODES: Record<number, string> = { 9: 'BRL', 7: 'USD' }
@@ -42,28 +42,6 @@ export interface NormalizedShopeeOrder {
     imageUrl: string | null
     itemSku: string | null
   }[]
-}
-
-export interface NormalizedConversation {
-  conversationId: string
-  buyerUsername: string
-  buyerAvatar: string | null
-  lastMessageAt: number | null
-  lastMessagePreview: string | null
-  unreadCount: number
-  rawJson: string
-}
-
-export interface NormalizedMessage {
-  messageId: string
-  conversationId: string
-  orderSn: string | null
-  direction: 'in' | 'out'
-  contentType: string
-  content: string
-  imageUrl: string | null
-  createdAt: number
-  rawJson: string
 }
 
 async function getSpcCds(): Promise<string> {
@@ -421,106 +399,6 @@ export async function fetchOrders(maxPages = 5): Promise<NormalizedShopeeOrder[]
   return cards.map(normalizeCard).filter((o): o is NormalizedShopeeOrder => o !== null)
 }
 
-// ---------- chat ----------
-
-export async function fetchConversations(limit = 60): Promise<NormalizedConversation[]> {
-  return tryCandidates<NormalizedConversation>(
-    'conversas',
-    [
-      { url: `/webchat/api/v1.2/conversations?offset=0&limit=${limit}` },
-      { url: `/webchat/api/v1/conversations?offset=0&limit=${limit}` },
-      { url: `/webchat/api/coreapi/conversations?offset=0&limit=${limit}` }
-    ],
-    (json) => {
-      const arr = findArrayWhere(
-        json,
-        (el) => 'conversation_id' in el || 'to_id' in el || 'to_name' in el
-      )
-      if (!arr) {
-        return hasEmptyListNamed(json, ['conversations', 'conversation_list', 'list', 'data'])
-          ? []
-          : null
-      }
-      const result: NormalizedConversation[] = []
-      for (const c of arr) {
-        const conversationId = pickString(c, ['conversation_id', 'id'])
-        const buyerUsername = pickString(c, ['to_name', 'username', 'to_username', 'user_name'])
-        if (!conversationId || !buyerUsername) continue
-        result.push({
-          conversationId,
-          buyerUsername,
-          buyerAvatar: pickString(c, ['to_avatar', 'avatar', 'portrait']),
-          lastMessageAt: toMs(
-            pickNumber(c, ['last_message_time', 'last_message.timestamp', 'latest_message_time'])
-          ),
-          lastMessagePreview: pickString(c, [
-            'last_message_content',
-            'last_message.content.text',
-            'latest_message_content'
-          ]),
-          unreadCount: pickNumber(c, ['unread_count']) ?? 0,
-          rawJson: JSON.stringify(c)
-        })
-      }
-      // Array casado mas nada aproveitável = casamos o array errado.
-      return result.length > 0 ? result : null
-    }
-  )
-}
-
-export async function fetchMessages(
-  conversationId: string,
-  limit = 60
-): Promise<NormalizedMessage[]> {
-  return tryCandidates<NormalizedMessage>(
-    'mensagens',
-    [
-      { url: `/webchat/api/v1.2/conversations/${conversationId}/messages?limit=${limit}` },
-      { url: `/webchat/api/v1/conversations/${conversationId}/messages?limit=${limit}` },
-      { url: `/webchat/api/coreapi/conversations/${conversationId}/messages?limit=${limit}` }
-    ],
-    (json) => {
-      const arr = findArrayWithKeys(json, ['message_id', 'msg_id'])
-      if (!arr) {
-        // Conversa sem mensagens é resposta válida — não é motivo para tentar outro endpoint.
-        return hasEmptyListNamed(json, ['messages', 'message_list', 'msg_list', 'list', 'data'])
-          ? []
-          : null
-      }
-      const result: NormalizedMessage[] = []
-      for (const m of arr) {
-        const messageId = pickString(m, ['message_id', 'msg_id', 'id'])
-        if (!messageId) continue
-        const fromShop =
-          pickNumber(m, ['from_shop', 'is_self', 'from_self']) === 1 ||
-          deepGet(m, 'from_shop') === true ||
-          deepGet(m, 'is_self') === true
-        const contentType = pickString(m, ['type', 'message_type', 'content_type']) ?? 'text'
-        result.push({
-          messageId,
-          conversationId,
-          orderSn: pickString(m, ['order_sn', 'content.order_sn', 'ordersn']),
-          direction: fromShop ? 'out' : 'in',
-          contentType,
-          content:
-            pickString(m, ['content.text', 'text', 'content', 'message']) ??
-            (contentType !== 'text' ? `[${contentType}]` : ''),
-          imageUrl: pickString(m, [
-            'content.image_url',
-            'content.url',
-            'image_url',
-            'content.thumb_url'
-          ]),
-          createdAt:
-            toMs(pickNumber(m, ['timestamp', 'create_time', 'created_at', 'time'])) ?? Date.now(),
-          rawJson: JSON.stringify(m)
-        })
-      }
-      return result.length > 0 ? result : null
-    }
-  )
-}
-
 // ---------- rastreio logístico ----------
 
 export interface TrackingCheckpoint {
@@ -716,32 +594,3 @@ export async function fetchOrderIncome(
   }
 }
 
-// ---------- etiqueta / documento de envio ----------
-
-export async function downloadShippingDocument(orderSn: string, orderId: string | null): Promise<Buffer> {
-  const cds = await getSpcCds()
-  const attempts: { url: string; init?: { method?: string; body?: unknown } }[] = [
-    {
-      url: `/api/v3/logistics/download_shipping_document?SPC_CDS=${cds}&SPC_CDS_VER=2`,
-      init: {
-        method: 'POST',
-        body: { order_list: [{ order_sn: orderSn, ...(orderId ? { order_id: Number(orderId) } : {}) }] }
-      }
-    },
-    {
-      url: `/api/v3/logistics/get_shipping_document?SPC_CDS=${cds}&SPC_CDS_VER=2&order_sn=${orderSn}`
-    }
-  ]
-  const errors: string[] = []
-  for (const attempt of attempts) {
-    try {
-      const buf = await pageFetchBinary(attempt.url, attempt.init)
-      // Valida que parece um PDF (evita salvar página de erro em HTML).
-      if (buf.subarray(0, 4).toString('latin1') === '%PDF') return buf
-      errors.push(`${attempt.url.split('?')[0]}: resposta não é PDF`)
-    } catch (err) {
-      errors.push(String(err))
-    }
-  }
-  throw new Error(`Não foi possível baixar a etiqueta da Shopee. ${errors.join(' | ')}`)
-}

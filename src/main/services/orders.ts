@@ -5,6 +5,7 @@ import type {
   OrderFilters,
   OrderItem,
   OrderPhase,
+  PhaseCounts,
   StatusHistoryEntry
 } from '@shared/types'
 import { INTERNAL_STATUSES, ORDER_PHASES } from '@shared/types'
@@ -24,7 +25,6 @@ interface OrderRow {
   tracking_number: string | null
   ship_by_date: number | null
   folder_path: string | null
-  label_path: string | null
   created_at_shopee: number | null
   updated_at_shopee: number | null
   synced_at: number | null
@@ -41,7 +41,7 @@ interface OrderRow {
   escrow_released_at: number | null
 }
 
-function rowToOrder(row: OrderRow, items: OrderItem[], unreadMessages: number): Order {
+function rowToOrder(row: OrderRow, items: OrderItem[]): Order {
   return {
     orderSn: row.order_sn,
     shopeeOrderId: row.shopee_order_id,
@@ -64,7 +64,6 @@ function rowToOrder(row: OrderRow, items: OrderItem[], unreadMessages: number): 
     trackingNumber: row.tracking_number,
     shipByDate: row.ship_by_date,
     folderPath: row.folder_path,
-    labelPath: row.label_path,
     createdAtShopee: row.created_at_shopee,
     updatedAtShopee: row.updated_at_shopee,
     syncedAt: row.synced_at,
@@ -75,8 +74,7 @@ function rowToOrder(row: OrderRow, items: OrderItem[], unreadMessages: number): 
     ratedAt: row.rated_at,
     escrowAmount: row.escrow_amount,
     escrowReleasedAt: row.escrow_released_at,
-    items,
-    unreadMessages
+    items
   }
 }
 
@@ -148,13 +146,40 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
     .all(...params) as OrderRow[]
 
   const items = loadItems(rows.map((r) => r.order_sn))
-  const orders = rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], 0))
+  const orders = rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? []))
   // Fase é derivada em JS (depende de rastreio + pagamento), então o filtro
   // por fase acontece aqui e não no SQL.
   if (filters.phase && filters.phase !== 'TODOS') {
     return orders.filter((o) => o.phase === filters.phase)
   }
   return orders
+}
+
+/**
+ * Total de pedidos por fase, sempre sobre a base inteira.
+ *
+ * Contar em cima da lista já filtrada daria o número da tela, não o total —
+ * e o objetivo das abas é justamente saber quantos existem em cada fase antes
+ * de clicar.
+ */
+export function countByPhase(): PhaseCounts {
+  const counts = Object.fromEntries(ORDER_PHASES.map((p) => [p, 0])) as PhaseCounts
+  const rows = getDb()
+    .prepare('SELECT shopee_status, logistics_phase, escrow_released_at FROM orders')
+    .all() as {
+    shopee_status: string | null
+    logistics_phase: string | null
+    escrow_released_at: number | null
+  }[]
+  for (const row of rows) {
+    const phase = derivePhase({
+      shopeeStatus: row.shopee_status,
+      logisticsPhase: row.logistics_phase,
+      escrowReleasedAt: row.escrow_released_at
+    })
+    counts[phase]++
+  }
+  return counts
 }
 
 export function getOrder(orderSn: string): Order | null {
@@ -168,7 +193,7 @@ export function getOrder(orderSn: string): Order | null {
     .get(orderSn) as OrderRow | undefined
   if (!row) return null
   const items = loadItems([orderSn])
-  return rowToOrder(row, items.get(orderSn) ?? [], 0)
+  return rowToOrder(row, items.get(orderSn) ?? [])
 }
 
 /**
@@ -240,10 +265,6 @@ export function setNote(orderSn: string, note: string): Order | null {
 
 export function setFolderPath(orderSn: string, folderPath: string): void {
   getDb().prepare('UPDATE orders SET folder_path = ? WHERE order_sn = ?').run(folderPath, orderSn)
-}
-
-export function setLabelPath(orderSn: string, labelPath: string): void {
-  getDb().prepare('UPDATE orders SET label_path = ? WHERE order_sn = ?').run(labelPath, orderSn)
 }
 
 /**
@@ -343,7 +364,7 @@ export function listAwaitingPayment(limit: number): Order[] {
     )
     .all(limit) as OrderRow[]
   const items = loadItems(rows.map((r) => r.order_sn))
-  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], 0))
+  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? []))
 }
 
 export function getStatusHistory(orderSn: string): StatusHistoryEntry[] {

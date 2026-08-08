@@ -5,7 +5,6 @@ import { shell } from 'electron'
 import type { ActionResult, Order } from '@shared/types'
 import { getSettings } from './settings'
 import { getOrder, setFolderPath } from './orders'
-import { listMessagesForOrder } from './messages'
 
 /** Remove caracteres inválidos para nome de pasta/arquivo no Windows. */
 function sanitize(name: string): string {
@@ -50,14 +49,6 @@ function buildInfoFile(order: Order): string {
   }
   if (order.note) {
     lines.push('', `Observações: ${order.note}`)
-  }
-  const messages = listMessagesForOrder(order.orderSn).filter((m) => m.direction === 'in')
-  if (messages.length > 0) {
-    lines.push('', 'Mensagens do cliente:')
-    for (const m of messages) {
-      const when = new Date(m.createdAt).toLocaleString('pt-BR')
-      lines.push(`  [${when}] ${m.content}`)
-    }
   }
   return lines.join('\n')
 }

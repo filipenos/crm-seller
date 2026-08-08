@@ -156,6 +156,13 @@ const migrations: string[] = [
     WHEN 'IMPRESSO'             THEN 5
     ELSE 6
   END;
+  `,
+  // 5 — chat e etiqueta saíram do app: o webchat exige login próprio e os
+  //     endpoints de etiqueta respondem 404. As ações que dependiam deles
+  //     viravam botões que só sabiam falhar. As tabelas de conversa ficam:
+  //     são histórico, e migração não se reescreve.
+  `
+  DELETE FROM stage_actions WHERE kind IN ('GERAR_ETIQUETA', 'ABRIR_MENSAGENS');
   `
 ]
 

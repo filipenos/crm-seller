@@ -2,12 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActionResult,
   AppSettings,
-  ChatMessage,
-  Conversation,
   InternalStatus,
   Order,
   OrderEvent,
   OrderFilters,
+  PhaseCounts,
   ShopeeConnectionStatus,
   StageActionKind,
   StatusHistoryEntry,
@@ -41,6 +40,7 @@ const api = {
     list: (filters: OrderFilters): Promise<Order[]> => ipcRenderer.invoke('orders:list', filters),
     awaitingPaymentCount: (): Promise<number> =>
       ipcRenderer.invoke('orders:awaitingPaymentCount'),
+    phaseCounts: (): Promise<PhaseCounts> => ipcRenderer.invoke('orders:phaseCounts'),
     get: (orderSn: string): Promise<Order | null> => ipcRenderer.invoke('orders:get', orderSn),
     setStatus: (orderSn: string, status: InternalStatus): Promise<Order | null> =>
       ipcRenderer.invoke('orders:setStatus', orderSn, status),
@@ -56,8 +56,6 @@ const api = {
       ipcRenderer.invoke('orders:createFolder', orderSn),
     openFolder: (orderSn: string): Promise<ActionResult> =>
       ipcRenderer.invoke('orders:openFolder', orderSn),
-    generateLabel: (orderSn: string): Promise<ActionResult> =>
-      ipcRenderer.invoke('orders:generateLabel', orderSn),
     refreshTracking: (orderSn: string): Promise<TrackingRefreshResult> =>
       ipcRenderer.invoke('orders:refreshTracking', orderSn)
   },
@@ -89,13 +87,6 @@ const api = {
       ipcRenderer.on('data:changed', listener)
       return () => ipcRenderer.removeListener('data:changed', listener)
     }
-  },
-  messages: {
-    conversations: (): Promise<Conversation[]> => ipcRenderer.invoke('conversations:list'),
-    byConversation: (conversationId: string): Promise<ChatMessage[]> =>
-      ipcRenderer.invoke('messages:byConversation', conversationId),
-    byOrder: (orderSn: string): Promise<ChatMessage[]> =>
-      ipcRenderer.invoke('messages:byOrder', orderSn)
   },
   shell: {
     openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),

@@ -9,6 +9,7 @@ import type {
 import { getSettings, updateSettings } from './services/settings'
 import {
   countAwaitingPayment,
+  countByPhase,
   getOrder,
   getStatusHistory,
   listOrders,
@@ -27,13 +28,7 @@ import {
   reorderStages,
   updateStage
 } from './services/stages'
-import {
-  listConversations,
-  listMessagesByConversation,
-  listMessagesForOrder
-} from './services/messages'
 import { createOrderFolder, ensureFolderName, openOrderFolder } from './services/folders'
-import { generateLabel } from './services/labels'
 import { disconnect, openLoginWindow } from './services/shopee/session'
 import {
   getConnectionStatus,
@@ -80,6 +75,7 @@ export function registerIpcHandlers(): void {
   // Pedidos
   ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrders(filters))
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPayment())
+  ipcMain.handle('orders:phaseCounts', () => countByPhase())
   ipcMain.handle('orders:refreshTracking', (_e, orderSn: string) => refreshTracking(orderSn))
   ipcMain.handle('orders:get', (_e, orderSn: string) => getOrder(orderSn))
   ipcMain.handle('orders:setStatus', (_e, orderSn: string, status: InternalStatus) =>
@@ -113,7 +109,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('orders:statusHistory', (_e, orderSn: string) => getStatusHistory(orderSn))
   ipcMain.handle('orders:createFolder', (_e, orderSn: string) => createOrderFolder(orderSn))
   ipcMain.handle('orders:openFolder', (_e, orderSn: string) => openOrderFolder(orderSn))
-  ipcMain.handle('orders:generateLabel', (_e, orderSn: string) => generateLabel(orderSn))
   ipcMain.handle('shell:openPath', (_e, path: string) => shell.openPath(path))
 
   // App / atualizações
@@ -134,10 +129,4 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('events:unseenCount', () => countUnseenEvents())
   ipcMain.handle('events:markAllSeen', () => markAllEventsSeen())
 
-  // Mensagens
-  ipcMain.handle('conversations:list', () => listConversations())
-  ipcMain.handle('messages:byConversation', (_e, conversationId: string) =>
-    listMessagesByConversation(conversationId)
-  )
-  ipcMain.handle('messages:byOrder', (_e, orderSn: string) => listMessagesForOrder(orderSn))
 }

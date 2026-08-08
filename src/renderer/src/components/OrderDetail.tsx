@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import type {
-  ChatMessage,
   Order,
   OrderEvent,
   StageAction,
@@ -24,7 +23,6 @@ interface Props {
 
 export default function OrderDetail({ orderSn, onClose, onToast }: Props): React.JSX.Element {
   const [order, setOrder] = useState<Order | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [history, setHistory] = useState<StatusHistoryEntry[]>([])
   const [events, setEvents] = useState<OrderEvent[]>([])
   const [childName, setChildName] = useState('')
@@ -36,7 +34,6 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
     setOrder(o)
     setChildName(o?.childName ?? '')
     setNote(o?.note ?? '')
-    setMessages(await window.api.messages.byOrder(orderSn))
     setHistory(await window.api.orders.statusHistory(orderSn))
     setEvents(await window.api.events.byOrder(orderSn))
     setStages(await window.api.stages.list())
@@ -76,17 +73,6 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
       case 'ABRIR_PASTA': {
         const r = await window.api.orders.openFolder(orderSn)
         if (!r.ok) onToast(`Erro: ${r.error}`)
-        break
-      }
-      case 'GERAR_ETIQUETA': {
-        onToast('Gerando etiqueta…')
-        const r = await window.api.orders.generateLabel(orderSn)
-        onToast(r.ok ? `Etiqueta salva em ${r.path}` : `Erro: ${r.error}`)
-        break
-      }
-      case 'ABRIR_MENSAGENS': {
-        const el = document.getElementById('secao-mensagens')
-        el?.scrollIntoView({ behavior: 'smooth' })
         break
       }
       case 'AVANCAR': {
@@ -289,48 +275,12 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
             >
               📂 Abrir pasta
             </button>
-            <button
-              onClick={async () => {
-                onToast('Gerando etiqueta…')
-                const r = await window.api.orders.generateLabel(orderSn)
-                onToast(r.ok ? `Etiqueta salva: ${r.path}` : `Erro: ${r.error}`)
-                void load()
-              }}
-            >
-              🏷️ Gerar etiqueta
-            </button>
           </div>
           {order.folderPath && (
             <div className="muted small mono">Pasta: {order.folderPath}</div>
           )}
         </section>
 
-        <section id="secao-mensagens">
-          <h3>Mensagens do cliente</h3>
-          <div className="chat">
-            {messages.length === 0 && (
-              <div className="muted">Nenhuma mensagem sincronizada deste comprador.</div>
-            )}
-            {messages.map((m) => (
-              <div key={m.messageId} className={`chat-msg ${m.direction}`}>
-                <div className="chat-content">
-                  {m.content}
-                  {m.imageUrl && (
-                    <img src={m.imageUrl} alt="" className="chat-img" />
-                  )}
-                </div>
-                <div className="chat-meta">
-                  {new Date(m.createdAt).toLocaleString('pt-BR')}
-                  {m.direction === 'in' && m.content && (
-                    <button className="link-btn" onClick={() => useAsName(m.content)}>
-                      usar como nome
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
 
         <section>
           <h3>Histórico de status</h3>

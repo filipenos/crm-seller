@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Order, OrderPhase, WorkflowStage } from '@shared/types'
+import type { Order, OrderPhase, PhaseCounts, WorkflowStage } from '@shared/types'
 import { ORDER_PHASES, ORDER_PHASE_LABELS, isWithUs } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
 
@@ -14,18 +14,21 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [awaitingPayment, setAwaitingPayment] = useState(false)
   const [awaitingCount, setAwaitingCount] = useState(0)
+  const [counts, setCounts] = useState<PhaseCounts | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.orders.list({ phase: phaseFilter, search, awaitingPayment }).then(setOrders)
     void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
+    void window.api.orders.phaseCounts().then(setCounts)
     void window.api.stages.list().then(setStages)
   }, [phaseFilter, search, awaitingPayment, dataVersion])
 
   const refresh = (): void => {
     void window.api.orders.list({ phase: phaseFilter, search, awaitingPayment }).then(setOrders)
     void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
+    void window.api.orders.phaseCounts().then(setCounts)
   }
 
   const showToast = (msg: string): void => {
@@ -44,16 +47,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     else refresh()
   }
 
-  const handleLabel = async (orderSn: string): Promise<void> => {
-    showToast('Gerando etiqueta…')
-    const result = await window.api.orders.generateLabel(orderSn)
-    if (!result.ok) showToast(`Erro na etiqueta: ${result.error}`)
-    else {
-      showToast(`Etiqueta salva em ${result.path}`)
-      refresh()
-    }
-  }
-
   const handleRefreshTracking = async (orderSn: string): Promise<void> => {
     showToast('Atualizando rastreio…')
     const r = await window.api.orders.refreshTracking(orderSn)
@@ -64,8 +57,10 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     }
   }
 
-  const counts = new Map<string, number>()
-  for (const o of orders) counts.set(o.phase, (counts.get(o.phase) ?? 0) + 1)
+  // Os totais só aparecem sem filtro: com uma fase escolhida, o número dela
+  // seria o da própria lista e os outros só ruído.
+  const semFiltro = phaseFilter === 'TODOS' && !awaitingPayment
+  const total = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : orders.length
 
   return (
     <div className="page orders-page">
@@ -81,27 +76,36 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
 
       <div className="status-tabs">
         <button
-          className={phaseFilter === 'TODOS' ? 'active' : ''}
-          onClick={() => setPhaseFilter('TODOS')}
+          className={phaseFilter === 'TODOS' && !awaitingPayment ? 'active' : ''}
+          onClick={() => {
+            setPhaseFilter('TODOS')
+            setAwaitingPayment(false)
+          }}
         >
-          Todos
+          Todos{semFiltro ? ` (${total})` : ''}
         </button>
         {ORDER_PHASES.map((p) => (
           <button
             key={p}
             className={phaseFilter === p ? 'active' : ''}
-            onClick={() => setPhaseFilter(p)}
+            onClick={() => {
+              setPhaseFilter(p)
+              setAwaitingPayment(false)
+            }}
           >
             {ORDER_PHASE_LABELS[p]}
-            {phaseFilter === 'TODOS' && counts.get(p) ? ` (${counts.get(p)})` : ''}
+            {semFiltro ? ` (${counts?.[p] ?? 0})` : ''}
           </button>
         ))}
         <button
           className={`awaiting-payment ${awaitingPayment ? 'active' : ''}`}
           title="Pedidos entregues cujo pagamento ainda não foi liberado pela Shopee"
-          onClick={() => setAwaitingPayment(!awaitingPayment)}
+          onClick={() => {
+            setAwaitingPayment(!awaitingPayment)
+            setPhaseFilter('TODOS')
+          }}
         >
-          💰 Aguardando pagamento{awaitingCount > 0 ? ` (${awaitingCount})` : ''}
+          💰 Aguardando pagamento{semFiltro && awaitingCount > 0 ? ` (${awaitingCount})` : ''}
         </button>
       </div>
 
@@ -175,9 +179,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                   <div className="row-actions">
                     <button title="Abrir pasta do pedido" onClick={() => handleOpenFolder(o.orderSn)}>
                       📁
-                    </button>
-                    <button title="Gerar etiqueta" onClick={() => handleLabel(o.orderSn)}>
-                      🏷️
                     </button>
                     <button
                       title="Atualizar rastreio deste pedido"

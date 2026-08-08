@@ -64,21 +64,13 @@ export function isWithUs(phase: OrderPhase): boolean {
  * dispara código do app; o que é cadastrável é *quais* aparecem em cada etapa,
  * com que rótulo e em que ordem.
  */
-export const STAGE_ACTION_KINDS = [
-  'CRIAR_PASTA',
-  'ABRIR_PASTA',
-  'GERAR_ETIQUETA',
-  'ABRIR_MENSAGENS',
-  'AVANCAR'
-] as const
+export const STAGE_ACTION_KINDS = ['CRIAR_PASTA', 'ABRIR_PASTA', 'AVANCAR'] as const
 
 export type StageActionKind = (typeof STAGE_ACTION_KINDS)[number]
 
 export const STAGE_ACTION_LABELS: Record<StageActionKind, string> = {
   CRIAR_PASTA: 'Criar pasta do pedido',
   ABRIR_PASTA: 'Abrir pasta do pedido',
-  GERAR_ETIQUETA: 'Gerar etiqueta',
-  ABRIR_MENSAGENS: 'Abrir conversa do comprador',
   AVANCAR: 'Avançar para a próxima etapa'
 }
 
@@ -128,7 +120,6 @@ export interface Order {
   trackingNumber: string | null
   shipByDate: number | null
   folderPath: string | null
-  labelPath: string | null
   createdAtShopee: number | null
   updatedAtShopee: number | null
   syncedAt: number | null
@@ -140,7 +131,6 @@ export interface Order {
   escrowAmount: number | null
   escrowReleasedAt: number | null
   items: OrderItem[]
-  unreadMessages: number
 }
 
 export type OrderEventSource = 'logistics' | 'rating' | 'finance' | 'status'
@@ -153,26 +143,6 @@ export interface OrderEvent {
   happenedAt: number
   createdAt: number
   seen: boolean
-}
-
-export interface Conversation {
-  conversationId: string
-  buyerUsername: string
-  buyerAvatar: string | null
-  lastMessageAt: number | null
-  lastMessagePreview: string | null
-  unreadCount: number
-}
-
-export interface ChatMessage {
-  messageId: string
-  conversationId: string
-  orderSn: string | null
-  direction: 'in' | 'out'
-  contentType: string
-  content: string
-  imageUrl: string | null
-  createdAt: number
 }
 
 export interface StatusHistoryEntry {
@@ -234,10 +204,11 @@ export interface SyncResult {
   ok: boolean
   ordersUpserted: number
   newOrders: number
-  messagesUpserted: number
   eventsCreated: number
   error: string | null
 }
+
+export type PhaseCounts = Record<OrderPhase, number>
 
 export interface OrderFilters {
   internalStatus?: InternalStatus | 'TODOS'

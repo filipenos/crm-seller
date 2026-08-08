@@ -94,13 +94,8 @@ export function buildTargets(): ProbeTarget[] {
       interesting: /ads|campaign|marketing|pas\/|acos|spend|budget/i,
       linkPattern: /marketing|ads|pas/i
     },
-    {
-      key: 'chat',
-      label: 'Chat / conversas',
-      pages: ['/webchat/conversations'],
-      interesting: /webchat\/api/i,
-      linkPattern: /webchat|chat/i
-    },
+    // Chat saiu do app (o webchat tem login próprio), então não gasta
+    // navegação aqui. Para retomar, o rastro está no README.
     {
       key: 'produtos',
       label: 'Produtos / anúncios cadastrados (SKU para casar com o cadastro interno)',
