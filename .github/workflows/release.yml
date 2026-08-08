@@ -51,3 +51,24 @@ jobs:
           if ($content -notmatch 'provider:\s*github') {
             throw "app-update.yml sem provider github — o app instalado não conseguiria se atualizar"
           }
+
+      # A release nasce como rascunho. Antes de publicar, conferir que os dois
+      # artefatos que importam chegaram: sem o .exe não há o que instalar, e sem
+      # o latest.yml o app instalado não enxerga a atualização. Já aconteceu de
+      # o build "passar" tendo subido só o .blockmap.
+      - name: Publicar a release (só com os artefatos completos)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v$((Get-Content package.json | ConvertFrom-Json).version)"
+          $assets = gh release view $tag --json assets --jq '.assets[].name'
+          Write-Host "Artefatos: $assets"
+          if ($assets -notmatch '\.exe$' -and $assets -notmatch '\.exe\s') {
+            throw "Release $tag sem o instalador .exe"
+          }
+          if ($assets -notmatch 'latest\.yml') {
+            throw "Release $tag sem latest.yml — o auto-update não funcionaria"
+          }
+          gh release edit $tag --draft=false
+          Write-Host "Release $tag publicada"

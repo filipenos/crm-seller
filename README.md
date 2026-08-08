@@ -129,9 +129,13 @@ publica a release. **A tag precisa casar com a `version`** — é assim que o
 > - O `electron-builder` descobre o repositório pelo *remote* do git. Sem
 >   remote, ele gera um instalador **sem feed** — o workflow tem um passo que
 >   falha nesse caso.
-> - Por padrão ele publica a release como **rascunho**, que o
->   `electron-updater` não enxerga. Por isso a config tem
->   `publish.releaseType: release`.
+> - A release nasce como **rascunho**, que o `electron-updater` não enxerga.
+>   Ela é publicada pelo workflow, num passo separado que só libera depois de
+>   conferir que o `.exe` e o `latest.yml` chegaram. Não troque para
+>   `releaseType: release`: assim o electron-builder começa a subir os
+>   artefatos antes de a release existir e **encerra com sucesso no meio do
+>   upload** — sobe o `.blockmap` de 100 KB, perde o `.exe` de 100 MB e não
+>   gera o `latest.yml`.
 
 **Primeira instalação no Windows**: o app não é assinado, então o SmartScreen
 mostra "Windows protegeu o computador" → *Mais informações* → *Executar assim

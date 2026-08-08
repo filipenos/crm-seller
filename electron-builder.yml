@@ -22,9 +22,12 @@ nsis:
 # no CI), então o instalador já sai apontando para o repositório certo.
 publish:
   provider: github
-  # Sem isto o electron-builder cria a release como RASCUNHO, que o
-  # electron-updater não enxerga — o app instalado nunca acharia a atualização.
-  releaseType: release
+  # Mantido como RASCUNHO de propósito. Com `releaseType: release` o
+  # electron-builder começa a subir os artefatos antes de a release existir e
+  # encerra com sucesso no meio do upload: sobe o .blockmap (100 KB), perde o
+  # .exe (100 MB) e não gera o latest.yml. Quem publica é o workflow, depois de
+  # conferir que os artefatos chegaram.
+  releaseType: draft
 mac:
   target:
     - dmg
