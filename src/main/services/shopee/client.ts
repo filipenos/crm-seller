@@ -140,6 +140,25 @@ function deepGet(obj: AnyObj, path: string): unknown {
   return cur
 }
 
+/**
+ * Data do pedido a partir do próprio número.
+ *
+ * O card **não traz data de criação** (só `ship_by_date`), e sem ela a lista
+ * não tinha como ser ordenada. O número do pedido começa com AAMMDD —
+ * `260729W0DHMK58` = 29/07/2026 —, o que dá a data do dia sem custo nenhum.
+ * É aproximada (não tem hora), e serve para ordenar, não para contabilidade.
+ */
+function dateFromOrderSn(orderSn: string): number | null {
+  const match = /^(\d{2})(\d{2})(\d{2})/.exec(orderSn)
+  if (!match) return null
+  const [, aa, mm, dd] = match
+  const year = 2000 + Number(aa)
+  const month = Number(mm)
+  const day = Number(dd)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  return Date.UTC(year, month - 1, day)
+}
+
 /** Timestamps da Shopee vêm em segundos; normaliza para ms. */
 function toMs(ts: number | null): number | null {
   if (ts === null) return null
@@ -253,10 +272,13 @@ interface OrderIndexRef {
  * Passo 1 — lista os pedidos (só IDs). Corresponde ao POST que a página
  * /portal/sale/order faz em search_order_list_index.
  */
-async function fetchOrderIndex(cds: string, maxPages: number): Promise<OrderIndexRef[]> {
+async function fetchOrderIndex(cds: string, maxPages: number | null): Promise<OrderIndexRef[]> {
   const pageSize = 40
   const refs: OrderIndexRef[] = []
-  for (let page = 1; page <= maxPages; page++) {
+  // `null` = até acabar. O teto existe porque o índice é barato, mas cada
+  // página vira 8 chamadas de card depois.
+  const limit = maxPages ?? Number.MAX_SAFE_INTEGER
+  for (let page = 1; page <= limit; page++) {
     if (page > 1) await sleep(200)
     const json = (await withRetry(() =>
       pageFetchJson(`/api/v3/order/search_order_list_index?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
@@ -279,7 +301,11 @@ async function fetchOrderIndex(cds: string, maxPages: number): Promise<OrderInde
 }
 
 /** Passo 2 — detalhes dos pedidos, em lotes, via get_order_list_card_list. */
-async function fetchOrderCards(cds: string, refs: OrderIndexRef[]): Promise<AnyObj[]> {
+async function fetchOrderCards(
+  cds: string,
+  refs: OrderIndexRef[],
+  options: FetchOrdersOptions = { maxPages: 5 }
+): Promise<AnyObj[]> {
   const cards: AnyObj[] = []
   // A Shopee limita o lote deste endpoint (erro 120410353 "too big").
   const batchSize = 5
@@ -302,7 +328,17 @@ async function fetchOrderCards(cds: string, refs: OrderIndexRef[]): Promise<AnyO
         }
       })
     )) as { data?: { card_list?: AnyObj[] } }
-    cards.push(...(json?.data?.card_list ?? []))
+    const lote = json?.data?.card_list ?? []
+    cards.push(...lote)
+
+    if (options.onCard) {
+      for (let k = 0; k < lote.length; k++) {
+        // O ref e o card vêm na mesma ordem; o id do ref é a chave do arquivo.
+        const id = batch[k]?.order_id
+        if (id !== undefined) await options.onCard(String(id), lote[k])
+      }
+    }
+    options.onProgress?.(Math.min(i + batchSize, refs.length), refs.length)
   }
   return cards
 }
@@ -384,19 +420,53 @@ function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
     currency: currencyNum !== null ? (CURRENCY_CODES[currencyNum] ?? String(currencyNum)) : null,
     trackingNumber,
     shipByDate: toMs(pickNumber(ext, ['ship_by_date'])),
-    createdAtShopee: toMs(pickNumber(ext, ['create_time', 'pay_time'])),
+    createdAtShopee: toMs(pickNumber(ext, ['create_time', 'pay_time'])) ?? dateFromOrderSn(orderSn),
     updatedAtShopee: null,
     rawJson: JSON.stringify(card),
     items
   }
 }
 
-export async function fetchOrders(maxPages = 5): Promise<NormalizedShopeeOrder[]> {
+export interface FetchOrdersOptions {
+  /** Páginas de 40 a buscar. `null` = todas, até a Shopee acabar. */
+  maxPages: number | null
+  /** Chamado a cada lote, para dar sinal de vida numa carga longa. */
+  onProgress?: (done: number, total: number | null) => void
+  /** Guarda o JSON cru de cada card (dump local para análise sem rede). */
+  onCard?: (orderId: string, card: unknown) => Promise<void>
+}
+
+export async function fetchOrders(
+  options: FetchOrdersOptions = { maxPages: 5 }
+): Promise<NormalizedShopeeOrder[]> {
   const cds = await getSpcCds()
-  const refs = await fetchOrderIndex(cds, maxPages)
+  const refs = await fetchOrderIndex(cds, options.maxPages)
   if (refs.length === 0) return []
-  const cards = await fetchOrderCards(cds, refs)
-  return cards.map(normalizeCard).filter((o): o is NormalizedShopeeOrder => o !== null)
+  const cards = await fetchOrderCards(cds, refs, options)
+  const orders: NormalizedShopeeOrder[] = []
+  for (const card of cards) {
+    const order = normalizeCard(card)
+    if (order) orders.push(order)
+  }
+  return orders
+}
+
+/** Quantos pedidos a Shopee diz que existem (uma requisição, sem baixar nada). */
+export async function fetchOrderTotal(): Promise<number | null> {
+  const cds = await getSpcCds()
+  const json = (await withRetry(() =>
+    pageFetchJson(`/api/v3/order/search_order_list_index?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+      method: 'POST',
+      body: {
+        order_list_tab: 100,
+        entity_type: 1,
+        pagination: { from_page_number: 1, page_number: 1, page_size: 1 },
+        filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 },
+        sort: { sort_type: 3, ascending: false }
+      }
+    })
+  )) as { data?: { pagination?: { total?: number } } }
+  return json?.data?.pagination?.total ?? null
 }
 
 // ---------- rastreio logístico ----------

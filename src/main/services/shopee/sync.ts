@@ -19,6 +19,7 @@ import {
 import { recordEvent } from '../events'
 import { phaseFromCheckpoints } from '../phases'
 import { getSettings } from '../settings'
+import { saveOrderDump } from '../orderDump'
 
 /** Palavras que indicam entrega concluída num checkpoint de rastreio. */
 const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
@@ -55,7 +56,7 @@ export async function getConnectionStatus(): Promise<ShopeeConnectionStatus> {
   return { ...state }
 }
 
-export async function syncAll(): Promise<SyncResult> {
+export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<SyncResult> {
   if (state.syncing) {
     return {
       ok: false,
@@ -84,7 +85,15 @@ export async function syncAll(): Promise<SyncResult> {
 
     // Pedidos
     try {
-      const orders = await fetchOrders()
+      const paginas = opts.todasAsPaginas ? null : Math.max(1, getSettings().syncPageCount)
+      console.log(`[sync] pedidos: ${paginas === null ? 'todas as páginas' : paginas + ' página(s)'}`)
+      const orders = await fetchOrders({
+        maxPages: paginas,
+        onCard: (orderId, card) => saveOrderDump(orderId, card),
+        onProgress: (feitos, total) => {
+          if (feitos % 50 === 0 || feitos === total) console.log(`[sync] cards ${feitos}/${total}`)
+        }
+      })
       for (const o of orders) {
         const isNew = upsertShopeeOrder(o)
         result.ordersUpserted++

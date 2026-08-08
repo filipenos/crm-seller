@@ -37,6 +37,8 @@ import {
   syncAll
 } from './services/shopee/sync'
 import { probeShopeeApis } from './services/shopee/probe'
+import { fetchOrderTotal } from './services/shopee/client'
+import { countDumps, dumpPath } from './services/orderDump'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   countUnseenEvents,
@@ -63,6 +65,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('shopee:disconnect', () => disconnect())
   ipcMain.handle('shopee:status', () => getConnectionStatus())
   ipcMain.handle('shopee:sync', () => syncAll())
+  // Carga completa: percorre todas as páginas e grava o JSON cru de cada pedido.
+  ipcMain.handle('shopee:syncAll', () => syncAll({ todasAsPaginas: true }))
+  ipcMain.handle('shopee:orderTotal', () => fetchOrderTotal())
+  ipcMain.handle('shopee:dumpInfo', async () => ({ path: dumpPath(), count: await countDumps() }))
   // Diagnóstico: descobre os endpoints reais do Seller Center (leva alguns minutos).
   ipcMain.handle('shopee:probe', async (): Promise<ActionResult> => {
     try {

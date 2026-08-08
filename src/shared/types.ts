@@ -162,6 +162,12 @@ export interface AppSettings {
    * tráfego que ninguém pediu. Por padrão só o botão sincroniza.
    */
   autoSyncEnabled: boolean
+  /**
+   * Páginas de 40 pedidos que o botão Sincronizar busca. O padrão cobre os
+   * mais recentes, que é o que muda no dia a dia; a base inteira sai pelo
+   * "Sincronizar tudo".
+   */
+  syncPageCount: number
   syncIntervalMinutes: number
   shopeeBaseDomain: string
   /**

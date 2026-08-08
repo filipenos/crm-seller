@@ -30,6 +30,9 @@ const api = {
     status: (): Promise<ShopeeConnectionStatus> => ipcRenderer.invoke('shopee:status'),
     sync: (): Promise<SyncResult> => ipcRenderer.invoke('shopee:sync'),
     probe: (): Promise<ActionResult> => ipcRenderer.invoke('shopee:probe'),
+    syncAll: (): Promise<SyncResult> => ipcRenderer.invoke('shopee:syncAll'),
+    orderTotal: (): Promise<number | null> => ipcRenderer.invoke('shopee:orderTotal'),
+    dumpInfo: (): Promise<{ path: string; count: number }> => ipcRenderer.invoke('shopee:dumpInfo'),
     onStatusChanged: (cb: (status: ShopeeConnectionStatus) => void): (() => void) => {
       const listener = (_e: unknown, status: ShopeeConnectionStatus): void => cb(status)
       ipcRenderer.on('shopee:status-changed', listener)

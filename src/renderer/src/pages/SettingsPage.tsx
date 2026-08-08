@@ -33,12 +33,16 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [checking, setChecking] = useState(false)
   const [probing, setProbing] = useState(false)
+  const [syncingAll, setSyncingAll] = useState(false)
+  const [syncAllResult, setSyncAllResult] = useState<string | null>(null)
+  const [dumpInfo, setDumpInfo] = useState<{ path: string; count: number } | null>(null)
   const [probeResult, setProbeResult] = useState<ActionResult | null>(null)
 
   useEffect(() => {
     void window.api.settings.get().then(setSettings)
     void window.api.app.version().then(setVersion)
     void window.api.updates.status().then(setUpdateStatus)
+    void window.api.shopee.dumpInfo().then(setDumpInfo)
     return window.api.updates.onStatus(setUpdateStatus)
   }, [])
 
@@ -136,6 +140,52 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           Por padrão o app só sincroniza quando você clica em <b>Sincronizar</b>. As APIs da
           Shopee são internas e sem cota publicada — ligue o automático só se precisar.
         </p>
+        <div className="setting-row">
+          <label>Páginas por sincronização (40 pedidos cada)</label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={settings.syncPageCount}
+            onChange={(e) => update({ syncPageCount: Number(e.target.value) || 2 })}
+            style={{ width: 100 }}
+          />
+          <small className="muted">
+            O botão <b>Sincronizar</b> pega só as páginas mais recentes — é o que muda no dia a
+            dia. Para a base inteira, use o botão abaixo.
+          </small>
+        </div>
+
+        <div className="action-buttons">
+          <button
+            disabled={syncingAll}
+            onClick={async () => {
+              setSyncingAll(true)
+              setSyncAllResult(null)
+              const r = await window.api.shopee.syncAll()
+              setSyncAllResult(
+                r.ok
+                  ? `${r.ordersUpserted} pedidos sincronizados (${r.newOrders} novos)`
+                  : `Erro: ${r.error}`
+              )
+              setSyncingAll(false)
+              void window.api.shopee.dumpInfo().then(setDumpInfo)
+            }}
+          >
+            {syncingAll ? 'Sincronizando tudo… (pode demorar)' : '⤓ Sincronizar tudo'}
+          </button>
+          {dumpInfo && dumpInfo.count > 0 && (
+            <button onClick={() => window.api.shell.openPath(dumpInfo.path)}>
+              📂 Abrir pasta dos JSON ({dumpInfo.count})
+            </button>
+          )}
+        </div>
+        {syncAllResult && <small className="muted">{syncAllResult}</small>}
+        <small className="muted">
+          A carga completa percorre todas as páginas e grava o JSON cru de cada pedido em disco,
+          o que permite conferir dados sem consultar a Shopee de novo.
+        </small>
+
         <div className="setting-row">
           <label>
             <input
