@@ -133,9 +133,7 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
     params.push(like, like, like, like)
   }
   if (filters.awaitingPayment) {
-    conditions.push(
-      "escrow_released_at IS NULL AND delivered_at IS NOT NULL AND internal_status != 'CANCELADO'"
-    )
+    conditions.push(`(${AWAITING_PAYMENT_WHERE})`)
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
@@ -289,25 +287,63 @@ export function setRating(
     .run(star, comment, ratedAt, orderSn)
 }
 
-export function setEscrow(orderSn: string, amount: number | null, releasedAt: number): void {
+/**
+ * Guarda o extrato do pedido. `releasedAt` nulo é normal: significa que a
+ * Shopee já calculou o valor mas ainda não liberou o dinheiro — é exatamente
+ * o estado "aguardando pagamento". COALESCE evita que uma consulta posterior
+ * apague uma liberação já registrada.
+ */
+export function setEscrow(
+  orderSn: string,
+  amount: number | null,
+  releasedAt: number | null
+): void {
   getDb()
     .prepare(
-      'UPDATE orders SET escrow_amount = COALESCE(?, escrow_amount), escrow_released_at = ? WHERE order_sn = ?'
+      `UPDATE orders
+          SET escrow_amount = COALESCE(?, escrow_amount),
+              escrow_released_at = COALESCE(?, escrow_released_at)
+        WHERE order_sn = ?`
     )
     .run(amount, releasedAt, orderSn)
 }
 
 /** Pedidos entregues cujo pagamento ainda não caiu — a lista de cobrança a vigiar. */
+/**
+ * Entregue mas sem pagamento liberado.
+ *
+ * A entrega é reconhecida pela fase do rastreio **ou** pelo status do card —
+ * exigir `delivered_at` deixaria de fora todo pedido cujo rastreio ninguém
+ * pediu, que é a maioria.
+ */
+const AWAITING_PAYMENT_WHERE = `
+  escrow_released_at IS NULL
+  AND (logistics_phase = 'ENTREGUE' OR shopee_status LIKE '%ntregue%' OR shopee_status LIKE '%oncluí%')
+  AND COALESCE(shopee_status, '') NOT LIKE '%ancelad%'
+`
+
 export function countAwaitingPayment(): number {
   const row = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS n FROM orders
-       WHERE escrow_released_at IS NULL
-         AND delivered_at IS NOT NULL
-         AND internal_status != 'CANCELADO'`
-    )
+    .prepare(`SELECT COUNT(*) AS n FROM orders WHERE ${AWAITING_PAYMENT_WHERE}`)
     .get() as { n: number }
   return row.n
+}
+
+/** Os mais antigos primeiro: são os que já deveriam ter sido pagos. */
+export function listAwaitingPayment(limit: number): Order[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+         FROM orders o
+         LEFT JOIN workflow_stages s ON s.id = o.stage_id
+        WHERE ${AWAITING_PAYMENT_WHERE}
+          AND o.shopee_order_id IS NOT NULL
+        ORDER BY o.created_at_shopee ASC
+        LIMIT ?`
+    )
+    .all(limit) as OrderRow[]
+  const items = loadItems(rows.map((r) => r.order_sn))
+  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], 0))
 }
 
 export function getStatusHistory(orderSn: string): StatusHistoryEntry[] {

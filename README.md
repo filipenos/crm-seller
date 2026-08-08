@@ -33,11 +33,11 @@ no status da sincronização e o que já está no banco continua valendo.
 | Integração | Estado |
 |---|---|
 | Pedidos + itens | ✅ confirmado |
-| Mensagens / chat | ⚠️ o webchat tem login próprio; a chamada crua dá `user_is_unauthorized` |
-| Avaliações | ⚠️ endpoints candidatos, a confirmar |
-| Financeiro (liberação de pagamento) | ⚠️ candidatos; confirmar também a escala do valor |
-| Rastreio logístico (botão 🔄) | ⚠️ candidatos, a confirmar |
-| Etiqueta em PDF da Shopee | ⚠️ candidatos; hoje cai no fallback da etiqueta interna |
+| Rastreio logístico | ✅ `get_logistics_tracking_history?order_id=` |
+| Avaliações | ✅ `search_shop_rating_comments_new/` |
+| Financeiro por pedido | ✅ `seller_income/income_detail/get_order_income_components` — traz receita líquida, taxas e a liberação do pagamento |
+| Mensagens / chat | ❌ o webchat tem login próprio (`user_is_unauthorized`). Pista: a página de pedidos chama `POST /webchat/api/coreapi/v1.2/mini/login/sc` antes |
+| Etiqueta em PDF da Shopee | ❌ candidatos respondem 404; falta rodar o diagnóstico na página de envio |
 
 Planejado (anúncios/ACOS, cadastro de produto com ficha de fabricação, estoque
 e margem por pedido): ver **[ROADMAP.md](ROADMAP.md)**.

@@ -593,14 +593,14 @@ const RATING_STAR_KEYS = ['rating_star', 'star', 'rating']
 
 export async function fetchRatings(pageSize = 50): Promise<ShopRating[]> {
   const cds = await getSpcCds()
-  const query = `SPC_CDS=${cds}&SPC_CDS_VER=2&page_number=1&page_size=${pageSize}`
+  // Confirmado por captura na página de avaliações. O sufixo `_new/` e a barra
+  // final importam: sem eles a Shopee responde 404.
+  const query =
+    `SPC_CDS=${cds}&SPC_CDS_VER=2&rating_star=5,4,3,2,1&page_number=1` +
+    `&page_size=${pageSize}&cursor=0&from_page_number=1&language=pt-br`
   return tryCandidates<ShopRating>(
     'avaliações',
-    [
-      { url: `/api/v3/settings/search_shop_rating_comments?${query}` },
-      { url: `/api/v3/rating/get_shop_rating_list?${query}` },
-      { url: `/api/v3/settings/get_shop_rating_list?${query}` }
-    ],
+    [{ url: `/api/v3/settings/search_shop_rating_comments_new/?${query}` }],
     (json) => {
       // Nota + pedido: sem exigir os dois, qualquer lista com "rating" casa.
       const arr = findArrayWhere(
@@ -629,103 +629,91 @@ export async function fetchRatings(pageSize = 50): Promise<ShopRating[]> {
   )
 }
 
-// ---------- financeiro (liberação de pagamento) ----------
+// ---------- financeiro por pedido ----------
 
-export interface WalletEntry {
+export interface OrderIncome {
   orderSn: string
-  amount: number | null
-  description: string
-  happenedAt: number
+  /** Quanto sobra para o vendedor, já com cupons, frete e taxas. */
+  sellerIncome: number | null
+  /** Quando o dinheiro foi liberado; null enquanto a Shopee ainda segura. */
+  releasedAt: number | null
+  /** Linhas do extrato (positivas e negativas) para futura análise de margem. */
+  breakdown: { name: string; label: string; amount: number }[]
   rawJson: string
 }
 
-const WALLET_AMOUNT_KEYS = ['amount', 'money', 'transaction_amount']
-const WALLET_ID_KEYS = [
-  'transaction_id',
-  'order_sn',
-  'ordersn',
-  'reference_id',
-  'wallet_type',
-  'transaction_type'
-]
-
 /**
- * Lê uma página do extrato. Devolve `null` quando a resposta não parece um
- * extrato; `rowCount` é o total de linhas da página (não só as aproveitadas),
- * porque é ele que decide se há próxima página.
+ * Extrato financeiro de UM pedido.
+ *
+ * Substitui a tentativa antiga de ler a carteira inteira (`/api/v3/finance/*`,
+ * que responde 404): este é o endpoint que a página de receitas realmente usa.
+ * Traz, além da liberação do pagamento, a composição completa — preço, cupom,
+ * frete e taxas —, que é a base para calcular margem por pedido.
+ *
+ * É por pedido, então o chamador decide quantos consultar: não existe versão
+ * em lote conhecida.
  */
-function parseWalletPage(json: unknown): { entries: WalletEntry[]; rowCount: number } | null {
-  const arr = findArrayWhere(
-    json,
-    (el) => WALLET_AMOUNT_KEYS.some((k) => k in el) && WALLET_ID_KEYS.some((k) => k in el)
-  )
-  if (!arr) {
-    return hasEmptyListNamed(json, ['list', 'transaction_list', 'items', 'transactions'])
-      ? { entries: [], rowCount: 0 }
-      : null
-  }
-  const entries: WalletEntry[] = []
-  for (const t of arr) {
-    // Só interessam entradas vinculadas a um pedido — o resto do extrato
-    // (taxas, saques) não vira evento.
-    const orderSn = pickString(t, ['order_sn', 'ordersn', 'reference_id'])
-    const happenedAt = toMs(pickNumber(t, ['create_time', 'ctime', 'transaction_time', 'time']))
-    if (!orderSn || !happenedAt) continue
-    entries.push({
-      orderSn,
-      amount: pickMoney(t, WALLET_AMOUNT_KEYS),
-      description:
-        pickString(t, ['description', 'reason', 'transaction_type', 'title']) ??
-        'Transação da carteira',
-      happenedAt,
-      rawJson: JSON.stringify(t)
-    })
-  }
-  return { entries, rowCount: arr.length }
-}
-
-export async function fetchWalletTransactions(maxPages = 5): Promise<WalletEntry[]> {
+export async function fetchOrderIncome(
+  orderSn: string,
+  orderId: string
+): Promise<OrderIncome | null> {
   const cds = await getSpcCds()
-  const pageSize = 50
-  const endpointBuilders = [
-    (p: number) =>
-      `/api/v3/finance/get_wallet_transaction_list?SPC_CDS=${cds}&SPC_CDS_VER=2&page_number=${p}&page_size=${pageSize}`,
-    (p: number) =>
-      `/api/v3/finance/wallet_transactions?SPC_CDS=${cds}&SPC_CDS_VER=2&page_number=${p}&page_size=${pageSize}`,
-    (p: number) =>
-      `/api/v3/finance/get_income_transaction_history?SPC_CDS=${cds}&SPC_CDS_VER=2&page_number=${p}&page_size=${pageSize}`
-  ]
-  const failures: string[] = []
-  let authError: ShopeeApiError | null = null
-
-  for (const buildUrl of endpointBuilders) {
-    const name = buildUrl(1).split('?')[0]
-    try {
-      const all: WalletEntry[] = []
-      let recognized = false
-      for (let page = 1; page <= maxPages; page++) {
-        if (page > 1) await sleep(200)
-        const parsed = parseWalletPage(await withRetry(() => pageFetchJson(buildUrl(page))))
-        if (parsed === null) break
-        recognized = true
-        all.push(...parsed.entries)
-        if (parsed.rowCount < pageSize) break
+  const json = (await withRetry(() =>
+    pageFetchJson(
+      `/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`,
+      {
+        method: 'POST',
+        // components lista os blocos desejados; 1..6 traz extrato + info do pedido.
+        body: { order_id: Number(orderId), components: [1, 2, 3, 4, 5, 6] }
       }
-      if (recognized) return all
-      failures.push(`${name}: respondeu, mas sem transações reconhecíveis`)
-    } catch (err) {
-      if (err instanceof ShopeeApiError && err.isAuthError) authError = err
-      failures.push(`${name}: ${err instanceof Error ? err.message : String(err)}`)
+    )
+  )) as {
+    data?: {
+      order_info?: { order_sn?: string; released_time?: number }
+      seller_income_breakdown?: { breakdown?: AnyObj[] }
     }
   }
 
-  if (authError) {
-    throw new Error(
-      `Sessão da Shopee recusada ao buscar o financeiro: ${authError.message}. ` +
-        'Abra Configurações → Conectar e faça login de novo.'
-    )
+  const data = json?.data
+  if (!isObj(data) || !isObj(data.order_info)) return null
+
+  const lines = Array.isArray(data.seller_income_breakdown?.breakdown)
+    ? (data.seller_income_breakdown.breakdown as AnyObj[])
+    : []
+
+  // ATENÇÃO: a lista traz as parcelas **e** o total (ESCROW_AMOUNT) como mais
+  // uma linha. Somar tudo dá o dobro — o total sai daqui, não de uma soma.
+  const TOTAL_FIELD = /^(ESCROW_AMOUNT|TOTAL(_INCOME)?)$/i
+
+  const breakdown: OrderIncome['breakdown'] = []
+  let total: number | null = null
+  for (const line of lines) {
+    const amount = toMoney(line.amount)
+    if (amount === null) continue
+    const name = pickString(line, ['field_name']) ?? 'DESCONHECIDO'
+    if (TOTAL_FIELD.test(name)) {
+      total = amount
+      continue
+    }
+    breakdown.push({ name, label: pickString(line, ['display_name']) ?? '', amount })
   }
-  throw new Error(`Nenhum endpoint financeiro funcionou. ${failures.join(' | ')}`)
+
+  // Sem a linha de total, as parcelas somam o mesmo valor (os sub_breakdown
+  // compõem o item pai, então só o nível de cima entra na conta).
+  const sellerIncome =
+    total ?? (breakdown.length > 0 ? breakdown.reduce((soma, l) => soma + l.amount, 0) : null)
+
+  // released_time 0 = ainda não liberado (a Shopee não usa null aqui).
+  const released = pickNumber(data.order_info as AnyObj, ['released_time'])
+  const releasedAt = released && released > 0 ? toMs(released) : null
+
+  return {
+    orderSn: pickString(data.order_info as AnyObj, ['order_sn']) ?? orderSn,
+    sellerIncome,
+    releasedAt,
+    breakdown,
+    rawJson: JSON.stringify(data)
+  }
 }
 
 // ---------- etiqueta / documento de envio ----------

@@ -1,7 +1,8 @@
 import { BrowserWindow } from 'electron'
-import { writeFile } from 'fs/promises'
+import { rm, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
+import { tmpdir } from 'os'
 import type { ActionResult, Order } from '@shared/types'
 import { getOrder, setLabelPath } from './orders'
 import { createOrderFolder } from './folders'
@@ -47,11 +48,15 @@ function internalLabelHtml(order: Order): string {
 }
 
 async function generateInternalLabelPdf(order: Order): Promise<Buffer> {
-  const win = new BrowserWindow({ show: false, webPreferences: { offscreen: true } })
+  // Duas armadilhas já encontradas aqui, ambas com o mesmo sintoma inútil
+  // ("Printing failed"): `offscreen: true` não imprime no Linux/Wayland, e
+  // `data:` URL nem sempre é considerada carregada a tempo. Arquivo temporário
+  // + janela oculta comum é o caminho que funciona nas três plataformas.
+  const win = new BrowserWindow({ show: false, width: 400, height: 600 })
+  const tmpFile = join(tmpdir(), `crm-seller-etiqueta-${order.orderSn}-${process.pid}.html`)
   try {
-    await win.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(internalLabelHtml(order))}`
-    )
+    await writeFile(tmpFile, internalLabelHtml(order), 'utf8')
+    await win.loadFile(tmpFile)
     const data = await win.webContents.printToPDF({
       pageSize: { width: 100_000, height: 150_000 }, // microns → 100mm x 150mm
       printBackground: true,
@@ -60,6 +65,7 @@ async function generateInternalLabelPdf(order: Order): Promise<Buffer> {
     return Buffer.from(data)
   } finally {
     win.destroy()
+    await rm(tmpFile, { force: true }).catch(() => {})
   }
 }
 
@@ -85,9 +91,22 @@ export async function generateLabel(orderSn: string): Promise<ActionResult> {
   try {
     pdf = await downloadShippingDocument(order.orderSn, order.shopeeOrderId)
     source = 'shopee'
-  } catch {
-    pdf = await generateInternalLabelPdf(order)
-    source = 'interna'
+  } catch (shopeeError) {
+    // O documento oficial ainda usa endpoints não confirmados. Registrar o
+    // motivo é o que permite calibrá-los depois — engolir o erro faria a
+    // etiqueta interna parecer uma escolha, e não um plano B.
+    console.warn('[etiqueta] documento da Shopee indisponível:', shopeeError)
+    try {
+      pdf = await generateInternalLabelPdf(order)
+      source = 'interna'
+    } catch (internalError) {
+      return {
+        ok: false,
+        error:
+          `Falhou nos dois caminhos. Shopee: ${String(shopeeError instanceof Error ? shopeeError.message : shopeeError)}` +
+          ` | etiqueta interna: ${String(internalError instanceof Error ? internalError.message : internalError)}`
+      }
+    }
   }
 
   try {

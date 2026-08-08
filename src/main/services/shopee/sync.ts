@@ -3,14 +3,16 @@ import type { ShopeeConnectionStatus, SyncResult, TrackingRefreshResult } from '
 import {
   fetchConversations,
   fetchMessages,
+  fetchOrderIncome,
   fetchOrders,
   fetchRatings,
-  fetchTrackingInfo,
-  fetchWalletTransactions
+  fetchTrackingInfo
 } from './client'
 import { isConnected } from './session'
 import {
+  countAwaitingPayment,
   getOrder,
+  listAwaitingPayment,
   setEscrow,
   setLogisticsStatus,
   setRating,
@@ -25,6 +27,15 @@ import { getSettings } from '../settings'
 const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+
+/**
+ * Quantos extratos financeiros buscar por sincronização. O endpoint é por
+ * pedido: sem teto, cada sync viraria centenas de chamadas. O que sobra entra
+ * na rodada seguinte.
+ */
+const INCOME_PER_SYNC = 15
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 const state: ShopeeConnectionStatus = {
   connected: false,
@@ -111,24 +122,35 @@ export async function syncAll(): Promise<SyncResult> {
       errors.push(`avaliações: ${String(err instanceof Error ? err.message : err)}`)
     }
 
-    // Financeiro — liberação do pagamento (escrow)
+    // Financeiro — o extrato é por pedido, então consultamos só os que ainda
+    // esperam pagamento, e um número limitado por vez. Sem esse teto, uma
+    // sincronização viraria centenas de chamadas.
     try {
-      const transactions = await fetchWalletTransactions()
-      for (const t of transactions) {
-        if (!getOrder(t.orderSn)) continue
-        setEscrow(t.orderSn, t.amount, t.happenedAt)
-        const amount = t.amount !== null ? ` (${BRL.format(t.amount)})` : ''
-        if (
-          recordEvent({
-            orderSn: t.orderSn,
-            source: 'finance',
-            description: `Pagamento recebido${amount} — ${t.description}`,
-            happenedAt: t.happenedAt,
-            rawJson: t.rawJson
-          })
-        ) {
-          result.eventsCreated++
+      const pendentes = listAwaitingPayment(INCOME_PER_SYNC)
+      for (const order of pendentes) {
+        if (!order.shopeeOrderId) continue
+        const income = await fetchOrderIncome(order.orderSn, order.shopeeOrderId)
+        if (!income) continue
+        setEscrow(order.orderSn, income.sellerIncome, income.releasedAt)
+        if (income.releasedAt !== null) {
+          const valor = income.sellerIncome !== null ? ` (${BRL.format(income.sellerIncome)})` : ''
+          if (
+            recordEvent({
+              orderSn: order.orderSn,
+              source: 'finance',
+              description: `Pagamento liberado${valor}`,
+              happenedAt: income.releasedAt,
+              rawJson: income.rawJson
+            })
+          ) {
+            result.eventsCreated++
+          }
         }
+        await sleep(300)
+      }
+      const restantes = countAwaitingPayment() - pendentes.length
+      if (restantes > 0) {
+        console.log(`[sync] financeiro: ${restantes} pedidos ficaram para a próxima rodada`)
       }
     } catch (err) {
       errors.push(`financeiro: ${String(err instanceof Error ? err.message : err)}`)

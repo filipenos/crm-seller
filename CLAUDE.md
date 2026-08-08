@@ -87,12 +87,22 @@ indiagnosticável:
    checkpoint, nota *e* pedido numa avaliação. Testar por uma chave só faz
    `findArrayWhere` casar qualquer array da resposta e inventar dados.
 
-Só **pedidos** usa endpoints confirmados (fluxo de 2 passos,
-`search_order_list_index` → `get_order_list_card_list`, lote máximo de 5).
-Chat, avaliações, financeiro, rastreio e etiqueta ainda são candidatos
-adivinhados — falham por seção no `sync.ts` sem derrubar o resto. Para
-descobrir os reais: `services/shopee/probe.ts`, exposto em
-**Configurações → Diagnóstico das APIs**.
+Confirmados por captura de rede: pedidos (2 passos,
+`search_order_list_index` → `get_order_list_card_list`, lote máximo de 5),
+rastreio (`get_logistics_tracking_history?order_id=`), avaliações
+(`search_shop_rating_comments_new/` — o sufixo `_new/` e a barra final
+importam) e financeiro por pedido
+(`v4/accounting/pc/seller_income/income_detail/get_order_income_components`).
+
+Ainda quebrados: **chat** (o webchat tem login próprio; a página de pedidos
+chama `POST /webchat/api/coreapi/v1.2/mini/login/sc` antes) e **etiqueta** (os
+candidatos dão 404). Cada seção falha isolada no `sync.ts` sem derrubar o
+resto. Para descobrir endpoint real: `services/shopee/probe.ts`, exposto em
+**Configurações → Diagnóstico das APIs** — foi assim que os quatro acima
+saíram de adivinhação para confirmados.
+
+O extrato financeiro traz o total (`ESCROW_AMOUNT`) **dentro da mesma lista**
+das parcelas: somar tudo conta o valor duas vezes.
 
 Normalizações que valem para toda resposta da Shopee: `toMs` (timestamps vêm em
 segundos) e `toMoney` (valores são micro-unidades inteiras — 7810000 = 78,10).
