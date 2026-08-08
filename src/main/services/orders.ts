@@ -30,6 +30,11 @@ interface OrderRow {
   synced_at: number | null
   logistics_status: string | null
   logistics_code: number | null
+  status_description: string | null
+  payment_method: string | null
+  carrier: string | null
+  shipping_city: string | null
+  shopee_url_path: string | null
   logistics_phase: string | null
   stage_id: number | null
   stage_name: string | null
@@ -52,6 +57,11 @@ function rowToOrder(row: OrderRow, items: OrderItem[]): Order {
       escrowReleasedAt: row.escrow_released_at
     }),
     logisticsCode: row.logistics_code,
+    statusDescription: row.status_description,
+    paymentMethod: row.payment_method,
+    carrier: row.carrier,
+    shippingCity: row.shipping_city,
+    shopeeUrlPath: row.shopee_url_path,
     stageId: row.stage_id,
     stageName: row.stage_name,
     stageColor: row.stage_color,
@@ -152,8 +162,6 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
 
   const items = loadItems(rows.map((r) => r.order_sn))
   const orders = rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? []))
-  // Fase é derivada em JS (depende de rastreio + pagamento), então o filtro
-  // por fase acontece aqui e não no SQL.
   // A aba depende do pagamento, que é derivado em JS — por isso o corte é aqui.
   if (filters.tab && filters.tab !== 'TODOS') {
     return orders.filter((o) => o.tab === filters.tab)
@@ -383,6 +391,11 @@ export interface UpsertOrderInput {
   orderSn: string
   /** 1 etiquetado · 9 aguardando · 2 enviado (order_ext_info.logistics_status). */
   logisticsCode?: number | null
+  statusDescription?: string | null
+  paymentMethod?: string | null
+  carrier?: string | null
+  shippingCity?: string | null
+  shopeeUrlPath?: string | null
   shopeeOrderId?: string | null
   shopeeStatus?: string | null
   buyerUsername?: string | null
@@ -417,8 +430,9 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
         `INSERT INTO orders (
           order_sn, shopee_order_id, shopee_status, internal_status, buyer_username, buyer_name,
           total_amount, currency, tracking_number, ship_by_date, logistics_code,
+          status_description, payment_method, carrier, shipping_city, shopee_url_path,
           created_at_shopee, updated_at_shopee, synced_at, raw_json
-        ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         input.orderSn,
         input.shopeeOrderId ?? null,
@@ -430,6 +444,11 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
         input.trackingNumber ?? null,
         input.shipByDate ?? null,
         input.logisticsCode ?? null,
+        input.statusDescription ?? null,
+        input.paymentMethod ?? null,
+        input.carrier ?? null,
+        input.shippingCity ?? null,
+        input.shopeeUrlPath ?? null,
         input.createdAtShopee ?? null,
         input.updatedAtShopee ?? null,
         now,
@@ -450,6 +469,11 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
           tracking_number = COALESCE(?, tracking_number),
           ship_by_date = COALESCE(?, ship_by_date),
           logistics_code = COALESCE(?, logistics_code),
+          status_description = COALESCE(?, status_description),
+          payment_method = COALESCE(?, payment_method),
+          carrier = COALESCE(?, carrier),
+          shipping_city = COALESCE(?, shipping_city),
+          shopee_url_path = COALESCE(?, shopee_url_path),
           created_at_shopee = COALESCE(?, created_at_shopee),
           updated_at_shopee = COALESCE(?, updated_at_shopee),
           synced_at = ?,
@@ -465,6 +489,11 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
         input.trackingNumber ?? null,
         input.shipByDate ?? null,
         input.logisticsCode ?? null,
+        input.statusDescription ?? null,
+        input.paymentMethod ?? null,
+        input.carrier ?? null,
+        input.shippingCity ?? null,
+        input.shopeeUrlPath ?? null,
         input.createdAtShopee ?? null,
         input.updatedAtShopee ?? null,
         now,

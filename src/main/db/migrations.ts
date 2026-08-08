@@ -169,6 +169,16 @@ const migrations: string[] = [
   `
   ALTER TABLE orders ADD COLUMN logistics_code INTEGER;
   CREATE INDEX idx_orders_logistics_code ON orders(logistics_code);
+  `,
+  // 7 — campos que o card já trazia e a listagem precisa para ser útil:
+  //     o texto que a Shopee usa para explicar o estado, forma de pagamento,
+  //     transportadora, destino e o link do pedido no Seller Center.
+  `
+  ALTER TABLE orders ADD COLUMN status_description TEXT;
+  ALTER TABLE orders ADD COLUMN payment_method TEXT;
+  ALTER TABLE orders ADD COLUMN carrier TEXT;
+  ALTER TABLE orders ADD COLUMN shipping_city TEXT;
+  ALTER TABLE orders ADD COLUMN shopee_url_path TEXT;
   `
 ]
 

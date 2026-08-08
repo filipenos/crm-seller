@@ -35,6 +35,22 @@ na sincronização até ser calibrado pelo **Configurações → Diagnóstico da
 
 ## 3. Planejado
 
+### 3.0 Página "Meu trabalho" — a mais usada (próxima a construir)
+
+**Separação que orienta o app inteiro:** a página **Pedidos** é *espelho da
+Shopee* — mostra o que a Shopee diz, sem controle nosso. Toda a organização do
+trabalho vive numa página separada.
+
+"Meu trabalho" mostra só os pedidos que ainda estão conosco: **entraram e não
+foram despachados**, ou seja, tudo que não está enviado — incluindo os que já
+têm etiqueta gerada e esperam ida ao ponto de coleta.
+
+É aqui que voltam as etapas de produção configuráveis, a personalização (nome
+da criança), as pastas e as ações. A página de Pedidos não tem mais nada disso.
+
+Ordenação natural: prazo de postagem (`ship_by_date`), porque estourar o prazo
+gera multa da Shopee.
+
 ### 3.1 Anúncios (Shopee Ads) e custo de anúncio por venda
 
 **Objetivo:** saber quanto se gasta em anúncio e quanto disso pesa em cada venda.

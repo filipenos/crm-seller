@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { Order, OrderTab, TabCounts, WorkflowStage } from '@shared/types'
-import {
-  LOGISTICS_READY_TO_POST,
-  MAIN_TABS,
-  ORDER_TAB_LABELS,
-  isWithUs
-} from '@shared/types'
+import type { Order, OrderTab, TabCounts } from '@shared/types'
+import { LOGISTICS_READY_TO_POST, MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
+
+/** Menos de 24h para postar: o prazo da Shopee vira multa se estourar. */
+function prazoApertado(shipByDate: number): boolean {
+  return shipByDate - Date.now() < 24 * 60 * 60 * 1000
+}
 
 interface Props {
   dataVersion: number
@@ -16,7 +16,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const [orders, setOrders] = useState<Order[]>([])
   const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>('TODOS')
   const [readyToPost, setReadyToPost] = useState(false)
-  const [stages, setStages] = useState<WorkflowStage[]>([])
   const [search, setSearch] = useState('')
   const [awaitingPayment, setAwaitingPayment] = useState(false)
   const [awaitingCount, setAwaitingCount] = useState(0)
@@ -28,7 +27,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     void window.api.orders.list({ tab: tabFilter, search, awaitingPayment, readyToPost: readyToPost || undefined }).then(setOrders)
     void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
     void window.api.orders.tabCounts().then(setCounts)
-    void window.api.stages.list().then(setStages)
   }, [tabFilter, search, awaitingPayment, readyToPost, dataVersion])
 
   const refresh = (): void => {
@@ -40,11 +38,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const showToast = (msg: string): void => {
     setToast(msg)
     setTimeout(() => setToast(null), 4000)
-  }
-
-  const handleStageChange = async (orderSn: string, stageId: number): Promise<void> => {
-    await window.api.orders.setStage(orderSn, stageId)
-    refresh()
   }
 
   const handleOpenFolder = async (orderSn: string): Promise<void> => {
@@ -125,6 +118,16 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
           {tabFilter === 'A_ENVIAR' && !readyToPost ? ` (${prontosParaPostar})` : ''}
         </button>
         <button
+          className={tabFilter === 'CANCELADO' ? 'active' : ''}
+          onClick={() => {
+            setTabFilter('CANCELADO')
+            limpaFiltros()
+          }}
+        >
+          {ORDER_TAB_LABELS.CANCELADO}
+          {semFiltro ? ` (${counts?.CANCELADO ?? 0})` : ''}
+        </button>
+        <button
           className={`awaiting-payment ${awaitingPayment ? 'active' : ''}`}
           title="Pedidos entregues cujo pagamento ainda não foi liberado pela Shopee"
           onClick={() => {
@@ -147,70 +150,89 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
           <thead>
             <tr>
               <th>Pedido</th>
-              <th>Comprador</th>
-              <th>Itens</th>
-              <th>Nome (person.)</th>
+              <th>Produto</th>
+              <th>Qtd</th>
+              <th>Valor pago</th>
+              <th>Postar até</th>
               <th>Situação</th>
-              <th>Etapa (produção)</th>
-              <th>Ações</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {orders.map((o) => (
               <tr key={o.orderSn} onClick={() => setSelected(o.orderSn)}>
-                <td className="mono">{o.orderSn}</td>
-                <td>{o.buyerName ?? o.buyerUsername ?? '-'}</td>
                 <td>
-                  {o.items.length === 0
-                    ? '-'
-                    : o.items.map((i) => `${i.quantity}x ${i.itemName}`).join(', ')}
+                  <div className="mono">{o.orderSn}</div>
+                  <small className="muted">
+                    {o.createdAtShopee
+                      ? new Date(o.createdAtShopee).toLocaleDateString('pt-BR')
+                      : '—'}
+                    {o.buyerName || o.buyerUsername ? ` · ${o.buyerName ?? o.buyerUsername}` : ''}
+                  </small>
                 </td>
-                <td>{o.childName ?? <span className="muted">—</span>}</td>
+                <td className="col-produto">
+                  {o.items.length === 0 ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    o.items.map((i) => (
+                      <div key={i.id}>
+                        <div className="produto-nome" title={i.itemName}>
+                          {i.itemName}
+                        </div>
+                        {/* "description" é a variação: "15 peças / 3 de cada modelo" */}
+                        {i.modelName && <small className="muted">{i.modelName}</small>}
+                      </div>
+                    ))
+                  )}
+                </td>
+                <td className="num">{o.items.reduce((soma, i) => soma + i.quantity, 0) || '—'}</td>
+                <td className="num">
+                  {o.totalAmount != null ? `R$ ${o.totalAmount.toFixed(2)}` : '—'}
+                  {o.paymentMethod && <small className="muted"> {o.paymentMethod}</small>}
+                </td>
                 <td>
-                  <span className={`phase-badge ph-${o.tab}`}>{o.shopeeStatus ?? ORDER_TAB_LABELS[o.tab]}</span>
-                  {o.logisticsCode === LOGISTICS_READY_TO_POST && (
-                    <div className="ready-tag">🏷️ etiqueta gerada</div>
-                  )}
-                  {o.logisticsStatus && (
-                    <div className="logistics-status" title={o.logisticsStatus}>
-                      🚚 {o.logisticsStatus}
-                    </div>
-                  )}
-                  <div className="order-flags">
-                    {o.ratingStar != null && (
-                      <span title={`Avaliado: ${o.ratingStar}/5`}>⭐{o.ratingStar}</span>
-                    )}
-                    {o.escrowReleasedAt && (
-                      <span title="Pagamento liberado pela Shopee">💰</span>
-                    )}
-                  </div>
-                </td>
-                <td onClick={(e) => e.stopPropagation()}>
-                  {/* Etapa de produção só faz sentido enquanto o pedido está
-                      conosco; depois de postado quem descreve é a Shopee. */}
-                  {isWithUs(o.tab) ? (
-                    <select
-                      className="status-select"
-                      style={o.stageColor ? { borderLeft: `4px solid ${o.stageColor}` } : undefined}
-                      value={o.stageId ?? ''}
-                      onChange={(e) => handleStageChange(o.orderSn, Number(e.target.value))}
-                    >
-                      {o.stageId === null && <option value="">— sem etapa —</option>}
-                      {stages.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
+                  {o.shipByDate ? (
+                    <span className={prazoApertado(o.shipByDate) ? 'prazo-curto' : ''}>
+                      {new Date(o.shipByDate).toLocaleDateString('pt-BR')}
+                    </span>
                   ) : (
                     <span className="muted">—</span>
                   )}
                 </td>
+                <td>
+                  <span className={`phase-badge ph-${o.tab}`}>
+                    {o.shopeeStatus ?? ORDER_TAB_LABELS[o.tab]}
+                  </span>
+                  {o.logisticsCode === LOGISTICS_READY_TO_POST && (
+                    <div className="ready-tag">🏷️ etiqueta gerada</div>
+                  )}
+                  {o.statusDescription && (
+                    <small className="muted" title={o.statusDescription}>
+                      {o.statusDescription}
+                    </small>
+                  )}
+                  <div className="order-flags">
+                    {o.shippingCity && <span className="muted">📍 {o.shippingCity}</span>}
+                    {o.ratingStar != null && (
+                      <span title={`Avaliado: ${o.ratingStar}/5`}>⭐{o.ratingStar}</span>
+                    )}
+                    {o.escrowReleasedAt && <span title="Pagamento liberado">💰</span>}
+                  </div>
+                </td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <div className="row-actions">
-                    <button title="Abrir pasta do pedido" onClick={() => handleOpenFolder(o.orderSn)}>
-                      📁
-                    </button>
+                    {o.shopeeUrlPath && (
+                      <button
+                        title="Abrir este pedido no Seller Center"
+                        onClick={() =>
+                          window.api.shell.openExternal(
+                            `https://seller.shopee.com.br${o.shopeeUrlPath}`
+                          )
+                        }
+                      >
+                        ↗
+                      </button>
+                    )}
                     <button
                       title="Atualizar rastreio deste pedido"
                       onClick={() => handleRefreshTracking(o.orderSn)}

@@ -16,10 +16,38 @@ function dumpDir(): string {
   return join(app.getPath('userData'), 'pedidos-json')
 }
 
+function historyDir(): string {
+  return join(dumpDir(), 'historico')
+}
+
+/**
+ * Guarda o JSON do pedido, versionando quando ele muda.
+ *
+ * A versão anterior vai para `historico/` porque o card **é reescrito** a cada
+ * mudança de estado: quando um pedido é postado, o formato de "a enviar com
+ * etiqueta" some para sempre. Guardar o antes é o que permite entender
+ * transições — e foi olhando dois estados lado a lado que o campo da etiqueta
+ * apareceu.
+ */
 export async function saveOrderDump(orderId: string, card: unknown): Promise<void> {
   const dir = dumpDir()
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, `${orderId}.json`), JSON.stringify(card, null, 2), 'utf8')
+  const file = join(dir, `${orderId}.json`)
+  const novo = JSON.stringify(card, null, 2)
+
+  try {
+    const anterior = await readFile(file, 'utf8')
+    if (anterior !== novo) {
+      await mkdir(historyDir(), { recursive: true })
+      // Carimbo no nome para nunca sobrescrever uma versão histórica.
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      await writeFile(join(historyDir(), `${orderId}-${stamp}.json`), anterior, 'utf8')
+    }
+  } catch {
+    // Primeiro dump deste pedido: não há o que versionar.
+  }
+
+  await writeFile(file, novo, 'utf8')
 }
 
 export function dumpPath(): string {

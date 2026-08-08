@@ -914,3 +914,16 @@ code {
   border-color: #7c3aed;
   color: #fff;
 }
+
+/* Listagem de pedidos: espelho da Shopee, densa mas legível. */
+.orders-table .col-produto { max-width: 320px; }
+.orders-table .produto-nome {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+.orders-table .num { text-align: right; white-space: nowrap; }
+/* Prazo de postagem estourando: é o que gera multa da Shopee. */
+.prazo-curto { color: #b91c1c; font-weight: 700; }

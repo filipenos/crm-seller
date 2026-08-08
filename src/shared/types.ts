@@ -109,6 +109,12 @@ export interface Order {
   tab: OrderTab
   /** Código de progresso de envio do card; separa etiquetado de aguardando. */
   logisticsCode: number | null
+  /** Explicação da Shopee para o estado atual. */
+  statusDescription: string | null
+  paymentMethod: string | null
+  carrier: string | null
+  shippingCity: string | null
+  shopeeUrlPath: string | null
   /** Etapa de produção cadastrada. Só faz sentido enquanto está conosco. */
   stageId: number | null
   stageName: string | null

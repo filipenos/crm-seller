@@ -35,6 +35,15 @@ export interface NormalizedShopeeOrder {
   createdAtShopee: number | null
   /** `order_ext_info.logistics_status`: 1 etiquetado · 9 aguardando · 2 enviado. */
   logisticsCode: number | null
+  /** Texto da Shopee explicando o estado ("Pendente confirmação de postagem…"). */
+  statusDescription: string | null
+  paymentMethod: string | null
+  /** Transportadora ("Shopee Xpress CPF"). */
+  carrier: string | null
+  /** Cidade/estado do comprador — o endereço completo vem mascarado. */
+  shippingCity: string | null
+  /** Caminho do pedido no Seller Center, para abrir direto lá. */
+  shopeeUrlPath: string | null
   updatedAtShopee: number | null
   rawJson: string
   items: {
@@ -159,6 +168,21 @@ function dateFromOrderSn(orderSn: string): number | null {
   const day = Number(dd)
   if (month < 1 || month > 12 || day < 1 || day > 31) return null
   return Date.UTC(year, month - 1, day)
+}
+
+/**
+ * Cidade e estado a partir do endereço completo, que vem como uma string só:
+ * "Rua Exemplo, 100, Apto 2, Cidade, Estado, 00000000".
+ * Os dois campos antes do CEP são cidade e estado.
+ */
+function cityFromAddress(address: string | null): string | null {
+  if (!address) return null
+  const parts = address.split(',').map((p) => p.trim()).filter(Boolean)
+  if (parts.length < 3) return null
+  const semCep = parts[parts.length - 1].replace(/\D/g, '').length >= 8 ? parts.slice(0, -1) : parts
+  const estado = semCep[semCep.length - 1]
+  const cidade = semCep[semCep.length - 2]
+  return cidade && estado ? `${cidade}/${estado}` : null
 }
 
 /** Timestamps da Shopee vêm em segundos; normaliza para ms. */
@@ -423,6 +447,13 @@ export function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
     trackingNumber,
     shipByDate: toMs(pickNumber(ext, ['ship_by_date'])),
     logisticsCode: pickNumber(ext, ['logistics_status']),
+    statusDescription: pickString(statusInfo, ['status_description.description_value']),
+    paymentMethod: pickString(payment, ['payment_method']),
+    carrier: pickString(fulfilment, ['fulfilment_channel_name']) ??
+      pickString((firstPkg.fulfilment_info as AnyObj) ?? {}, ['fulfilment_channel_name']),
+    // O endereço vem inteiro numa string; só a cidade/estado interessa aqui.
+    shippingCity: cityFromAddress(pickString(pkgExt, ['shipping_address'])),
+    shopeeUrlPath: pickString(ext, ['odp_url_path_query'])?.trim() ?? null,
     createdAtShopee: toMs(pickNumber(ext, ['create_time', 'pay_time'])) ?? dateFromOrderSn(orderSn),
     updatedAtShopee: null,
     rawJson: JSON.stringify(card),
