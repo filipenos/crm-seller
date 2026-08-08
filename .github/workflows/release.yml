@@ -62,9 +62,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "v$((Get-Content package.json | ConvertFrom-Json).version)"
-          $assets = gh release view $tag --json assets --jq '.assets[].name'
+          # -join é essencial: sobre um array, o -match do PowerShell devolve os
+          # elementos que casam, não um booleano — e array não-vazio é sempre
+          # "verdadeiro", o que fazia a checagem falhar com os artefatos certos.
+          $assets = (gh release view $tag --json assets --jq '.assets[].name') -join ' '
           Write-Host "Artefatos: $assets"
-          if ($assets -notmatch '\.exe$' -and $assets -notmatch '\.exe\s') {
+          if ($assets -notmatch '\.exe(\s|$)') {
             throw "Release $tag sem o instalador .exe"
           }
           if ($assets -notmatch 'latest\.yml') {
