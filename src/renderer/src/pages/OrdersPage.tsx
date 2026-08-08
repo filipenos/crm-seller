@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { InternalStatus, Order } from '@shared/types'
-import { INTERNAL_STATUSES, INTERNAL_STATUS_LABELS } from '@shared/types'
+import type { Order, OrderPhase, WorkflowStage } from '@shared/types'
+import { ORDER_PHASES, ORDER_PHASE_LABELS, isWithUs } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
 
 interface Props {
@@ -9,7 +9,8 @@ interface Props {
 
 export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const [orders, setOrders] = useState<Order[]>([])
-  const [statusFilter, setStatusFilter] = useState<InternalStatus | 'TODOS'>('TODOS')
+  const [phaseFilter, setPhaseFilter] = useState<OrderPhase | 'TODOS'>('TODOS')
+  const [stages, setStages] = useState<WorkflowStage[]>([])
   const [search, setSearch] = useState('')
   const [awaitingPayment, setAwaitingPayment] = useState(false)
   const [awaitingCount, setAwaitingCount] = useState(0)
@@ -17,16 +18,13 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
-    void window.api.orders
-      .list({ internalStatus: statusFilter, search, awaitingPayment })
-      .then(setOrders)
+    void window.api.orders.list({ phase: phaseFilter, search, awaitingPayment }).then(setOrders)
     void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
-  }, [statusFilter, search, awaitingPayment, dataVersion])
+    void window.api.stages.list().then(setStages)
+  }, [phaseFilter, search, awaitingPayment, dataVersion])
 
   const refresh = (): void => {
-    void window.api.orders
-      .list({ internalStatus: statusFilter, search, awaitingPayment })
-      .then(setOrders)
+    void window.api.orders.list({ phase: phaseFilter, search, awaitingPayment }).then(setOrders)
     void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
   }
 
@@ -35,8 +33,8 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     setTimeout(() => setToast(null), 4000)
   }
 
-  const handleStatusChange = async (orderSn: string, status: InternalStatus): Promise<void> => {
-    await window.api.orders.setStatus(orderSn, status)
+  const handleStageChange = async (orderSn: string, stageId: number): Promise<void> => {
+    await window.api.orders.setStage(orderSn, stageId)
     refresh()
   }
 
@@ -67,7 +65,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   }
 
   const counts = new Map<string, number>()
-  for (const o of orders) counts.set(o.internalStatus, (counts.get(o.internalStatus) ?? 0) + 1)
+  for (const o of orders) counts.set(o.phase, (counts.get(o.phase) ?? 0) + 1)
 
   return (
     <div className="page orders-page">
@@ -83,19 +81,19 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
 
       <div className="status-tabs">
         <button
-          className={statusFilter === 'TODOS' ? 'active' : ''}
-          onClick={() => setStatusFilter('TODOS')}
+          className={phaseFilter === 'TODOS' ? 'active' : ''}
+          onClick={() => setPhaseFilter('TODOS')}
         >
           Todos
         </button>
-        {INTERNAL_STATUSES.map((s) => (
+        {ORDER_PHASES.map((p) => (
           <button
-            key={s}
-            className={statusFilter === s ? 'active' : ''}
-            onClick={() => setStatusFilter(s)}
+            key={p}
+            className={phaseFilter === p ? 'active' : ''}
+            onClick={() => setPhaseFilter(p)}
           >
-            {INTERNAL_STATUS_LABELS[s]}
-            {statusFilter === 'TODOS' && counts.get(s) ? ` (${counts.get(s)})` : ''}
+            {ORDER_PHASE_LABELS[p]}
+            {phaseFilter === 'TODOS' && counts.get(p) ? ` (${counts.get(p)})` : ''}
           </button>
         ))}
         <button
@@ -120,8 +118,8 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
               <th>Comprador</th>
               <th>Itens</th>
               <th>Nome (person.)</th>
-              <th>Shopee</th>
-              <th>Status interno</th>
+              <th>Fase</th>
+              <th>Etapa (produção)</th>
               <th>Ações</th>
             </tr>
           </thead>
@@ -137,34 +135,41 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                 </td>
                 <td>{o.childName ?? <span className="muted">—</span>}</td>
                 <td>
-                  <span className="shopee-status">{o.shopeeStatus ?? '-'}</span>
+                  <span className={`phase-badge ph-${o.phase}`}>{ORDER_PHASE_LABELS[o.phase]}</span>
                   {o.logisticsStatus && (
                     <div className="logistics-status" title={o.logisticsStatus}>
                       🚚 {o.logisticsStatus}
                     </div>
                   )}
                   <div className="order-flags">
-                    {o.deliveredAt && <span title="Entregue">✅</span>}
                     {o.ratingStar != null && (
                       <span title={`Avaliado: ${o.ratingStar}/5`}>⭐{o.ratingStar}</span>
                     )}
-                    {o.escrowReleasedAt && <span title="Pagamento recebido">💰</span>}
+                    <span className="muted" title="Status na Shopee">
+                      {o.shopeeStatus ?? ''}
+                    </span>
                   </div>
                 </td>
                 <td onClick={(e) => e.stopPropagation()}>
-                  <select
-                    className={`status-select st-${o.internalStatus}`}
-                    value={o.internalStatus}
-                    onChange={(e) =>
-                      handleStatusChange(o.orderSn, e.target.value as InternalStatus)
-                    }
-                  >
-                    {INTERNAL_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {INTERNAL_STATUS_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
+                  {/* Etapa de produção só faz sentido enquanto o pedido está
+                      conosco; depois de postado quem descreve é a fase. */}
+                  {isWithUs(o.phase) ? (
+                    <select
+                      className="status-select"
+                      style={o.stageColor ? { borderLeft: `4px solid ${o.stageColor}` } : undefined}
+                      value={o.stageId ?? ''}
+                      onChange={(e) => handleStageChange(o.orderSn, Number(e.target.value))}
+                    >
+                      {o.stageId === null && <option value="">— sem etapa —</option>}
+                      {stages.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
                 </td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <div className="row-actions">

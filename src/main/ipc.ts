@@ -1,5 +1,11 @@
 import { app, dialog, ipcMain, shell } from 'electron'
-import type { ActionResult, AppSettings, InternalStatus, OrderFilters } from '@shared/types'
+import type {
+  ActionResult,
+  AppSettings,
+  InternalStatus,
+  OrderFilters,
+  StageActionKind
+} from '@shared/types'
 import { getSettings, updateSettings } from './services/settings'
 import {
   countAwaitingPayment,
@@ -8,8 +14,19 @@ import {
   listOrders,
   setChildName,
   setInternalStatus,
-  setNote
+  setNote,
+  setOrderStage
 } from './services/orders'
+import {
+  addAction,
+  createStage,
+  deleteStage,
+  listStages,
+  nextStageId,
+  removeAction,
+  reorderStages,
+  updateStage
+} from './services/stages'
 import {
   listConversations,
   listMessagesByConversation,
@@ -73,7 +90,26 @@ export function registerIpcHandlers(): void {
     await ensureFolderName(orderSn)
     return order
   })
+  ipcMain.handle('orders:setStage', (_e, orderSn: string, stageId: number) =>
+    setOrderStage(orderSn, stageId)
+  )
   ipcMain.handle('orders:setNote', (_e, orderSn: string, note: string) => setNote(orderSn, note))
+
+  // Etapas de produção cadastráveis
+  ipcMain.handle('stages:list', () => listStages())
+  ipcMain.handle('stages:create', (_e, name: string, color: string | null) =>
+    createStage(name, color)
+  )
+  ipcMain.handle('stages:update', (_e, id: number, patch: { name?: string; color?: string | null }) =>
+    updateStage(id, patch)
+  )
+  ipcMain.handle('stages:delete', (_e, id: number) => deleteStage(id))
+  ipcMain.handle('stages:reorder', (_e, orderedIds: number[]) => reorderStages(orderedIds))
+  ipcMain.handle('stages:addAction', (_e, stageId: number, kind: StageActionKind, label: string) =>
+    addAction(stageId, kind, label)
+  )
+  ipcMain.handle('stages:removeAction', (_e, actionId: number) => removeAction(actionId))
+  ipcMain.handle('stages:next', (_e, currentStageId: number | null) => nextStageId(currentStageId))
   ipcMain.handle('orders:statusHistory', (_e, orderSn: string) => getStatusHistory(orderSn))
   ipcMain.handle('orders:createFolder', (_e, orderSn: string) => createOrderFolder(orderSn))
   ipcMain.handle('orders:openFolder', (_e, orderSn: string) => openOrderFolder(orderSn))

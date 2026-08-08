@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ActionResult, AppSettings, UpdateStatus } from '@shared/types'
+import StageEditor from '../components/StageEditor'
 
 interface Props {
   onStatusChange: () => void
@@ -93,6 +94,16 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
       </section>
 
       <section className="settings-card">
+        <h3>Etapas de produção</h3>
+        <p className="muted">
+          Seu fluxo enquanto o pedido está <b>conosco</b> — depois de postado no ponto de coleta,
+          quem descreve o pedido é o rastreio da Shopee. Cada etapa pode ter ações, que viram
+          botões no pedido.
+        </p>
+        <StageEditor />
+      </section>
+
+      <section className="settings-card">
         <h3>Pastas</h3>
         <div className="setting-row">
           <label>Pasta raiz dos pedidos</label>
@@ -121,17 +132,33 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
 
       <section className="settings-card">
         <h3>Sincronização</h3>
+        <p className="muted">
+          Por padrão o app só sincroniza quando você clica em <b>Sincronizar</b>. As APIs da
+          Shopee são internas e sem cota publicada — ligue o automático só se precisar.
+        </p>
         <div className="setting-row">
-          <label>Intervalo automático (minutos)</label>
-          <input
-            type="number"
-            min={1}
-            max={120}
-            value={settings.syncIntervalMinutes}
-            onChange={(e) => update({ syncIntervalMinutes: Number(e.target.value) || 5 })}
-            style={{ width: 100 }}
-          />
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.autoSyncEnabled}
+              onChange={(e) => update({ autoSyncEnabled: e.target.checked })}
+            />{' '}
+            Sincronizar automaticamente
+          </label>
         </div>
+        {settings.autoSyncEnabled && (
+          <div className="setting-row">
+            <label>Intervalo (minutos)</label>
+            <input
+              type="number"
+              min={5}
+              max={240}
+              value={settings.syncIntervalMinutes}
+              onChange={(e) => update({ syncIntervalMinutes: Number(e.target.value) || 15 })}
+              style={{ width: 100 }}
+            />
+          </div>
+        )}
         <div className="setting-row">
           <label>Domínio Shopee</label>
           <input

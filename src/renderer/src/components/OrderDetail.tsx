@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import type {
   ChatMessage,
-  InternalStatus,
   Order,
   OrderEvent,
-  StatusHistoryEntry
+  StageAction,
+  StatusHistoryEntry,
+  WorkflowStage
 } from '@shared/types'
-import { INTERNAL_STATUSES, INTERNAL_STATUS_LABELS } from '@shared/types'
+import { ORDER_PHASE_LABELS, isWithUs } from '@shared/types'
 
 const EVENT_ICONS: Record<OrderEvent['source'], string> = {
   logistics: '🚚',
@@ -28,6 +29,7 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
   const [events, setEvents] = useState<OrderEvent[]>([])
   const [childName, setChildName] = useState('')
   const [note, setNote] = useState('')
+  const [stages, setStages] = useState<WorkflowStage[]>([])
 
   const load = async (): Promise<void> => {
     const o = await window.api.orders.get(orderSn)
@@ -37,6 +39,7 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
     setMessages(await window.api.messages.byOrder(orderSn))
     setHistory(await window.api.orders.statusHistory(orderSn))
     setEvents(await window.api.events.byOrder(orderSn))
+    setStages(await window.api.stages.list())
   }
 
   useEffect(() => {
@@ -57,10 +60,46 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
     onToast('Observação salva')
   }
 
-  const setStatus = async (status: InternalStatus): Promise<void> => {
-    await window.api.orders.setStatus(orderSn, status)
+  const setStage = async (stageId: number): Promise<void> => {
+    await window.api.orders.setStage(orderSn, stageId)
     void load()
   }
+
+  /** Executa a ação cadastrada na etapa. */
+  const runAction = async (action: StageAction): Promise<void> => {
+    switch (action.kind) {
+      case 'CRIAR_PASTA': {
+        const r = await window.api.orders.createFolder(orderSn)
+        onToast(r.ok ? `Pasta criada: ${r.path}` : `Erro: ${r.error}`)
+        break
+      }
+      case 'ABRIR_PASTA': {
+        const r = await window.api.orders.openFolder(orderSn)
+        if (!r.ok) onToast(`Erro: ${r.error}`)
+        break
+      }
+      case 'GERAR_ETIQUETA': {
+        onToast('Gerando etiqueta…')
+        const r = await window.api.orders.generateLabel(orderSn)
+        onToast(r.ok ? `Etiqueta salva em ${r.path}` : `Erro: ${r.error}`)
+        break
+      }
+      case 'ABRIR_MENSAGENS': {
+        const el = document.getElementById('secao-mensagens')
+        el?.scrollIntoView({ behavior: 'smooth' })
+        break
+      }
+      case 'AVANCAR': {
+        const next = await window.api.stages.next(order?.stageId ?? null)
+        if (next === null) onToast('Já está na última etapa')
+        else await setStage(next)
+        break
+      }
+    }
+    void load()
+  }
+
+  const currentStage = stages.find((s) => s.id === order.stageId)
 
   const useAsName = (text: string): void => {
     setChildName(text.trim())
@@ -84,19 +123,48 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
         </header>
 
         <section>
-          <h3>Status interno</h3>
-          <div className="status-buttons">
-            {INTERNAL_STATUSES.map((s) => (
-              <button
-                key={s}
-                className={`badge-btn st-${s} ${order.internalStatus === s ? 'current' : ''}`}
-                onClick={() => setStatus(s)}
-              >
-                {INTERNAL_STATUS_LABELS[s]}
-              </button>
-            ))}
+          <h3>Fase</h3>
+          <div className={`phase-badge big ph-${order.phase}`}>
+            {ORDER_PHASE_LABELS[order.phase]}
           </div>
+          {order.logisticsStatus && (
+            <div className="muted">🚚 {order.logisticsStatus}</div>
+          )}
         </section>
+
+        {isWithUs(order.phase) ? (
+          <section>
+            <h3>Etapa de produção</h3>
+            <div className="status-buttons">
+              {stages.map((s) => (
+                <button
+                  key={s.id}
+                  className={`badge-btn ${order.stageId === s.id ? 'current' : ''}`}
+                  style={s.color ? { borderLeft: `4px solid ${s.color}` } : undefined}
+                  onClick={() => setStage(s.id)}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+            {currentStage && currentStage.actions.length > 0 && (
+              <div className="action-buttons">
+                {currentStage.actions.map((a) => (
+                  <button key={a.id} onClick={() => runAction(a)}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : (
+          <section>
+            <p className="muted">
+              O pedido já saiu daqui — a produção terminou quando ele foi postado. Agora só o
+              rastreio e o pagamento mudam de estado.
+            </p>
+          </section>
+        )}
 
         <section>
           <h3>Personalização</h3>
@@ -237,7 +305,7 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
           )}
         </section>
 
-        <section>
+        <section id="secao-mensagens">
           <h3>Mensagens do cliente</h3>
           <div className="chat">
             {messages.length === 0 && (

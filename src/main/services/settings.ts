@@ -8,7 +8,8 @@ function defaults(): AppSettings {
   return {
     ordersRootDir: join(docs, 'CRM Seller', 'Pedidos'),
     templatesDir: join(docs, 'CRM Seller', 'Templates'),
-    syncIntervalMinutes: 5,
+    autoSyncEnabled: false,
+    syncIntervalMinutes: 15,
     shopeeBaseDomain: 'shopee.com.br',
     // Vazio: usa o repositório gravado no instalador pelo electron-builder.
     githubRepo: ''

@@ -97,6 +97,24 @@ descobrir os reais: `services/shopee/probe.ts`, exposto em
 Normalizações que valem para toda resposta da Shopee: `toMs` (timestamps vêm em
 segundos) e `toMoney` (valores são micro-unidades inteiras — 7810000 = 78,10).
 
+### Fases do pedido vs. etapas de produção
+
+São dois eixos diferentes, e confundi-los é o erro fácil aqui:
+
+- **Fase** (`OrderPhase`, derivada, nunca editada à mão): conosco → postado →
+  coletado → em trânsito → saiu para entrega → entregue → pago. Sai dos
+  checkpoints do rastreio (`services/phases.ts`, casamento por padrão de texto,
+  porque a Shopee reescreve as frases) e **só avança** — checkpoint atrasado não
+  faz o pedido voltar. Cancelamento e pagamento passam por cima do rastreio.
+  Quando não há rastreio, a fase é aproximada pelo status do card, o que evita
+  puxar rastreio de centenas de pedidos só para descobrir o que já se sabe.
+- **Etapa** (`workflow_stages`, cadastrada pelo usuário): o fluxo de produção
+  interno, com ações configuráveis por etapa (`stage_actions`). **Só vale
+  enquanto a fase é CONOSCO** — depois de postado, a UI esconde a etapa.
+
+O `internal_status` original continua na tabela por causa do histórico; quem
+manda hoje é `stage_id`.
+
 ### Banco
 
 SQLite em `app.getPath('userData')`, WAL. Migrações são um array de strings em

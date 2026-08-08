@@ -18,6 +18,7 @@ import {
 } from '../orders'
 import { upsertConversation, upsertMessage } from '../messages'
 import { recordEvent } from '../events'
+import { phaseFromCheckpoints } from '../phases'
 import { getSettings } from '../settings'
 
 /** Palavras que indicam entrega concluída num checkpoint de rastreio. */
@@ -192,7 +193,8 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
     }
     const latest = checkpoints.reduce((a, b) => (a.happenedAt > b.happenedAt ? a : b))
     const delivered = checkpoints.find((c) => DELIVERED_PATTERN.test(c.description))
-    setLogisticsStatus(orderSn, latest.description, delivered?.happenedAt ?? null)
+    const phase = phaseFromCheckpoints(checkpoints.map((c) => c.description))
+    setLogisticsStatus(orderSn, latest.description, delivered?.happenedAt ?? null, phase)
 
     let newEvents = 0
     for (const c of checkpoints) {
@@ -220,9 +222,19 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
   }
 }
 
+/**
+ * Agendador da sincronização. Só liga quando o usuário pede explicitamente
+ * (`autoSyncEnabled`); o padrão é sincronizar apenas pelo botão.
+ */
 export function startSyncScheduler(): void {
   stopSyncScheduler()
-  const minutes = Math.max(1, getSettings().syncIntervalMinutes)
+  const settings = getSettings()
+  if (!settings.autoSyncEnabled) {
+    console.log('[sync] automático desligado — sincronize pelo botão')
+    return
+  }
+  const minutes = Math.max(1, settings.syncIntervalMinutes)
+  console.log(`[sync] automático ligado, a cada ${minutes} min`)
   timer = setInterval(() => {
     void syncAll()
   }, minutes * 60 * 1000)

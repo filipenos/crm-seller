@@ -3,8 +3,27 @@ import { getSettings } from '../settings'
 
 export const SHOPEE_PARTITION = 'persist:shopee'
 
+/** Para onde o Seller Center joga o usuário quando a sessão morre. */
+const LOGIN_URL_PATTERN = /accounts\.shopee\.[^/]+|\/seller\/login|\/buyer\/login/i
+
 let hiddenWindow: BrowserWindow | null = null
 let loginWindow: BrowserWindow | null = null
+
+/**
+ * Sessão expirada. Merece um tipo próprio porque o sintoma é enganoso: a
+ * navegação "funciona" (redireciona para o login) e todo endpoint parece não
+ * existir, o que faz qualquer diagnóstico concluir a coisa errada.
+ */
+export class ShopeeSessionExpiredError extends Error {
+  constructor(detail?: string) {
+    super(
+      'Sessão da Shopee expirada — o Seller Center redirecionou para o login.' +
+        ' Abra Configurações → Conectar e entre de novo.' +
+        (detail ? ` (${detail})` : '')
+    )
+    this.name = 'ShopeeSessionExpiredError'
+  }
+}
 
 /**
  * Erro devolvido pela própria Shopee (código + mensagem da API), em oposição a
@@ -128,7 +147,16 @@ export async function openLoginWindow(): Promise<void> {
 }
 
 async function ensureHiddenWindow(): Promise<BrowserWindow> {
-  if (hiddenWindow && !hiddenWindow.isDestroyed()) return hiddenWindow
+  if (hiddenWindow && !hiddenWindow.isDestroyed()) {
+    // A janela é reaproveitada entre chamadas, e o fetch usa caminho relativo:
+    // se ela tiver derivado para outro host (redirecionamento de login), as
+    // chamadas iriam para o domínio errado em vez de falhar.
+    const current = hiddenWindow.webContents.getURL()
+    if (current.startsWith(sellerBaseUrl())) return hiddenWindow
+    if (LOGIN_URL_PATTERN.test(current)) throw new ShopeeSessionExpiredError(current)
+    await hiddenWindow.loadURL(sellerBaseUrl())
+    return hiddenWindow
+  }
   hiddenWindow = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -139,6 +167,9 @@ async function ensureHiddenWindow(): Promise<BrowserWindow> {
     }
   })
   await hiddenWindow.loadURL(sellerBaseUrl())
+  if (LOGIN_URL_PATTERN.test(hiddenWindow.webContents.getURL())) {
+    throw new ShopeeSessionExpiredError()
+  }
   return hiddenWindow
 }
 
@@ -273,6 +304,30 @@ export async function pageFetchText(path: string): Promise<{ status: number; tex
   }
 }
 
+/**
+ * Lê os links internos que o portal expõe no menu.
+ *
+ * Vale uma navegação só e substitui a adivinhação de caminho de página — que
+ * custava um carregamento de SPA por palpite errado. Se o menu não render,
+ * devolve lista vazia e o chamador cai nos candidatos fixos.
+ */
+export async function collectPortalLinks(waitMs = 6000): Promise<string[]> {
+  const win = await ensureHiddenWindow()
+  await new Promise((resolve) => setTimeout(resolve, waitMs))
+  const links = (await win.webContents.executeJavaScript(
+    `Array.from(document.querySelectorAll('a[href]'), (a) => a.getAttribute('href'))`,
+    true
+  )) as (string | null)[]
+  const unique = new Set<string>()
+  for (const href of links) {
+    if (!href) continue
+    // Só caminhos internos do portal; externos e âncoras não interessam.
+    const path = href.startsWith('http') ? new URL(href).pathname : href.split('?')[0]
+    if (path.startsWith('/portal/') || path.startsWith('/webchat')) unique.add(path)
+  }
+  return [...unique]
+}
+
 export interface CapturedRequest {
   url: string
   method: string
@@ -315,7 +370,20 @@ export async function capturePageRequests(
   })
   try {
     const win = await ensureHiddenWindow()
-    await win.loadURL(sellerBaseUrl() + path)
+    try {
+      await win.loadURL(sellerBaseUrl() + path)
+    } catch (err) {
+      // Uma navegação abortada deixa a janela num estado em que TODAS as
+      // seguintes falham com ERR_FAILED. Destruir força a próxima captura a
+      // começar numa janela limpa, em vez de derrubar o diagnóstico inteiro.
+      destroyHiddenWindow()
+      throw err
+    }
+    // Redirecionou para o login: sem isto, o relatório conclui "essa página
+    // não existe" para todas as páginas, que é exatamente a leitura errada.
+    if (LOGIN_URL_PATTERN.test(win.webContents.getURL())) {
+      throw new ShopeeSessionExpiredError(path)
+    }
     await new Promise((resolve) => setTimeout(resolve, waitMs))
   } finally {
     ses.webRequest.onBeforeRequest(null)
@@ -354,14 +422,26 @@ export async function replayRequest(req: {
   }
 }
 
-/** Considera conectado quando existe algum cookie de sessão do Seller Center. */
+const SESSION_COOKIES = ['SPC_SC_TK', 'SPC_SC_SESSION', 'SPC_ST']
+
+/**
+ * Conectado = existe cookie de sessão do Seller Center **ainda válido**.
+ *
+ * Só a presença não basta: cookie vencido continua no disco e fazia o app
+ * anunciar "conectado" enquanto toda navegação era redirecionada para o login.
+ * Isso não pega sessão revogada do lado da Shopee — para essa, quem avisa é o
+ * `ShopeeSessionExpiredError` na primeira navegação.
+ */
 export async function isConnected(): Promise<boolean> {
   const ses = electronSession.fromPartition(SHOPEE_PARTITION)
   const cookies = await ses.cookies.get({})
+  const nowSeconds = Date.now() / 1000
   const connected = cookies.some(
     (c) =>
-      (c.name === 'SPC_SC_TK' || c.name === 'SPC_SC_SESSION' || c.name === 'SPC_ST') &&
-      c.value.length > 0
+      SESSION_COOKIES.includes(c.name) &&
+      c.value.length > 0 &&
+      // Sem expirationDate = cookie de sessão, vale enquanto a partition viver.
+      (c.expirationDate === undefined || c.expirationDate > nowSeconds)
   )
   if (!connected) {
     console.log(

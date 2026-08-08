@@ -9,7 +9,9 @@ import type {
   OrderEvent,
   OrderFilters,
   ShopeeConnectionStatus,
+  StageActionKind,
   StatusHistoryEntry,
+  WorkflowStage,
   SyncResult,
   TrackingRefreshResult,
   UpdateStatus
@@ -44,6 +46,8 @@ const api = {
       ipcRenderer.invoke('orders:setStatus', orderSn, status),
     setChildName: (orderSn: string, name: string): Promise<Order | null> =>
       ipcRenderer.invoke('orders:setChildName', orderSn, name),
+    setStage: (orderSn: string, stageId: number): Promise<Order | null> =>
+      ipcRenderer.invoke('orders:setStage', orderSn, stageId),
     setNote: (orderSn: string, note: string): Promise<Order | null> =>
       ipcRenderer.invoke('orders:setNote', orderSn, note),
     statusHistory: (orderSn: string): Promise<StatusHistoryEntry[]> =>
@@ -56,6 +60,22 @@ const api = {
       ipcRenderer.invoke('orders:generateLabel', orderSn),
     refreshTracking: (orderSn: string): Promise<TrackingRefreshResult> =>
       ipcRenderer.invoke('orders:refreshTracking', orderSn)
+  },
+  stages: {
+    list: (): Promise<WorkflowStage[]> => ipcRenderer.invoke('stages:list'),
+    create: (name: string, color: string | null): Promise<WorkflowStage[]> =>
+      ipcRenderer.invoke('stages:create', name, color),
+    update: (id: number, patch: { name?: string; color?: string | null }): Promise<WorkflowStage[]> =>
+      ipcRenderer.invoke('stages:update', id, patch),
+    remove: (id: number): Promise<WorkflowStage[]> => ipcRenderer.invoke('stages:delete', id),
+    reorder: (orderedIds: number[]): Promise<WorkflowStage[]> =>
+      ipcRenderer.invoke('stages:reorder', orderedIds),
+    addAction: (stageId: number, kind: StageActionKind, label: string): Promise<WorkflowStage[]> =>
+      ipcRenderer.invoke('stages:addAction', stageId, kind, label),
+    removeAction: (actionId: number): Promise<WorkflowStage[]> =>
+      ipcRenderer.invoke('stages:removeAction', actionId),
+    next: (currentStageId: number | null): Promise<number | null> =>
+      ipcRenderer.invoke('stages:next', currentStageId)
   },
   events: {
     list: (opts: { onlyUnseen?: boolean; limit?: number }): Promise<OrderEvent[]> =>

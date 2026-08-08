@@ -536,20 +536,22 @@ export async function fetchTrackingInfo(
   orderSn: string,
   orderId: string | null
 ): Promise<TrackingCheckpoint[]> {
+  // Confirmados por captura na página do pedido: ambos exigem order_id
+  // numérico (order_sn não serve) e devolvem o histórico de checkpoints.
+  if (!orderId) {
+    throw new Error(
+      `Pedido ${orderSn} sem order_id da Shopee — sincronize os pedidos antes de rastrear.`
+    )
+  }
   const cds = await getSpcCds()
   return tryCandidates<TrackingCheckpoint>(
     `rastreio de ${orderSn}`,
     [
-      ...(orderId
-        ? [
-            {
-              url: `/api/v3/logistics/get_tracking_info?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${orderId}`
-            }
-          ]
-        : []),
-      { url: `/api/v3/logistics/get_tracking_info?SPC_CDS=${cds}&SPC_CDS_VER=2&order_sn=${orderSn}` },
       {
-        url: `/api/v3/order/get_order_tracking_info?SPC_CDS=${cds}&SPC_CDS_VER=2&order_sn=${orderSn}`
+        url: `/api/v3/logistics/get_logistics_tracking_history?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${orderId}`
+      },
+      {
+        url: `/api/v3/order/get_order_tracking_history/?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${orderId}`
       }
     ],
     (json) => {

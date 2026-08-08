@@ -4,9 +4,11 @@ import type {
   Order,
   OrderFilters,
   OrderItem,
+  OrderPhase,
   StatusHistoryEntry
 } from '@shared/types'
-import { INTERNAL_STATUSES } from '@shared/types'
+import { INTERNAL_STATUSES, ORDER_PHASES } from '@shared/types'
+import { derivePhase } from './phases'
 
 interface OrderRow {
   order_sn: string
@@ -27,6 +29,10 @@ interface OrderRow {
   updated_at_shopee: number | null
   synced_at: number | null
   logistics_status: string | null
+  logistics_phase: string | null
+  stage_id: number | null
+  stage_name: string | null
+  stage_color: string | null
   delivered_at: number | null
   rating_star: number | null
   rating_comment: string | null
@@ -40,6 +46,14 @@ function rowToOrder(row: OrderRow, items: OrderItem[], unreadMessages: number): 
     orderSn: row.order_sn,
     shopeeOrderId: row.shopee_order_id,
     shopeeStatus: row.shopee_status,
+    phase: derivePhase({
+      shopeeStatus: row.shopee_status,
+      logisticsPhase: row.logistics_phase,
+      escrowReleasedAt: row.escrow_released_at
+    }),
+    stageId: row.stage_id,
+    stageName: row.stage_name,
+    stageColor: row.stage_color,
     internalStatus: row.internal_status as InternalStatus,
     buyerUsername: row.buyer_username,
     buyerName: row.buyer_name,
@@ -107,6 +121,10 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
     conditions.push('internal_status = ?')
     params.push(filters.internalStatus)
   }
+  if (filters.stageId !== undefined) {
+    conditions.push('o.stage_id = ?')
+    params.push(filters.stageId)
+  }
   if (filters.search) {
     conditions.push(
       '(order_sn LIKE ? OR buyer_username LIKE ? OR buyer_name LIKE ? OR child_name LIKE ?)'
@@ -122,20 +140,69 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const rows = db
-    .prepare(`SELECT * FROM orders ${where} ORDER BY created_at_shopee DESC, order_sn DESC`)
+    .prepare(
+      `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+         FROM orders o
+         LEFT JOIN workflow_stages s ON s.id = o.stage_id
+         ${where}
+        ORDER BY o.created_at_shopee DESC, o.order_sn DESC`
+    )
     .all(...params) as OrderRow[]
 
   const items = loadItems(rows.map((r) => r.order_sn))
-  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], 0))
+  const orders = rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], 0))
+  // Fase é derivada em JS (depende de rastreio + pagamento), então o filtro
+  // por fase acontece aqui e não no SQL.
+  if (filters.phase && filters.phase !== 'TODOS') {
+    return orders.filter((o) => o.phase === filters.phase)
+  }
+  return orders
 }
 
 export function getOrder(orderSn: string): Order | null {
-  const row = getDb().prepare('SELECT * FROM orders WHERE order_sn = ?').get(orderSn) as
-    | OrderRow
-    | undefined
+  const row = getDb()
+    .prepare(
+      `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+         FROM orders o
+         LEFT JOIN workflow_stages s ON s.id = o.stage_id
+        WHERE o.order_sn = ?`
+    )
+    .get(orderSn) as OrderRow | undefined
   if (!row) return null
   const items = loadItems([orderSn])
   return rowToOrder(row, items.get(orderSn) ?? [], 0)
+}
+
+/**
+ * Move o pedido de etapa de produção. O histórico guarda o **nome** da etapa,
+ * não o id: renomear ou apagar a etapa depois não pode reescrever o passado.
+ */
+export function setOrderStage(orderSn: string, stageId: number): Order | null {
+  const db = getDb()
+  const current = db
+    .prepare(
+      `SELECT o.stage_id, s.name AS stage_name
+         FROM orders o LEFT JOIN workflow_stages s ON s.id = o.stage_id
+        WHERE o.order_sn = ?`
+    )
+    .get(orderSn) as { stage_id: number | null; stage_name: string | null } | undefined
+  if (!current) return null
+
+  const target = db.prepare('SELECT name FROM workflow_stages WHERE id = ?').get(stageId) as
+    | { name: string }
+    | undefined
+  if (!target) throw new Error(`Etapa ${stageId} não existe`)
+
+  if (current.stage_id !== stageId) {
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE orders SET stage_id = ? WHERE order_sn = ?').run(stageId, orderSn)
+      db.prepare(
+        'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, ?, ?, ?)'
+      ).run(orderSn, current.stage_name, target.name, Date.now())
+    })
+    tx()
+  }
+  return getOrder(orderSn)
 }
 
 export function setInternalStatus(orderSn: string, status: InternalStatus): Order | null {
@@ -181,16 +248,32 @@ export function setLabelPath(orderSn: string, labelPath: string): void {
   getDb().prepare('UPDATE orders SET label_path = ? WHERE order_sn = ?').run(labelPath, orderSn)
 }
 
+/**
+ * Grava o rastreio. A fase só avança: se um checkpoint atrasado chegar depois
+ * de um mais adiantado, o pedido não volta de fase.
+ */
 export function setLogisticsStatus(
   orderSn: string,
   status: string,
-  deliveredAt: number | null
+  deliveredAt: number | null,
+  phase: OrderPhase | null
 ): void {
+  const current = getDb()
+    .prepare('SELECT logistics_phase FROM orders WHERE order_sn = ?')
+    .get(orderSn) as { logistics_phase: string | null } | undefined
+  const currentRank = ORDER_PHASES.indexOf((current?.logistics_phase ?? 'CONOSCO') as OrderPhase)
+  const nextRank = phase ? ORDER_PHASES.indexOf(phase) : -1
+  const finalPhase = nextRank > currentRank ? phase : (current?.logistics_phase ?? null)
+
   getDb()
     .prepare(
-      'UPDATE orders SET logistics_status = ?, delivered_at = COALESCE(?, delivered_at) WHERE order_sn = ?'
+      `UPDATE orders
+          SET logistics_status = ?,
+              logistics_phase = ?,
+              delivered_at = COALESCE(?, delivered_at)
+        WHERE order_sn = ?`
     )
-    .run(status, deliveredAt, orderSn)
+    .run(status, finalPhase, deliveredAt, orderSn)
 }
 
 export function setRating(

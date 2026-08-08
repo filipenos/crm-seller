@@ -98,6 +98,64 @@ const migrations: string[] = [
   );
   CREATE INDEX idx_order_events_order ON order_events(order_sn, happened_at);
   CREATE INDEX idx_order_events_seen ON order_events(seen, happened_at);
+  `,
+  // 3 — fase logística derivada dos checkpoints (guarda a mais avançada já vista)
+  `
+  ALTER TABLE orders ADD COLUMN logistics_phase TEXT;
+  CREATE INDEX idx_orders_logistics_phase ON orders(logistics_phase);
+  `,
+  // 4 — etapas de produção cadastráveis, no lugar da lista fixa no código.
+  //     As etapas antigas viram linhas aqui para nada se perder; as que
+  //     descreviam transporte (Enviado/Concluído) saem, porque isso agora é
+  //     fase logística, não etapa nossa.
+  `
+  CREATE TABLE workflow_stages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    color TEXT
+  );
+  CREATE TABLE stage_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage_id INTEGER NOT NULL REFERENCES workflow_stages(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    position INTEGER NOT NULL
+  );
+  CREATE INDEX idx_stage_actions_stage ON stage_actions(stage_id, position);
+
+  ALTER TABLE orders ADD COLUMN stage_id INTEGER REFERENCES workflow_stages(id);
+  CREATE INDEX idx_orders_stage ON orders(stage_id);
+
+  INSERT INTO workflow_stages (id, name, position, color) VALUES
+    (1, 'Novo',              1, '#64748b'),
+    (2, 'Aguardando info',   2, '#f59e0b'),
+    (3, 'Criar arquivos',    3, '#3b82f6'),
+    (4, 'Pronto p/ imprimir',4, '#8b5cf6'),
+    (5, 'Impresso',          5, '#06b6d4'),
+    (6, 'Embalado',          6, '#22c55e');
+
+  INSERT INTO stage_actions (stage_id, label, kind, position) VALUES
+    (2, 'Abrir conversa',     'ABRIR_MENSAGENS', 1),
+    (2, 'Avançar etapa',      'AVANCAR',         2),
+    (3, 'Criar pasta',        'CRIAR_PASTA',     1),
+    (3, 'Abrir pasta',        'ABRIR_PASTA',     2),
+    (3, 'Avançar etapa',      'AVANCAR',         3),
+    (4, 'Abrir pasta',        'ABRIR_PASTA',     1),
+    (4, 'Gerar etiqueta',     'GERAR_ETIQUETA',  2),
+    (4, 'Avançar etapa',      'AVANCAR',         3),
+    (1, 'Avançar etapa',      'AVANCAR',         1),
+    (5, 'Avançar etapa',      'AVANCAR',         1),
+    (6, 'Avançar etapa',      'AVANCAR',         1);
+
+  UPDATE orders SET stage_id = CASE internal_status
+    WHEN 'NOVO'                 THEN 1
+    WHEN 'AGUARDANDO_INFO'      THEN 2
+    WHEN 'CRIAR_ARQUIVOS'       THEN 3
+    WHEN 'PRONTO_PARA_IMPRIMIR' THEN 4
+    WHEN 'IMPRESSO'             THEN 5
+    ELSE 6
+  END;
   `
 ]
 
