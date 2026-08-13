@@ -222,6 +222,12 @@ const migrations: string[] = [
   //      "recebido" mandava pedido não pago para a aba Concluído.
   `
   ALTER TABLE order_income ADD COLUMN previsto_para INTEGER;
+  `,
+  // 12 — quantas caixas o item representa. A variação diz "20 peças / 4 de
+  //      cada modelo", então o número está no texto; guardar o valor lido
+  //      permite somar caixas vendidas sem reinterpretar string em consulta.
+  `
+  ALTER TABLE order_items ADD COLUMN pecas INTEGER;
   `
 ]
 

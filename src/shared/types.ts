@@ -107,6 +107,8 @@ export interface OrderItem {
   itemName: string
   modelName: string | null
   quantity: number
+  /** Caixas do kit, lidas da variação ("20 peças"). */
+  pecas: number | null
   imageUrl: string | null
   itemSku: string | null
 }
@@ -256,6 +258,57 @@ export interface ResultadoLote {
   feitos: number
   cancelado: boolean
   erros: number
+}
+
+/** Números de um período, para o painel. */
+export interface ResumoPeriodo {
+  pedidos: number
+  /** Soma do que os clientes pagaram nos pedidos que entraram no período. */
+  vendas: number
+  /** Caixas vendidas: o kit diz quantas peças tem. */
+  caixas: number
+  /** Dinheiro que caiu na conta no período (data real de liberação). */
+  recebido: number
+  pedidosRecebidos: number
+  /** Pedidos deixados no ponto de coleta no período. */
+  despachados: number
+}
+
+export const METRICAS_PAINEL = ['pedidos', 'caixas', 'vendas', 'recebido', 'despachados'] as const
+export type MetricaPainel = (typeof METRICAS_PAINEL)[number]
+
+export const METRICA_LABELS: Record<MetricaPainel, string> = {
+  pedidos: 'Pedidos',
+  caixas: 'Caixas vendidas',
+  vendas: 'Vendas',
+  recebido: 'Recebido',
+  despachados: 'Despachados'
+}
+
+/** Métricas em dinheiro, para formatar como moeda. */
+export const METRICAS_EM_REAIS: MetricaPainel[] = ['vendas', 'recebido']
+
+export interface SerieMensal {
+  metrica: MetricaPainel
+  ano: number
+  /** 1-12. */
+  mes: number
+  dias: { dia: number; valor: number }[]
+  total: number
+}
+
+export interface Painel {
+  hoje: ResumoPeriodo
+  ultimos7: ResumoPeriodo
+  ultimos30: ResumoPeriodo
+  aEnviar: number
+  prontosParaPostar: number
+  emTransito: number
+  /** Valor já calculado pela Shopee que ainda não caiu. */
+  aReceber: number
+  pedidosAReceber: number
+  /** Pedidos com menos de 24h para postar. */
+  prazoApertado: number
 }
 
 export interface OrderCounts {

@@ -7,6 +7,9 @@ import type {
   OrderEvent,
   OrderFilters,
   OrderCounts,
+  Painel,
+  MetricaPainel,
+  SerieMensal,
   ProgressoLote,
   ShopeeConnectionStatus,
   StageActionKind,
@@ -68,6 +71,11 @@ const api = {
       ipcRenderer.invoke('orders:refreshIncome', orderSn),
     reprocessarExtratos: (): Promise<{ lidos: number; corrigidos: number }> =>
       ipcRenderer.invoke('orders:reprocessarExtratos')
+  },
+  painel: {
+    resumo: (): Promise<Painel> => ipcRenderer.invoke('painel:resumo'),
+    serie: (metrica: MetricaPainel, ano: number, mes: number): Promise<SerieMensal> =>
+      ipcRenderer.invoke('painel:serie', metrica, ano, mes)
   },
   lote: {
     progresso: (): Promise<ProgressoLote> => ipcRenderer.invoke('lote:progresso'),

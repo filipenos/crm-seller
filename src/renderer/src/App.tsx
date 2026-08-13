@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
+import DashboardPage from './pages/DashboardPage'
 import OrdersPage from './pages/OrdersPage'
 import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
 import BarraProgresso from './components/BarraProgresso'
 
-type Page = 'orders' | 'activity' | 'settings'
+type Page = 'home' | 'orders' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
-  const [page, setPage] = useState<Page>('orders')
+  const [page, setPage] = useState<Page>('home')
   const [status, setStatus] = useState<ShopeeConnectionStatus | null>(null)
   const [lastSync, setLastSync] = useState<SyncResult | null>(null)
   const [dataVersion, setDataVersion] = useState(0)
@@ -58,6 +59,9 @@ export default function App(): React.JSX.Element {
           <span>CRM Seller</span>
         </div>
         <nav>
+          <button className={page === 'home' ? 'active' : ''} onClick={() => setPage('home')}>
+            Início
+          </button>
           <button className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>
             Pedidos
           </button>
@@ -114,6 +118,7 @@ export default function App(): React.JSX.Element {
         )}
         {/* Fica aqui e não na listagem: a sincronização roda em qualquer página. */}
         <BarraProgresso />
+        {page === 'home' && <DashboardPage dataVersion={dataVersion} />}
         {page === 'orders' && <OrdersPage dataVersion={dataVersion} />}
         {page === 'activity' && (
           <ActivityPage dataVersion={dataVersion} onSeen={() => void refreshUnseen()} />

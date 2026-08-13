@@ -3,6 +3,7 @@ import type {
   ActionResult,
   AppSettings,
   InternalStatus,
+  MetricaPainel,
   OrderFilters,
   StageActionKind
 } from '@shared/types'
@@ -44,6 +45,7 @@ import { probeShopeeApis } from './services/shopee/probe'
 import { fetchOrderTotal, normalizeCard } from './services/shopee/client'
 import { countDumps, dumpPath, reprocessDumps } from './services/orderDump'
 import { reprocessarExtratos } from './services/recebimentos'
+import { montarPainel, serieMensal } from './services/dashboard'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   countUnseenEvents,
@@ -96,6 +98,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrders(filters))
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPayment())
   ipcMain.handle('orders:tabCounts', () => countByTab())
+  ipcMain.handle('painel:resumo', () => montarPainel())
+  ipcMain.handle('painel:serie', (_e, metrica: MetricaPainel, ano: number, mes: number) =>
+    serieMensal(metrica, ano, mes)
+  )
   ipcMain.handle('orders:refreshIncome', (_e, orderSn: string) => refreshIncome(orderSn))
   ipcMain.handle('lote:progresso', () => progressoLote())
   ipcMain.handle('lote:cancelar', () => cancelarLote())

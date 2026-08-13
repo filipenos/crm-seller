@@ -52,6 +52,8 @@ export interface NormalizedShopeeOrder {
     itemName: string
     modelName: string | null
     quantity: number
+    /** Caixas que o kit contém, lidas da variação. */
+    pecas: number | null
     imageUrl: string | null
     itemSku: string | null
   }[]
@@ -173,8 +175,8 @@ function dateFromOrderSn(orderSn: string): number | null {
 }
 
 /**
- * Cidade e estado a partir do endereço completo, que vem como uma string só:
- * "Rua Exemplo, 100, Apto 2, Cidade, Estado, 00000000".
+ * Cidade e estado a partir do endereço completo, que a Shopee manda como uma
+ * string só, no formato "Rua Exemplo, 100, Apto 2, Cidade, Estado, 00000000".
  * Os dois campos antes do CEP são cidade e estado.
  */
 function cityFromAddress(address: string | null): string | null {
@@ -391,6 +393,19 @@ async function fetchOrderCards(
   return cards
 }
 
+/**
+ * Quantas caixas o kit tem, lido da variação.
+ *
+ * Os anúncios são kits e a variação diz o tamanho: "Variação: 20 peças / 4 de
+ * cada modelo". Nos 619 itens da conta real só existem nove variações, todas
+ * nesse formato — então o número antes de "peças" é a quantidade de caixas.
+ */
+function pecasDaVariacao(variacao: string | null): number | null {
+  if (!variacao) return null
+  const m = /(\d+)\s*(pe[çc]as?|unidades?|un\b)/i.exec(variacao)
+  return m ? Number(m[1]) : null
+}
+
 function extractItems(groups: AnyObj[]): NormalizedShopeeOrder['items'] {
   const items: NormalizedShopeeOrder['items'] = []
   for (const group of groups) {
@@ -400,10 +415,12 @@ function extractItems(groups: AnyObj[]): NormalizedShopeeOrder['items'] {
       for (const it of itemList) {
         const name = pickString(it, ['name'])
         if (!name) continue
+        const variacao = pickString(it, ['description', 'model_name'])
         items.push({
           itemName: name,
           // "description" traz a variação, ex.: "Variação: 30 peças / 6 de cada modelo"
-          modelName: pickString(it, ['description', 'model_name']),
+          modelName: variacao,
+          pecas: pecasDaVariacao(variacao),
           quantity: pickNumber(it, ['amount', 'quantity']) ?? 1,
           imageUrl: imageUrl(pickString(it, ['image'])),
           itemSku: pickString(it, ['inner_item_ext_info.item_id', 'item_sku'])

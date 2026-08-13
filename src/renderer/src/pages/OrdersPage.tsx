@@ -54,7 +54,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
         <input
           className="search"
           placeholder="Buscar em tudo, ou use tema: produto: nick: nome: id: url: rastreio:"
-          title="Sem prefixo procura em todos os campos. Com prefixo restringe: tema:kpop, nick:comprador, rastreio:BR123, url:2390000000000"
+          title="Sem prefixo procura em todos os campos. Com prefixo restringe a um: tema:kpop, nick:comprador, rastreio:BR123, url:2390000000000"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />

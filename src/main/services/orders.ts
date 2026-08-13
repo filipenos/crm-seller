@@ -112,6 +112,7 @@ function loadItems(orderSns: string[]): Map<string, OrderItem[]> {
     quantity: number
     image_url: string | null
     item_sku: string | null
+    pecas: number | null
   }[]
   for (const r of rows) {
     const item: OrderItem = {
@@ -121,7 +122,8 @@ function loadItems(orderSns: string[]): Map<string, OrderItem[]> {
       modelName: r.model_name,
       quantity: r.quantity,
       imageUrl: r.image_url,
-      itemSku: r.item_sku
+      itemSku: r.item_sku,
+      pecas: r.pecas
     }
     const list = map.get(r.order_sn) ?? []
     list.push(item)
@@ -551,6 +553,7 @@ export interface UpsertOrderInput {
     quantity: number
     imageUrl: string | null
     itemSku: string | null
+    pecas?: number | null
   }[]
 }
 
@@ -646,8 +649,8 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
     if (input.items && input.items.length > 0) {
       db.prepare('DELETE FROM order_items WHERE order_sn = ?').run(input.orderSn)
       const insertItem = db.prepare(
-        `INSERT INTO order_items (order_sn, item_name, model_name, quantity, image_url, item_sku)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO order_items (order_sn, item_name, model_name, quantity, image_url, item_sku, pecas)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       for (const item of input.items) {
         insertItem.run(
@@ -656,7 +659,8 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
           item.modelName,
           item.quantity,
           item.imageUrl,
-          item.itemSku
+          item.itemSku,
+          item.pecas ?? null
         )
       }
     }

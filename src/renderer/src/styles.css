@@ -968,3 +968,88 @@ code {
   font-weight: 600;
   white-space: nowrap;
 }
+
+/* ---------- Painel ---------- */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.kpi {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.kpi-rotulo { font-size: 12px; color: #64748b; }
+.kpi-valor { font-size: 26px; font-weight: 700; line-height: 1.25; }
+/* Os períodos são contexto, não protagonistas: o número de hoje é o que importa. */
+.kpi-periodos {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.secao-agora { margin: 0 0 8px; }
+.agoras { display: flex; flex-wrap: wrap; gap: 10px; }
+.agora {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 120px;
+}
+.agora-valor { font-size: 20px; font-weight: 700; }
+.agora-rotulo { font-size: 12px; color: #64748b; }
+/* Prazo estourando vira multa da Shopee — precisa saltar. */
+.agora.alerta { border-color: #fecaca; background: #fef2f2; }
+.agora.alerta .agora-valor { color: #b91c1c; }
+
+/* KPI clicável abre o detalhe diário. */
+.kpi.clicavel { cursor: pointer; }
+.kpi.clicavel:hover { border-color: #94a3b8; background: #f8fafc; }
+
+.drawer-largo { width: min(920px, 96vw); }
+.mes-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 14px;
+  font-weight: 600;
+}
+.mes-nav button { padding: 2px 10px; }
+
+/* Um dia por coluna: a comparação entre vizinhos é o que dá sentido ao número. */
+.grafico-dias {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.coluna-dia {
+  flex: 1 0 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.valor-dia {
+  font-size: 9px;
+  color: #475569;
+  height: 12px;
+  white-space: nowrap;
+}
+.trilho-dia {
+  width: 100%;
+  height: 150px;
+  display: flex;
+  align-items: flex-end;
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+.barra-dia { width: 100%; background: #2563eb; border-radius: 3px; }
+.rotulo-dia { font-size: 10px; color: #64748b; }
+/* O dia de hoje ancora a leitura do mês em curso. */
+.coluna-dia.hoje .rotulo-dia { font-weight: 700; color: #0f172a; }
+.coluna-dia.hoje .barra-dia { background: #1d4ed8; }
