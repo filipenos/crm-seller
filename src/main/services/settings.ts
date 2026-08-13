@@ -10,6 +10,8 @@ function defaults(): AppSettings {
     templatesDir: join(docs, 'CRM Seller', 'Templates'),
     autoSyncEnabled: false,
     syncPageCount: 2,
+    syncTracking: true,
+    syncPayments: true,
     syncIntervalMinutes: 15,
     shopeeBaseDomain: 'shopee.com.br'
   }

@@ -8,7 +8,6 @@ import type {
   OrderFilters,
   OrderCounts,
   ProgressoLote,
-  ResultadoLote,
   ShopeeConnectionStatus,
   StageActionKind,
   StatusHistoryEntry,
@@ -65,10 +64,8 @@ const api = {
       ipcRenderer.invoke('orders:openFolder', orderSn),
     refreshTracking: (orderSn: string): Promise<TrackingRefreshResult> =>
       ipcRenderer.invoke('orders:refreshTracking', orderSn),
-    atualizarRastreios: (tab: string): Promise<ResultadoLote> =>
-      ipcRenderer.invoke('orders:atualizarRastreios', tab),
-    buscarExtratos: (tab: string, refazer = false): Promise<ResultadoLote> =>
-      ipcRenderer.invoke('orders:buscarExtratos', tab, refazer),
+    refreshIncome: (orderSn: string): Promise<ActionResult> =>
+      ipcRenderer.invoke('orders:refreshIncome', orderSn),
     reprocessarExtratos: (): Promise<{ lidos: number; corrigidos: number }> =>
       ipcRenderer.invoke('orders:reprocessarExtratos')
   },

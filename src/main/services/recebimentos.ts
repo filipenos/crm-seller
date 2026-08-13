@@ -153,6 +153,32 @@ export function reprocessarExtratos(): { lidos: number; corrigidos: number } {
   return { lidos: rows.length, corrigidos }
 }
 
+/**
+ * Quem precisa ter o pagamento consultado.
+ *
+ * Duas situações: pedido sem extrato nenhum, e pedido **enviado** cujo extrato
+ * ainda não mostra dinheiro na conta — esse muda sozinho quando a Shopee
+ * libera, então é o único que vale reconsultar. Concluído com valor já é fato
+ * consumado e fica de fora.
+ */
+export function pedidosParaAtualizarPagamento(): { orderSn: string; orderId: string }[] {
+  return getDb()
+    .prepare(
+      `SELECT o.order_sn, o.shopee_order_id
+         FROM orders o
+         LEFT JOIN order_income i ON i.order_sn = o.order_sn
+        WHERE o.tab IN ('ENVIADO', 'CONCLUIDO')
+          AND o.shopee_order_id IS NOT NULL
+          AND (i.order_sn IS NULL OR (o.tab = 'ENVIADO' AND i.recebido_em IS NULL))
+        ORDER BY o.created_at_shopee ASC`
+    )
+    .all()
+    .map((x) => {
+      const row = x as { order_sn: string; shopee_order_id: string }
+      return { orderSn: row.order_sn, orderId: row.shopee_order_id }
+    })
+}
+
 export function contarSemExtrato(tab: string): number {
   const row = getDb()
     .prepare(

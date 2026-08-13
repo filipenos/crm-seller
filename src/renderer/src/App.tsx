@@ -3,6 +3,7 @@ import type { ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/t
 import OrdersPage from './pages/OrdersPage'
 import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
+import BarraProgresso from './components/BarraProgresso'
 
 type Page = 'orders' | 'activity' | 'settings'
 
@@ -111,6 +112,8 @@ export default function App(): React.JSX.Element {
             </span>
           </div>
         )}
+        {/* Fica aqui e não na listagem: a sincronização roda em qualquer página. */}
+        <BarraProgresso />
         {page === 'orders' && <OrdersPage dataVersion={dataVersion} />}
         {page === 'activity' && (
           <ActivityPage dataVersion={dataVersion} onSeen={() => void refreshUnseen()} />

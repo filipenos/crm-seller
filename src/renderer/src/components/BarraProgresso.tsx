@@ -18,7 +18,12 @@ export default function BarraProgresso(): React.JSX.Element | null {
   if (!p?.rodando) return null
 
   const pct = p.total > 0 ? Math.round((p.feitos / p.total) * 100) : 0
-  const rotulo = p.rotulo === 'extratos' ? 'Buscando extratos' : 'Atualizando rastreios'
+  const rotulos: Record<string, string> = {
+    pedidos: 'Sincronizando pedidos',
+    rastreios: 'Sincronizando rastreios',
+    pagamentos: 'Sincronizando pagamentos'
+  }
+  const rotulo = rotulos[p.rotulo] ?? 'Sincronizando'
 
   return (
     <div className="barra-progresso">

@@ -182,9 +182,29 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
           </div>
         </section>
 
+        <section>
+          <div className="section-title-row">
+            <h3>Recebimento</h3>
+            <button
+              className="small-btn"
+              title="Consulta o extrato deste pedido na Shopee agora"
+              onClick={async () => {
+                onToast('Buscando extrato…')
+                const r = await window.api.orders.refreshIncome(orderSn)
+                onToast(r.ok ? 'Extrato atualizado' : `Erro: ${r.error}`)
+                void load()
+              }}
+            >
+              💰 Sincronizar pagamento
+            </button>
+          </div>
+          {!order.recebimento && (
+            <p className="muted">Extrato ainda não consultado para este pedido.</p>
+          )}
+        </section>
+
         {order.recebimento && (
           <section>
-            <h3>Recebimento</h3>
             <table className="extrato">
               <tbody>
                 <Linha rotulo="Produtos" valor={order.recebimento.valorProdutos} />

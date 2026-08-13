@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import type { Order, OrderCounts, OrderTab } from '@shared/types'
 import { MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
-import BarraProgresso from '../components/BarraProgresso'
 
 /** Menos de 24h para postar: o prazo da Shopee vira multa se estourar. */
 function prazoApertado(shipByDate: number): boolean {
@@ -42,36 +41,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     if (!result.ok) showToast(`Erro: ${result.error}`)
     else refresh()
   }
-
-  const handleRefreshTracking = async (orderSn: string): Promise<void> => {
-    showToast('Atualizando rastreio…')
-    const r = await window.api.orders.refreshTracking(orderSn)
-    if (!r.ok) showToast(`Erro no rastreio: ${r.error}`)
-    else {
-      showToast(r.newEvents > 0 ? `Rastreio: ${r.latestStatus}` : 'Rastreio sem novidades')
-      refresh()
-    }
-  }
-
-  /** Cada aba tem a operação em lote que faz sentido nela. */
-  const acaoDaAba = (): { rotulo: string; titulo: string; rodar: () => Promise<unknown> } | null => {
-    if (tabFilter === 'ENVIADO') {
-      return {
-        rotulo: `🔄 Atualizar rastreios (${counts?.tabs.ENVIADO ?? 0})`,
-        titulo: 'Consulta o rastreio de todos os pedidos enviados, um a um',
-        rodar: () => window.api.orders.atualizarRastreios('ENVIADO')
-      }
-    }
-    if (tabFilter === 'CONCLUIDO' && (counts?.semExtrato ?? 0) > 0) {
-      return {
-        rotulo: `💰 Buscar valores recebidos (${counts?.semExtrato})`,
-        titulo: 'Busca o extrato dos concluídos que ainda não têm — valor de pedido concluído não muda',
-        rodar: () => window.api.orders.buscarExtratos('CONCLUIDO')
-      }
-    }
-    return null
-  }
-  const acao = acaoDaAba()
 
   // Os totais vêm do banco e ficam sempre visíveis: são eles que dizem quanto
   // trabalho existe em cada aba antes de clicar.
@@ -114,26 +83,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
           {ORDER_TAB_LABELS.CANCELADO} ({counts?.tabs.CANCELADO ?? 0})
         </button>
       </div>
-
-      {acao && (
-        <div className="acoes-da-aba">
-          <button
-            title={acao.titulo}
-            onClick={async () => {
-              const r = await acao.rodar()
-              const res = r as { feitos: number; cancelado: boolean; erros: number }
-              showToast(
-                `${res.feitos} processados${res.cancelado ? ' (parado por você)' : ''}` +
-                  (res.erros > 0 ? ` · ${res.erros} falharam` : '')
-              )
-              refresh()
-            }}
-          >
-            {acao.rotulo}
-          </button>
-        </div>
-      )}
-      <BarraProgresso />
 
       {orders.length === 0 ? (
         <div className="empty">
@@ -262,12 +211,6 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                         ↗
                       </button>
                     )}
-                    <button
-                      title="Atualizar rastreio deste pedido"
-                      onClick={() => handleRefreshTracking(o.orderSn)}
-                    >
-                      🔄
-                    </button>
                   </div>
                 </td>
               </tr>

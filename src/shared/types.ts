@@ -191,6 +191,13 @@ export interface AppSettings {
    * "Sincronizar tudo".
    */
   syncPageCount: number
+  /**
+   * Etapas que o botão Sincronizar executa depois de trazer os pedidos.
+   * Ligadas por padrão; desligar serve para uma sincronização rápida, só dos
+   * pedidos novos, sem as chamadas por pedido que levam minutos.
+   */
+  syncTracking: boolean
+  syncPayments: boolean
   syncIntervalMinutes: number
   shopeeBaseDomain: string
 }
@@ -235,11 +242,14 @@ export interface SyncResult {
 export type TabCounts = Record<OrderTab, number>
 
 /** Progresso de uma operação longa (rastreios, extratos). */
+export type EtapaSync = 'pedidos' | 'rastreios' | 'pagamentos'
+
 export interface ProgressoLote {
   rodando: boolean
   feitos: number
   total: number
-  rotulo: string
+  /** Etapa em curso, para a barra dizer o que está acontecendo. */
+  rotulo: EtapaSync | ''
 }
 
 export interface ResultadoLote {

@@ -205,24 +205,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           >
             ♻ Reprocessar extratos salvos
           </button>
-          <button
-            className="danger"
-            title="Rebusca o extrato de TODOS os pedidos, inclusive os que já têm. Só é necessário se a Shopee corrigir valores retroativamente."
-            onClick={async () => {
-              const r = await window.api.orders.buscarExtratos('CONCLUIDO', true)
-              setSyncAllResult(
-                `${r.feitos} extratos atualizados${r.cancelado ? ' (parado por você)' : ''}` +
-                  (r.erros > 0 ? ` · ${r.erros} falharam` : '')
-              )
-            }}
-          >
-            ⟳ Sincronizar pagamentos de todos novamente
-          </button>
         </div>
-        <small className="muted">
-          O normal é buscar só quem não tem, na aba Concluído — valor de pedido concluído não
-          muda. Este botão refaz a base inteira e são centenas de requisições.
-        </small>
         <BarraProgresso />
         {syncAllResult && <small className="muted">{syncAllResult}</small>}
         <small className="muted">
@@ -230,6 +213,34 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           o que permite conferir dados sem consultar a Shopee de novo.
         </small>
 
+        <div className="setting-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.syncTracking}
+              onChange={(e) => update({ syncTracking: e.target.checked })}
+            />{' '}
+            Sincronizar enviados (rastreio)
+          </label>
+          <small className="muted">
+            Consulta o rastreio de cada pedido enviado. É uma chamada por pedido, então é a etapa
+            mais demorada.
+          </small>
+        </div>
+        <div className="setting-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.syncPayments}
+              onChange={(e) => update({ syncPayments: e.target.checked })}
+            />{' '}
+            Sincronizar pagamentos
+          </label>
+          <small className="muted">
+            Busca o extrato de quem ainda não tem, e reconsulta os enviados cujo dinheiro não
+            caiu — os únicos que podem mudar.
+          </small>
+        </div>
         <div className="setting-row">
           <label>
             <input

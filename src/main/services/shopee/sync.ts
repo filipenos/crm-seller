@@ -1,5 +1,10 @@
 import { BrowserWindow } from 'electron'
-import type { ShopeeConnectionStatus, SyncResult, TrackingRefreshResult } from '@shared/types'
+import type {
+  EtapaSync,
+  ShopeeConnectionStatus,
+  SyncResult,
+  TrackingRefreshResult
+} from '@shared/types'
 import {
   fetchOrderIncome,
   fetchOrders,
@@ -8,17 +13,14 @@ import {
 } from './client'
 import { isConnected } from './session'
 import {
-  countAwaitingPayment,
   getOrder,
   listOrders,
-  listAwaitingPayment,
-  setEscrow,
   setLogisticsStatus,
   setRating,
   upsertShopeeOrder
 } from '../orders'
 import { recordEvent } from '../events'
-import { pedidosParaExtrato, salvarRecebimento } from '../recebimentos'
+import { pedidosParaAtualizarPagamento, salvarRecebimento } from '../recebimentos'
 import { getSettings } from '../settings'
 import { saveOrderDump } from '../orderDump'
 
@@ -26,15 +28,6 @@ import { saveOrderDump } from '../orderDump'
 const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
-
-/**
- * Quantos extratos financeiros buscar por sincronização.
- *
- * O endpoint é por pedido, mas só precisa rodar em quem está entre a postagem
- * e o pagamento — na conta real, 26 pedidos. O teto cobre esse conjunto de uma
- * vez sem virar centenas de chamadas; o que sobrar entra na rodada seguinte.
- */
-const INCOME_PER_SYNC = 30
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -94,7 +87,10 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
         maxPages: paginas,
         onCard: (orderId, card) => saveOrderDump(orderId, card),
         onProgress: (feitos, total) => {
-          if (feitos % 50 === 0 || feitos === total) console.log(`[sync] cards ${feitos}/${total}`)
+          if (lote.rotulo !== 'pedidos') iniciaEtapa('pedidos', total ?? feitos)
+          lote.feitos = feitos
+          lote.total = total ?? feitos
+          emiteProgresso()
         }
       })
       for (const o of orders) {
@@ -129,38 +125,67 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
       errors.push(`avaliações: ${String(err instanceof Error ? err.message : err)}`)
     }
 
-    // Financeiro — o extrato é por pedido, então consultamos só os que ainda
-    // esperam pagamento, e um número limitado por vez. Sem esse teto, uma
-    // sincronização viraria centenas de chamadas.
-    try {
-      const pendentes = listAwaitingPayment(INCOME_PER_SYNC)
-      for (const order of pendentes) {
-        if (!order.shopeeOrderId) continue
-        const income = await fetchOrderIncome(order.orderSn, order.shopeeOrderId)
-        if (!income) continue
-        salvarRecebimento(income)
-        if (income.recebidoEm !== null) {
-          const valor = income.valorRecebido !== null ? ` (${BRL.format(income.valorRecebido)})` : ''
-          if (
-            recordEvent({
-              orderSn: order.orderSn,
-              source: 'finance',
-              description: `Pagamento liberado${valor}`,
-              happenedAt: income.recebidoEm,
-              rawJson: income.rawJson
-            })
-          ) {
-            result.eventsCreated++
+    const config = getSettings()
+
+    // Rastreio dos enviados: é o único grupo em movimento — "a enviar" nem saiu
+    // e "concluído" já chegou.
+    if (config.syncTracking && !lote.cancelar) {
+      try {
+        const enviados = listOrders({ tab: 'ENVIADO' }).filter((o) => o.shopeeOrderId)
+        iniciaEtapa('rastreios', enviados.length)
+        for (const order of enviados) {
+          if (lote.cancelar) break
+          try {
+            const r = await refreshTracking(order.orderSn)
+            if (r.newEvents > 0) result.eventsCreated += r.newEvents
+          } catch (err) {
+            console.warn(`[sync] rastreio ${order.orderSn}:`, err)
           }
+          avancaEtapa()
+          await sleep(300)
         }
-        await sleep(300)
+      } catch (err) {
+        errors.push(`rastreios: ${String(err instanceof Error ? err.message : err)}`)
       }
-      const restantes = countAwaitingPayment() - pendentes.length
-      if (restantes > 0) {
-        console.log(`[sync] financeiro: ${restantes} pedidos ficaram para a próxima rodada`)
+    }
+
+    // Pagamento: quem não tem extrato, e os enviados cujo dinheiro ainda não
+    // caiu — esses mudam sozinhos quando a Shopee libera.
+    if (config.syncPayments && !lote.cancelar) {
+      try {
+        const pendentes = pedidosParaAtualizarPagamento()
+        iniciaEtapa('pagamentos', pendentes.length)
+        for (const { orderSn, orderId } of pendentes) {
+          if (lote.cancelar) break
+          try {
+            const income = await fetchOrderIncome(orderSn, orderId)
+            if (income) {
+              salvarRecebimento(income)
+              if (income.recebidoEm !== null) {
+                const valor =
+                  income.valorRecebido !== null ? ` (${BRL.format(income.valorRecebido)})` : ''
+                if (
+                  recordEvent({
+                    orderSn,
+                    source: 'finance',
+                    description: `Pagamento liberado${valor}`,
+                    happenedAt: income.recebidoEm,
+                    rawJson: income.rawJson
+                  })
+                ) {
+                  result.eventsCreated++
+                }
+              }
+            }
+          } catch (err) {
+            console.warn(`[sync] extrato ${orderSn}:`, err)
+          }
+          avancaEtapa()
+          await sleep(300)
+        }
+      } catch (err) {
+        errors.push(`pagamentos: ${String(err instanceof Error ? err.message : err)}`)
       }
-    } catch (err) {
-      errors.push(`financeiro: ${String(err instanceof Error ? err.message : err)}`)
     }
 
     state.lastSyncAt = Date.now()
@@ -180,6 +205,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     )
     if (result.error) console.error('[sync] erros:', result.error)
     state.syncing = false
+    encerraProgresso()
     broadcast('shopee:status-changed', await getConnectionStatus())
     broadcast('data:changed', null)
   }
@@ -190,21 +216,36 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
  * Estado das operações longas (rastreios / extratos). Guardado aqui porque
  * elas rodam por minutos: a UI precisa saber onde está e poder mandar parar.
  */
-interface ProgressoLote {
+interface EstadoProgresso {
   rodando: boolean
   feitos: number
   total: number
-  rotulo: string
+  rotulo: EtapaSync | ''
   cancelar: boolean
 }
 
-const lote: ProgressoLote = { rodando: false, feitos: 0, total: 0, rotulo: '', cancelar: false }
+const lote: EstadoProgresso = { rodando: false, feitos: 0, total: 0, rotulo: '', cancelar: false }
+
+function iniciaEtapa(rotulo: EtapaSync, total: number): void {
+  Object.assign(lote, { rodando: true, feitos: 0, total, rotulo })
+  emiteProgresso()
+}
+
+function avancaEtapa(): void {
+  lote.feitos++
+  emiteProgresso()
+}
+
+function encerraProgresso(): void {
+  Object.assign(lote, { rodando: false, feitos: 0, total: 0, rotulo: '', cancelar: false })
+  emiteProgresso()
+}
 
 function emiteProgresso(): void {
   broadcast('lote:progresso', { ...lote, cancelar: undefined })
 }
 
-export function progressoLote(): Omit<ProgressoLote, 'cancelar'> {
+export function progressoLote(): Omit<EstadoProgresso, 'cancelar'> {
   return { rodando: lote.rodando, feitos: lote.feitos, total: lote.total, rotulo: lote.rotulo }
 }
 
@@ -212,69 +253,22 @@ export function cancelarLote(): void {
   if (lote.rodando) lote.cancelar = true
 }
 
-/**
- * Roda uma operação por pedido, avisando o progresso e parando quando pedido.
- *
- * O intervalo entre chamadas existe porque são APIs internas sem cota
- * publicada — centenas de requisições em rajada é o tipo de coisa que chama
- * atenção.
- */
-async function rodarLote<T>(
-  rotulo: string,
-  itens: T[],
-  passo: (item: T) => Promise<void>
-): Promise<{ feitos: number; cancelado: boolean; erros: number }> {
-  if (lote.rodando) throw new Error('Já existe uma operação em andamento.')
-  Object.assign(lote, { rodando: true, feitos: 0, total: itens.length, rotulo, cancelar: false })
-  emiteProgresso()
-
-  let erros = 0
+/** Atualiza o extrato de UM pedido, sob demanda (botão no detalhe). */
+export async function refreshIncome(orderSn: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    for (const item of itens) {
-      if (lote.cancelar) break
-      try {
-        await passo(item)
-      } catch (err) {
-        erros++
-        console.warn(`[${rotulo}] falhou:`, err)
-      }
-      lote.feitos++
-      emiteProgresso()
-      await sleep(300)
+    if (!(await isConnected())) {
+      throw new Error('Não conectado à Shopee. Faça login em Configurações.')
     }
-    return { feitos: lote.feitos, cancelado: lote.cancelar, erros }
-  } finally {
-    lote.rodando = false
-    emiteProgresso()
+    const order = getOrder(orderSn)
+    if (!order?.shopeeOrderId) throw new Error(`Pedido ${orderSn} sem id da Shopee`)
+    const income = await fetchOrderIncome(orderSn, order.shopeeOrderId)
+    if (!income) throw new Error('A Shopee não devolveu extrato para este pedido.')
+    salvarRecebimento(income)
     broadcast('data:changed', null)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err instanceof Error ? err.message : err) }
   }
-}
-
-/** Atualiza o rastreio de todos os pedidos de uma aba. */
-export async function atualizarRastreios(tab: string): Promise<{
-  feitos: number
-  cancelado: boolean
-  erros: number
-}> {
-  const pedidos = listOrders({ tab: tab as never }).filter((o) => o.shopeeOrderId)
-  return rodarLote('rastreios', pedidos, async (o) => {
-    await refreshTracking(o.orderSn)
-  })
-}
-
-/**
- * Busca o extrato dos pedidos de uma aba. Por padrão só de quem não tem —
- * valor de pedido concluído não muda, então refazer é desperdício.
- */
-export async function buscarExtratos(
-  tab: string,
-  refazer = false
-): Promise<{ feitos: number; cancelado: boolean; erros: number }> {
-  const pendentes = pedidosParaExtrato(tab, { refazer })
-  return rodarLote('extratos', pendentes, async ({ orderSn, orderId }) => {
-    const extrato = await fetchOrderIncome(orderSn, orderId)
-    if (extrato) salvarRecebimento(extrato)
-  })
 }
 
 /**

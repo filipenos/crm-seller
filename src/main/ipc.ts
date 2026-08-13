@@ -32,11 +32,10 @@ import {
 import { createOrderFolder, ensureFolderName, openOrderFolder } from './services/folders'
 import { disconnect, openLoginWindow } from './services/shopee/session'
 import {
-  atualizarRastreios,
-  buscarExtratos,
   cancelarLote,
   getConnectionStatus,
   progressoLote,
+  refreshIncome,
   refreshTracking,
   startSyncScheduler,
   syncAll
@@ -97,10 +96,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrders(filters))
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPayment())
   ipcMain.handle('orders:tabCounts', () => countByTab())
-  ipcMain.handle('orders:atualizarRastreios', (_e, tab: string) => atualizarRastreios(tab))
-  ipcMain.handle('orders:buscarExtratos', (_e, tab: string, refazer?: boolean) =>
-    buscarExtratos(tab, refazer === true)
-  )
+  ipcMain.handle('orders:refreshIncome', (_e, orderSn: string) => refreshIncome(orderSn))
   ipcMain.handle('lote:progresso', () => progressoLote())
   ipcMain.handle('lote:cancelar', () => cancelarLote())
   ipcMain.handle('orders:refreshTracking', (_e, orderSn: string) => refreshTracking(orderSn))
