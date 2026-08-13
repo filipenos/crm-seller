@@ -1,6 +1,6 @@
 {
   "name": "crm-seller",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "CRM local para pedidos personalizados (Shopee)",
   "main": "out/main/index.js",
   "author": "Filipe Peixoto <filipenos@gmail.com>",
