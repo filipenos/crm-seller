@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ActionResult, AppSettings, UpdateStatus } from '@shared/types'
 import StageEditor from '../components/StageEditor'
+import BarraProgresso from '../components/BarraProgresso'
 
 interface Props {
   onStatusChange: () => void
@@ -192,6 +193,37 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
             </>
           )}
         </div>
+        <div className="action-buttons">
+          <button
+            title="Relê os extratos já guardados e reaplica a interpretação — sem rede"
+            onClick={async () => {
+              const r = await window.api.orders.reprocessarExtratos()
+              setSyncAllResult(
+                `${r.lidos} extratos relidos do disco · ${r.corrigidos} corrigidos (sem rede)`
+              )
+            }}
+          >
+            ♻ Reprocessar extratos salvos
+          </button>
+          <button
+            className="danger"
+            title="Rebusca o extrato de TODOS os pedidos, inclusive os que já têm. Só é necessário se a Shopee corrigir valores retroativamente."
+            onClick={async () => {
+              const r = await window.api.orders.buscarExtratos('CONCLUIDO', true)
+              setSyncAllResult(
+                `${r.feitos} extratos atualizados${r.cancelado ? ' (parado por você)' : ''}` +
+                  (r.erros > 0 ? ` · ${r.erros} falharam` : '')
+              )
+            }}
+          >
+            ⟳ Sincronizar pagamentos de todos novamente
+          </button>
+        </div>
+        <small className="muted">
+          O normal é buscar só quem não tem, na aba Concluído — valor de pedido concluído não
+          muda. Este botão refaz a base inteira e são centenas de requisições.
+        </small>
+        <BarraProgresso />
         {syncAllResult && <small className="muted">{syncAllResult}</small>}
         <small className="muted">
           A carga completa percorre todas as páginas e grava o JSON cru de cada pedido em disco,
@@ -291,19 +323,6 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           )}
         </div>
         <small className="muted">{describeUpdate(updateStatus)}</small>
-        <div className="setting-row">
-          <label>Repositório de atualizações (opcional)</label>
-          <input
-            value={settings.githubRepo}
-            onChange={(e) => setSettings({ ...settings, githubRepo: e.target.value })}
-            onBlur={(e) => update({ githubRepo: e.target.value.trim() })}
-            style={{ width: 300 }}
-            placeholder="dono/repo — vazio usa o do instalador"
-          />
-          <small className="muted">
-            Só preencha para apontar o app para outro repositório sem reinstalar.
-          </small>
-        </div>
       </section>
     </div>
   )

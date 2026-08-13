@@ -647,25 +647,44 @@ export async function fetchRatings(pageSize = 50): Promise<ShopRating[]> {
 
 export interface OrderIncome {
   orderSn: string
-  /** Quanto sobra para o vendedor, já com cupons, frete e taxas. */
-  sellerIncome: number | null
-  /** Quando o dinheiro foi liberado; null enquanto a Shopee ainda segura. */
-  releasedAt: number | null
-  /** Linhas do extrato (positivas e negativas) para futura análise de margem. */
-  breakdown: { name: string; label: string; amount: number }[]
+  valorProdutos: number | null
+  valorFrete: number | null
+  descontoCupons: number | null
+  taxaComissao: number | null
+  taxaServico: number | null
+  /** Taxas cobradas pela Shopee que não são comissão nem serviço. */
+  outrasTaxas: number | null
+  /** Líquido que cai na conta. */
+  valorRecebido: number | null
+  /** Quando o dinheiro **caiu**; null se ainda não caiu. */
+  recebidoEm: number | null
+  /** Data prevista de liberação, quando ainda está no futuro. */
+  previstoPara: number | null
   rawJson: string
 }
 
 /**
- * Extrato financeiro de UM pedido.
+ * Nomes dos campos do extrato da Shopee. Ficam **só aqui**: quem chama
+ * `fetchOrderIncome` recebe os nossos (valorProdutos, taxaComissao…), então uma
+ * renomeação do lado deles se resolve nesta tabela e em mais lugar nenhum.
+ */
+const CAMPOS_EXTRATO = {
+  produtos: 'MERCHANDISE_SUBTOTAL',
+  frete: 'SHIPPING_SUBTOTAL',
+  cupons: 'REBATE_AND_VOUCHER',
+  taxas: 'FEES_AND_CHARGES',
+  comissao: 'COMMISSION_FEE',
+  servico: 'SERVICE_FEE',
+  total: /^(ESCROW_AMOUNT|TOTAL(_INCOME)?)$/i
+}
+
+/**
+ * Extrato financeiro de UM pedido: quanto entrou, quando, e o que a Shopee
+ * descontou no caminho.
  *
- * Substitui a tentativa antiga de ler a carteira inteira (`/api/v3/finance/*`,
- * que responde 404): este é o endpoint que a página de receitas realmente usa.
- * Traz, além da liberação do pagamento, a composição completa — preço, cupom,
- * frete e taxas —, que é a base para calcular margem por pedido.
- *
- * É por pedido, então o chamador decide quantos consultar: não existe versão
- * em lote conhecida.
+ * É por pedido e não há versão em lote conhecida — a página de finanças só
+ * carrega a lista depois de o usuário filtrar, então quem chama decide quantos
+ * consultar.
  */
 export async function fetchOrderIncome(
   orderSn: string,
@@ -681,52 +700,72 @@ export async function fetchOrderIncome(
         body: { order_id: Number(orderId), components: [1, 2, 3, 4, 5, 6] }
       }
     )
-  )) as {
-    data?: {
-      order_info?: { order_sn?: string; released_time?: number }
-      seller_income_breakdown?: { breakdown?: AnyObj[] }
-    }
-  }
+  )) as { data?: AnyObj }
+  return json?.data ? parseOrderIncome(json.data, orderSn) : null
+}
 
-  const data = json?.data
+/**
+ * Lê o extrato já baixado. Separado do fetch para poder reprocessar o
+ * `raw_json` guardado quando a leitura muda — foi assim que a confusão entre
+ * data prevista e data efetiva se corrigiu sem rebuscar centenas de extratos.
+ */
+export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | null {
   if (!isObj(data) || !isObj(data.order_info)) return null
 
-  const lines = Array.isArray(data.seller_income_breakdown?.breakdown)
-    ? (data.seller_income_breakdown.breakdown as AnyObj[])
+  const linhas = Array.isArray((data.seller_income_breakdown as AnyObj)?.breakdown)
+    ? ((data.seller_income_breakdown as AnyObj).breakdown as AnyObj[])
     : []
 
-  // ATENÇÃO: a lista traz as parcelas **e** o total (ESCROW_AMOUNT) como mais
-  // uma linha. Somar tudo dá o dobro — o total sai daqui, não de uma soma.
-  const TOTAL_FIELD = /^(ESCROW_AMOUNT|TOTAL(_INCOME)?)$/i
-
-  const breakdown: OrderIncome['breakdown'] = []
-  let total: number | null = null
-  for (const line of lines) {
-    const amount = toMoney(line.amount)
-    if (amount === null) continue
-    const name = pickString(line, ['field_name']) ?? 'DESCONHECIDO'
-    if (TOTAL_FIELD.test(name)) {
-      total = amount
-      continue
+  const valorDe = (nome: string, lista: AnyObj[] = linhas): number | null => {
+    for (const linha of lista) {
+      if (pickString(linha, ['field_name']) === nome) return toMoney(linha.amount)
     }
-    breakdown.push({ name, label: pickString(line, ['display_name']) ?? '', amount })
+    return null
   }
 
-  // Sem a linha de total, as parcelas somam o mesmo valor (os sub_breakdown
-  // compõem o item pai, então só o nível de cima entra na conta).
-  const sellerIncome =
-    total ?? (breakdown.length > 0 ? breakdown.reduce((soma, l) => soma + l.amount, 0) : null)
+  const subBloco = (nome: string): AnyObj[] => {
+    for (const linha of linhas) {
+      if (pickString(linha, ['field_name']) === nome && Array.isArray(linha.sub_breakdown)) {
+        return linha.sub_breakdown as AnyObj[]
+      }
+    }
+    return []
+  }
 
-  // released_time 0 = ainda não liberado (a Shopee não usa null aqui).
-  const released = pickNumber(data.order_info as AnyObj, ['released_time'])
-  const releasedAt = released && released > 0 ? toMs(released) : null
+  // ATENÇÃO: a lista traz as parcelas **e** o total (ESCROW_AMOUNT) como mais
+  // uma linha; somar tudo conta o valor duas vezes.
+  let total: number | null = null
+  for (const linha of linhas) {
+    if (CAMPOS_EXTRATO.total.test(pickString(linha, ['field_name']) ?? '')) {
+      total = toMoney(linha.amount)
+    }
+  }
+
+  const taxasSub = subBloco(CAMPOS_EXTRATO.taxas)
+  const comissao = valorDe(CAMPOS_EXTRATO.comissao, taxasSub)
+  const servico = valorDe(CAMPOS_EXTRATO.servico, taxasSub)
+  const taxasTotal = valorDe(CAMPOS_EXTRATO.taxas)
+  const outras =
+    taxasTotal !== null ? Number((taxasTotal - (comissao ?? 0) - (servico ?? 0)).toFixed(2)) : null
+
+  // ATENÇÃO: `released_time` guarda a data **prevista** enquanto o pagamento
+  // não sai (o próprio `release_time_transify_key` fala em "estimate"), e a
+  // prevista vem sempre 09:00 redondo. Tratar qualquer valor > 0 como pago
+  // colocava pedido não pago na aba Concluído.
+  const released = toMs(pickNumber(data.order_info as AnyObj, ['released_time']))
+  const jaCaiu = released !== null && released > 0 && released <= Date.now()
 
   return {
     orderSn: pickString(data.order_info as AnyObj, ['order_sn']) ?? orderSn,
-    sellerIncome,
-    releasedAt,
-    breakdown,
+    valorProdutos: valorDe(CAMPOS_EXTRATO.produtos),
+    valorFrete: valorDe(CAMPOS_EXTRATO.frete),
+    descontoCupons: valorDe(CAMPOS_EXTRATO.cupons),
+    taxaComissao: comissao,
+    taxaServico: servico,
+    outrasTaxas: outras === 0 ? null : outras,
+    valorRecebido: total,
+    recebidoEm: jaCaiu ? released : null,
+    previstoPara: released !== null && released > 0 && !jaCaiu ? released : null,
     rawJson: JSON.stringify(data)
   }
 }
-

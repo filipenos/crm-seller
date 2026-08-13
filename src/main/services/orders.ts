@@ -5,11 +5,14 @@ import type {
   OrderFilters,
   OrderItem,
   OrderTab,
+  OrderCounts,
+  Recebimento,
   TabCounts,
   StatusHistoryEntry
 } from '@shared/types'
-import { INTERNAL_STATUSES, LOGISTICS_READY_TO_POST, ORDER_TABS } from '@shared/types'
-import { deriveTab } from './tabs'
+import { INTERNAL_STATUSES, ORDER_TABS } from '@shared/types'
+import { deriveTab, isReadyToPost } from './tabs'
+import { contarSemExtrato, getRecebimento, rowToRecebimento } from './recebimentos'
 
 interface OrderRow {
   order_sn: string
@@ -30,6 +33,8 @@ interface OrderRow {
   synced_at: number | null
   logistics_status: string | null
   logistics_code: number | null
+  tab: string | null
+  ready_to_post: number
   status_description: string | null
   payment_method: string | null
   carrier: string | null
@@ -48,16 +53,17 @@ interface OrderRow {
   escrow_released_at: number | null
 }
 
-function rowToOrder(row: OrderRow, items: OrderItem[]): Order {
+function rowToOrder(row: OrderRow, items: OrderItem[], recebimento: Recebimento | null = null): Order {
   return {
     orderSn: row.order_sn,
     shopeeOrderId: row.shopee_order_id,
     shopeeStatus: row.shopee_status,
-    tab: deriveTab({
-      shopeeStatus: row.shopee_status,
-      escrowReleasedAt: row.escrow_released_at
-    }),
-    logisticsCode: row.logistics_code,
+    // Vem da coluna, calculada na entrada. O fallback cobre linhas gravadas
+    // antes da migração 9 e some no primeiro reprocessamento.
+    tab:
+      (row.tab as OrderTab | null) ??
+      deriveTab({ shopeeStatus: row.shopee_status, escrowReleasedAt: row.escrow_released_at }),
+    readyToPost: row.ready_to_post === 1,
     statusDescription: row.status_description,
     paymentMethod: row.payment_method,
     carrier: row.carrier,
@@ -87,6 +93,7 @@ function rowToOrder(row: OrderRow, items: OrderItem[]): Order {
     ratedAt: row.rated_at,
     escrowAmount: row.escrow_amount,
     escrowReleasedAt: row.escrow_released_at,
+    recebimento,
     items
   }
 }
@@ -123,6 +130,117 @@ function loadItems(orderSns: string[]): Map<string, OrderItem[]> {
   return map
 }
 
+/**
+ * Recalcula os campos que são **nossos** a partir do que a Shopee mandou.
+ *
+ * Chamado sempre que muda algo que os afeta: o card (sincronização) ou o
+ * pagamento (extrato). Concentrar aqui é o que evita a regra existir em dois
+ * lugares — antes ela estava em `tabs.ts` e repetida em SQL.
+ */
+export function recomputeDerived(orderSn: string): void {
+  const db = getDb()
+  const row = db
+    .prepare(
+      'SELECT shopee_status, escrow_released_at, logistics_code FROM orders WHERE order_sn = ?'
+    )
+    .get(orderSn) as
+    | { shopee_status: string | null; escrow_released_at: number | null; logistics_code: number | null }
+    | undefined
+  if (!row) return
+
+  const tab = deriveTab({
+    shopeeStatus: row.shopee_status,
+    escrowReleasedAt: row.escrow_released_at
+  })
+  db.prepare('UPDATE orders SET tab = ?, ready_to_post = ? WHERE order_sn = ?').run(
+    tab,
+    isReadyToPost(row.logistics_code) ? 1 : 0,
+    orderSn
+  )
+}
+
+/**
+ * Campos pesquisáveis, e o prefixo que restringe a busca a cada um.
+ *
+ * "tema" e "produto" apontam para o mesmo lugar de propósito: a Shopee não tem
+ * campo de tema — ele está dentro do nome do anúncio ("…Guerreiras do K-Pop…"),
+ * junto com a variação.
+ */
+const CAMPOS_BUSCA: Record<string, string[]> = {
+  id: ['o.order_sn'],
+  url: ['o.shopee_order_id'],
+  rastreio: ['o.tracking_number', 'o.package_number'],
+  nick: ['o.buyer_username'],
+  nome: ['o.buyer_name', 'o.child_name'],
+  produto: ['ITEM'],
+  tema: ['ITEM']
+}
+
+/** Todos os campos, para a busca livre (sem prefixo). */
+const BUSCA_LIVRE = [
+  'o.order_sn',
+  'o.shopee_order_id',
+  'o.tracking_number',
+  'o.package_number',
+  'o.buyer_username',
+  'o.buyer_name',
+  'o.child_name',
+  'ITEM'
+]
+
+/**
+ * Compara ignorando hífen, espaço e ponto.
+ *
+ * O anúncio escreve "K-Pop" e a pessoa digita "kpop"; sem isso a busca por tema
+ * — que é o uso principal — não acha nada. (Acentos ficam de fora: o SQLite não
+ * remove acento sem extensão, e "boneca"/"bonecas" já resolve com LIKE parcial.)
+ */
+function semPontuacao(expr: string): string {
+  return `REPLACE(REPLACE(REPLACE(LOWER(COALESCE(${expr}, '')), '-', ''), ' ', ''), '.', '')`
+}
+
+function normaliza(texto: string): string {
+  return texto.toLowerCase().replace(/[-\s.]/g, '')
+}
+
+/** Busca dentro dos itens do pedido (nome do produto e variação). */
+const ITEM_SQL = `EXISTS (
+  SELECT 1 FROM order_items it
+   WHERE it.order_sn = o.order_sn
+     AND (${semPontuacao('it.item_name')} LIKE ? OR ${semPontuacao('it.model_name')} LIKE ?)
+)`
+
+/**
+ * Monta a busca. Tudo é LIKE parcial — o código do QR às vezes vem concatenado
+ * com outro, e ninguém digita o nome do produto inteiro. `prefixo:valor`
+ * restringe a um campo; sem prefixo, procura em todos.
+ */
+function montaBusca(termo: string): { sql: string; params: unknown[] } {
+  const texto = termo.trim()
+  if (!texto) return { sql: '', params: [] }
+
+  const comPrefixo = /^([a-zA-Z]+):(.*)$/.exec(texto)
+  const campos =
+    comPrefixo && CAMPOS_BUSCA[comPrefixo[1].toLowerCase()]
+      ? CAMPOS_BUSCA[comPrefixo[1].toLowerCase()]
+      : BUSCA_LIVRE
+  const valor = comPrefixo && CAMPOS_BUSCA[comPrefixo[1].toLowerCase()] ? comPrefixo[2] : texto
+  const like = `%${normaliza(valor.trim())}%`
+
+  const partes: string[] = []
+  const params: unknown[] = []
+  for (const campo of campos) {
+    if (campo === 'ITEM') {
+      partes.push(ITEM_SQL)
+      params.push(like, like)
+    } else {
+      partes.push(`${semPontuacao(campo)} LIKE ?`)
+      params.push(like)
+    }
+  }
+  return { sql: `(${partes.join(' OR ')})`, params }
+}
+
 export function listOrders(filters: OrderFilters = {}): Order[] {
   const db = getDb()
   const conditions: string[] = []
@@ -137,21 +255,24 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
     params.push(filters.stageId)
   }
   if (filters.search) {
-    // Busca também por código de rastreio: é o que o QR da etiqueta traz, e
-    // ele às vezes vem concatenado com outro código — daí o LIKE nos dois lados.
-    conditions.push(
-      `(order_sn LIKE ? OR buyer_username LIKE ? OR buyer_name LIKE ? OR child_name LIKE ?
-        OR tracking_number LIKE ? OR package_number LIKE ?)`
-    )
-    const like = `%${filters.search.trim()}%`
-    params.push(like, like, like, like, like, like)
+    const { sql, params: buscaParams } = montaBusca(filters.search)
+    if (sql) {
+      conditions.push(sql)
+      params.push(...buscaParams)
+    }
   }
   if (filters.awaitingPayment) {
     conditions.push(`(${AWAITING_PAYMENT_WHERE})`)
   }
   if (filters.readyToPost) {
-    conditions.push('o.logistics_code = ?')
-    params.push(LOGISTICS_READY_TO_POST)
+    conditions.push('o.ready_to_post = 1')
+  }
+  if (filters.tab && filters.tab !== 'TODOS') {
+    conditions.push('o.tab = ?')
+    params.push(filters.tab)
+  } else {
+    // Sem aba escolhida, cancelados não entram na listagem: são a última aba.
+    conditions.push("o.tab != 'CANCELADO'")
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
@@ -165,14 +286,22 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
     )
     .all(...params) as OrderRow[]
 
-  const items = loadItems(rows.map((r) => r.order_sn))
-  const orders = rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? []))
-  // A aba depende do pagamento, que é derivado em JS — por isso o corte é aqui.
-  if (filters.tab && filters.tab !== 'TODOS') {
-    return orders.filter((o) => o.tab === filters.tab)
-  }
-  // Sem aba escolhida, cancelados não poluem a listagem: têm página própria.
-  return orders.filter((o) => o.tab !== 'CANCELADO')
+  const sns = rows.map((r) => r.order_sn)
+  const items = loadItems(sns)
+  const extratos = loadRecebimentos(sns)
+  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], extratos.get(r.order_sn) ?? null))
+}
+
+/** Extratos de vários pedidos numa consulta só, para a listagem não fazer N+1. */
+function loadRecebimentos(orderSns: string[]): Map<string, Recebimento> {
+  const map = new Map<string, Recebimento>()
+  if (orderSns.length === 0) return map
+  const placeholders = orderSns.map(() => '?').join(',')
+  const rows = getDb()
+    .prepare(`SELECT * FROM order_income WHERE order_sn IN (${placeholders})`)
+    .all(...orderSns) as Parameters<typeof rowToRecebimento>[0][]
+  for (const row of rows) map.set(row.order_sn, rowToRecebimento(row))
+  return map
 }
 
 /**
@@ -182,16 +311,17 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
  * e o objetivo das abas é justamente saber quantos existem em cada fase antes
  * de clicar.
  */
-export function countByTab(): TabCounts {
-  const counts = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as TabCounts
-  const rows = getDb().prepare('SELECT shopee_status, escrow_released_at FROM orders').all() as {
-    shopee_status: string | null
-    escrow_released_at: number | null
-  }[]
-  for (const row of rows) {
-    counts[deriveTab({ shopeeStatus: row.shopee_status, escrowReleasedAt: row.escrow_released_at })]++
-  }
-  return counts
+export function countByTab(): OrderCounts {
+  const tabs = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as TabCounts
+  const rows = getDb()
+    .prepare('SELECT tab, COUNT(*) AS n FROM orders WHERE tab IS NOT NULL GROUP BY tab')
+    .all() as { tab: OrderTab; n: number }[]
+  for (const row of rows) if (row.tab in tabs) tabs[row.tab] = row.n
+
+  const ready = getDb()
+    .prepare("SELECT COUNT(*) AS n FROM orders WHERE ready_to_post = 1 AND tab = 'A_ENVIAR'")
+    .get() as { n: number }
+  return { tabs, readyToPost: ready.n, semExtrato: contarSemExtrato('CONCLUIDO') }
 }
 
 export function getOrder(orderSn: string): Order | null {
@@ -205,7 +335,7 @@ export function getOrder(orderSn: string): Order | null {
     .get(orderSn) as OrderRow | undefined
   if (!row) return null
   const items = loadItems([orderSn])
-  return rowToOrder(row, items.get(orderSn) ?? [])
+  return rowToOrder(row, items.get(orderSn) ?? [], getRecebimento(orderSn))
 }
 
 /**
@@ -309,10 +439,9 @@ export function setRating(
 }
 
 /**
- * Guarda o extrato do pedido. `releasedAt` nulo é normal: significa que a
- * Shopee já calculou o valor mas ainda não liberou o dinheiro — é exatamente
- * o estado "aguardando pagamento". COALESCE evita que uma consulta posterior
- * apague uma liberação já registrada.
+ * Guarda o valor e a liberação do pedido. `releasedAt` nulo é normal: a Shopee
+ * calcula o valor antes de soltar o dinheiro — é o estado "aguardando
+ * pagamento". Só entra aqui data que **já passou**; previsão fica no extrato.
  */
 export function setEscrow(
   orderSn: string,
@@ -327,6 +456,8 @@ export function setEscrow(
         WHERE order_sn = ?`
     )
     .run(amount, releasedAt, orderSn)
+  // O pagamento muda a aba: o mesmo pedido sai de Enviado para Concluído.
+  recomputeDerived(orderSn)
 }
 
 /** Pedidos entregues cujo pagamento ainda não caiu — a lista de cobrança a vigiar. */
@@ -342,12 +473,11 @@ export function setEscrow(
  * fica certa depois de consultar o extrato. São poucos (na conta real, 28),
  * o que torna viável consultá-los todos.
  */
-const AWAITING_PAYMENT_WHERE = `
-  escrow_released_at IS NULL
-  AND COALESCE(shopee_status, '') NOT LIKE '%ancelad%'
-  AND COALESCE(shopee_status, '') NOT LIKE '%onclu%'
-  AND COALESCE(shopee_status, '') NOT LIKE '%A Enviar%'
-`
+/**
+ * Enviado e ainda sem pagamento liberado. Fala a nossa língua: a aba já foi
+ * decidida na entrada, então aqui não há texto da Shopee nenhum.
+ */
+const AWAITING_PAYMENT_WHERE = `tab = 'ENVIADO' AND escrow_released_at IS NULL`
 
 export function countAwaitingPayment(): number {
   const row = getDb()
@@ -369,8 +499,10 @@ export function listAwaitingPayment(limit: number): Order[] {
         LIMIT ?`
     )
     .all(limit) as OrderRow[]
-  const items = loadItems(rows.map((r) => r.order_sn))
-  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? []))
+  const sns = rows.map((r) => r.order_sn)
+  const items = loadItems(sns)
+  const extratos = loadRecebimentos(sns)
+  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], extratos.get(r.order_sn) ?? null))
 }
 
 export function getStatusHistory(orderSn: string): StatusHistoryEntry[] {
@@ -530,5 +662,7 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
     }
   })
   tx()
+  // O card acabou de mudar: aba e "pronto para postar" saem daqui, não da leitura.
+  recomputeDerived(input.orderSn)
   return !existing
 }

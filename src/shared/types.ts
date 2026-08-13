@@ -54,13 +54,6 @@ export function isWithUs(tab: OrderTab): boolean {
 }
 
 /**
- * Progresso de envio, do próprio card (`order_ext_info.logistics_status`).
- * Confirmado comparando os pedidos etiquetados com os demais.
- */
-export const LOGISTICS_READY_TO_POST = 1
-export const LOGISTICS_WAITING = 9
-
-/**
  * Ações que uma etapa pode oferecer. O conjunto é fechado porque cada uma
  * dispara código do app; o que é cadastrável é *quais* aparecem em cada etapa,
  * com que rótulo e em que ordem.
@@ -91,6 +84,23 @@ export interface WorkflowStage {
   actions: StageAction[]
 }
 
+/** Extrato financeiro do pedido, com as taxas separadas. */
+export interface Recebimento {
+  valorProdutos: number | null
+  valorFrete: number | null
+  descontoCupons: number | null
+  taxaComissao: number | null
+  taxaServico: number | null
+  outrasTaxas: number | null
+  /** Comissão + serviço + outras, em valor absoluto. */
+  totalTaxas: number | null
+  valorRecebido: number | null
+  /** Quando o dinheiro caiu de fato. */
+  recebidoEm: number | null
+  /** Previsão de liberação, quando ainda não caiu. */
+  previstoPara: number | null
+}
+
 export interface OrderItem {
   id: number
   orderSn: string
@@ -107,8 +117,8 @@ export interface Order {
   shopeeStatus: string | null
   /** Aba a que o pedido pertence, igual ao Seller Center. */
   tab: OrderTab
-  /** Código de progresso de envio do card; separa etiquetado de aguardando. */
-  logisticsCode: number | null
+  /** Etiqueta já gerada: o pedido pode ir ao ponto de coleta. */
+  readyToPost: boolean
   /** Explicação da Shopee para o estado atual. */
   statusDescription: string | null
   paymentMethod: string | null
@@ -141,6 +151,8 @@ export interface Order {
   ratedAt: number | null
   escrowAmount: number | null
   escrowReleasedAt: number | null
+  /** Null enquanto o extrato daquele pedido não foi buscado. */
+  recebimento: Recebimento | null
   items: OrderItem[]
 }
 
@@ -181,11 +193,6 @@ export interface AppSettings {
   syncPageCount: number
   syncIntervalMinutes: number
   shopeeBaseDomain: string
-  /**
-   * Override opcional do repositório de atualizações ("dono/repo"). Vazio =
-   * usa o repositório gravado no instalador, que é o normal.
-   */
-  githubRepo: string
 }
 
 export type UpdateState =
@@ -226,6 +233,28 @@ export interface SyncResult {
 }
 
 export type TabCounts = Record<OrderTab, number>
+
+/** Progresso de uma operação longa (rastreios, extratos). */
+export interface ProgressoLote {
+  rodando: boolean
+  feitos: number
+  total: number
+  rotulo: string
+}
+
+export interface ResultadoLote {
+  feitos: number
+  cancelado: boolean
+  erros: number
+}
+
+export interface OrderCounts {
+  tabs: TabCounts
+  /** Dentro de A enviar, quantos já têm etiqueta gerada. */
+  readyToPost: number
+  /** Pedidos concluídos cujo extrato ainda não foi buscado. */
+  semExtrato: number
+}
 
 export interface OrderFilters {
   internalStatus?: InternalStatus | 'TODOS'

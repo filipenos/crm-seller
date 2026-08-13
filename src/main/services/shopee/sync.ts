@@ -10,6 +10,7 @@ import { isConnected } from './session'
 import {
   countAwaitingPayment,
   getOrder,
+  listOrders,
   listAwaitingPayment,
   setEscrow,
   setLogisticsStatus,
@@ -17,6 +18,7 @@ import {
   upsertShopeeOrder
 } from '../orders'
 import { recordEvent } from '../events'
+import { pedidosParaExtrato, salvarRecebimento } from '../recebimentos'
 import { getSettings } from '../settings'
 import { saveOrderDump } from '../orderDump'
 
@@ -136,15 +138,15 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
         if (!order.shopeeOrderId) continue
         const income = await fetchOrderIncome(order.orderSn, order.shopeeOrderId)
         if (!income) continue
-        setEscrow(order.orderSn, income.sellerIncome, income.releasedAt)
-        if (income.releasedAt !== null) {
-          const valor = income.sellerIncome !== null ? ` (${BRL.format(income.sellerIncome)})` : ''
+        salvarRecebimento(income)
+        if (income.recebidoEm !== null) {
+          const valor = income.valorRecebido !== null ? ` (${BRL.format(income.valorRecebido)})` : ''
           if (
             recordEvent({
               orderSn: order.orderSn,
               source: 'finance',
               description: `Pagamento liberado${valor}`,
-              happenedAt: income.releasedAt,
+              happenedAt: income.recebidoEm,
               rawJson: income.rawJson
             })
           ) {
@@ -182,6 +184,97 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     broadcast('data:changed', null)
   }
   return result
+}
+
+/**
+ * Estado das operações longas (rastreios / extratos). Guardado aqui porque
+ * elas rodam por minutos: a UI precisa saber onde está e poder mandar parar.
+ */
+interface ProgressoLote {
+  rodando: boolean
+  feitos: number
+  total: number
+  rotulo: string
+  cancelar: boolean
+}
+
+const lote: ProgressoLote = { rodando: false, feitos: 0, total: 0, rotulo: '', cancelar: false }
+
+function emiteProgresso(): void {
+  broadcast('lote:progresso', { ...lote, cancelar: undefined })
+}
+
+export function progressoLote(): Omit<ProgressoLote, 'cancelar'> {
+  return { rodando: lote.rodando, feitos: lote.feitos, total: lote.total, rotulo: lote.rotulo }
+}
+
+export function cancelarLote(): void {
+  if (lote.rodando) lote.cancelar = true
+}
+
+/**
+ * Roda uma operação por pedido, avisando o progresso e parando quando pedido.
+ *
+ * O intervalo entre chamadas existe porque são APIs internas sem cota
+ * publicada — centenas de requisições em rajada é o tipo de coisa que chama
+ * atenção.
+ */
+async function rodarLote<T>(
+  rotulo: string,
+  itens: T[],
+  passo: (item: T) => Promise<void>
+): Promise<{ feitos: number; cancelado: boolean; erros: number }> {
+  if (lote.rodando) throw new Error('Já existe uma operação em andamento.')
+  Object.assign(lote, { rodando: true, feitos: 0, total: itens.length, rotulo, cancelar: false })
+  emiteProgresso()
+
+  let erros = 0
+  try {
+    for (const item of itens) {
+      if (lote.cancelar) break
+      try {
+        await passo(item)
+      } catch (err) {
+        erros++
+        console.warn(`[${rotulo}] falhou:`, err)
+      }
+      lote.feitos++
+      emiteProgresso()
+      await sleep(300)
+    }
+    return { feitos: lote.feitos, cancelado: lote.cancelar, erros }
+  } finally {
+    lote.rodando = false
+    emiteProgresso()
+    broadcast('data:changed', null)
+  }
+}
+
+/** Atualiza o rastreio de todos os pedidos de uma aba. */
+export async function atualizarRastreios(tab: string): Promise<{
+  feitos: number
+  cancelado: boolean
+  erros: number
+}> {
+  const pedidos = listOrders({ tab: tab as never }).filter((o) => o.shopeeOrderId)
+  return rodarLote('rastreios', pedidos, async (o) => {
+    await refreshTracking(o.orderSn)
+  })
+}
+
+/**
+ * Busca o extrato dos pedidos de uma aba. Por padrão só de quem não tem —
+ * valor de pedido concluído não muda, então refazer é desperdício.
+ */
+export async function buscarExtratos(
+  tab: string,
+  refazer = false
+): Promise<{ feitos: number; cancelado: boolean; erros: number }> {
+  const pendentes = pedidosParaExtrato(tab, { refazer })
+  return rodarLote('extratos', pendentes, async ({ orderSn, orderId }) => {
+    const extrato = await fetchOrderIncome(orderSn, orderId)
+    if (extrato) salvarRecebimento(extrato)
+  })
 }
 
 /**

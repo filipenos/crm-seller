@@ -6,7 +6,9 @@ import type {
   Order,
   OrderEvent,
   OrderFilters,
-  TabCounts,
+  OrderCounts,
+  ProgressoLote,
+  ResultadoLote,
   ShopeeConnectionStatus,
   StageActionKind,
   StatusHistoryEntry,
@@ -45,7 +47,7 @@ const api = {
     list: (filters: OrderFilters): Promise<Order[]> => ipcRenderer.invoke('orders:list', filters),
     awaitingPaymentCount: (): Promise<number> =>
       ipcRenderer.invoke('orders:awaitingPaymentCount'),
-    tabCounts: (): Promise<TabCounts> => ipcRenderer.invoke('orders:tabCounts'),
+    tabCounts: (): Promise<OrderCounts> => ipcRenderer.invoke('orders:tabCounts'),
     get: (orderSn: string): Promise<Order | null> => ipcRenderer.invoke('orders:get', orderSn),
     setStatus: (orderSn: string, status: InternalStatus): Promise<Order | null> =>
       ipcRenderer.invoke('orders:setStatus', orderSn, status),
@@ -62,7 +64,22 @@ const api = {
     openFolder: (orderSn: string): Promise<ActionResult> =>
       ipcRenderer.invoke('orders:openFolder', orderSn),
     refreshTracking: (orderSn: string): Promise<TrackingRefreshResult> =>
-      ipcRenderer.invoke('orders:refreshTracking', orderSn)
+      ipcRenderer.invoke('orders:refreshTracking', orderSn),
+    atualizarRastreios: (tab: string): Promise<ResultadoLote> =>
+      ipcRenderer.invoke('orders:atualizarRastreios', tab),
+    buscarExtratos: (tab: string, refazer = false): Promise<ResultadoLote> =>
+      ipcRenderer.invoke('orders:buscarExtratos', tab, refazer),
+    reprocessarExtratos: (): Promise<{ lidos: number; corrigidos: number }> =>
+      ipcRenderer.invoke('orders:reprocessarExtratos')
+  },
+  lote: {
+    progresso: (): Promise<ProgressoLote> => ipcRenderer.invoke('lote:progresso'),
+    cancelar: (): Promise<void> => ipcRenderer.invoke('lote:cancelar'),
+    onProgresso: (cb: (p: ProgressoLote) => void): (() => void) => {
+      const listener = (_e: unknown, p: ProgressoLote): void => cb(p)
+      ipcRenderer.on('lote:progresso', listener)
+      return () => ipcRenderer.removeListener('lote:progresso', listener)
+    }
   },
   stages: {
     list: (): Promise<WorkflowStage[]> => ipcRenderer.invoke('stages:list'),

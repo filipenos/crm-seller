@@ -6,7 +6,18 @@ import type {
   StatusHistoryEntry,
   WorkflowStage
 } from '@shared/types'
-import { LOGISTICS_READY_TO_POST, ORDER_TAB_LABELS, isWithUs } from '@shared/types'
+import { ORDER_TAB_LABELS, isWithUs } from '@shared/types'
+
+/** Linha do extrato; omitida quando a Shopee não mandou o valor. */
+function Linha({ rotulo, valor }: { rotulo: string; valor: number | null }): React.JSX.Element | null {
+  if (valor === null || valor === 0) return null
+  return (
+    <tr>
+      <td>{rotulo}</td>
+      <td className={`num ${valor < 0 ? 'negativo' : ''}`}>R$ {valor.toFixed(2)}</td>
+    </tr>
+  )
+}
 
 const EVENT_ICONS: Record<OrderEvent['source'], string> = {
   logistics: '🚚',
@@ -98,10 +109,7 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
         <header className="drawer-header">
           <div>
             <h2 className="mono">{order.orderSn}</h2>
-            <div className="muted">
-              {order.buyerName ?? order.buyerUsername ?? '-'}
-              {order.buyerUsername ? ` (@${order.buyerUsername})` : ''}
-            </div>
+            <div className="muted">{order.buyerUsername ?? '-'}</div>
           </div>
           <button className="close-btn" onClick={onClose}>
             ✕
@@ -113,7 +121,7 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
           <div className={`phase-badge big ph-${order.tab}`}>
             {order.shopeeStatus ?? ORDER_TAB_LABELS[order.tab]}
           </div>
-          {order.logisticsCode === LOGISTICS_READY_TO_POST && (
+          {order.readyToPost && (
             <div className="ready-tag">🏷️ Etiqueta gerada — pronto para o ponto de coleta</div>
           )}
           {order.logisticsStatus && <div className="muted">🚚 {order.logisticsStatus}</div>}
@@ -173,6 +181,40 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
             <button onClick={saveNote}>Salvar</button>
           </div>
         </section>
+
+        {order.recebimento && (
+          <section>
+            <h3>Recebimento</h3>
+            <table className="extrato">
+              <tbody>
+                <Linha rotulo="Produtos" valor={order.recebimento.valorProdutos} />
+                <Linha rotulo="Frete" valor={order.recebimento.valorFrete} />
+                <Linha rotulo="Cupons" valor={order.recebimento.descontoCupons} />
+                <Linha rotulo="Comissão" valor={order.recebimento.taxaComissao} />
+                <Linha rotulo="Taxa de serviço" valor={order.recebimento.taxaServico} />
+                <Linha rotulo="Outras taxas" valor={order.recebimento.outrasTaxas} />
+                <tr className="extrato-total">
+                  <td>Recebido</td>
+                  <td className="num">
+                    {order.recebimento.valorRecebido != null
+                      ? `R$ ${order.recebimento.valorRecebido.toFixed(2)}`
+                      : '—'}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <small className="muted">
+              {order.recebimento.recebidoEm
+                ? `Liberado em ${new Date(order.recebimento.recebidoEm).toLocaleDateString('pt-BR')}`
+                : order.recebimento.previstoPara
+                  ? `Ainda não caiu — previsto para ${new Date(order.recebimento.previstoPara).toLocaleDateString('pt-BR')}`
+                  : 'Valor calculado pela Shopee; ainda sem data de liberação.'}
+              {order.recebimento.totalTaxas != null && order.totalAmount
+                ? ` · taxas somam ${Math.round((order.recebimento.totalTaxas / order.totalAmount) * 100)}% do que o cliente pagou`
+                : ''}
+            </small>
+          </section>
+        )}
 
         <section>
           <h3>Itens</h3>

@@ -927,3 +927,44 @@ code {
 .orders-table .num { text-align: right; white-space: nowrap; }
 /* Prazo de postagem estourando: é o que gera multa da Shopee. */
 .prazo-curto { color: #b91c1c; font-weight: 700; }
+
+/* Operações longas: progresso visível e interrompível. */
+.barra-progresso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.barra-trilho {
+  flex: 1;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.barra-preenchida {
+  height: 100%;
+  background: #2563eb;
+  transition: width 0.2s;
+}
+.acoes-da-aba { margin: 8px 0; }
+
+/* Extrato do pedido: negativo em vermelho, total destacado. */
+.extrato { width: 100%; max-width: 340px; }
+.extrato td { padding: 3px 0; }
+.extrato .negativo { color: #b91c1c; }
+.extrato-total { border-top: 1px solid var(--border, #e2e8f0); font-weight: 700; }
+
+/* Pagamento agendado: valor existe, dinheiro não. Precisa saltar aos olhos
+   para não ser lido como recebido. */
+.previsto {
+  display: inline-block;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}

@@ -1,7 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type { UpdateStatus } from '@shared/types'
-import { getSettings } from './settings'
 
 /**
  * Atualização automática pelas Releases do GitHub (electron-updater).
@@ -11,8 +10,10 @@ import { getSettings } from './settings'
  * instalar" antecipa isso.
  *
  * O repositório vem gravado no instalador (`app-update.yml`, gerado pela config
- * `publish` do electron-builder). Em desenvolvimento nada disso roda: só o app
- * empacotado sabe se atualizar.
+ * `publish` do electron-builder) e **não é configurável em tempo de execução**:
+ * como o app não é assinado, o electron-updater não valida quem publicou, então
+ * apontar o feed para outro repositório equivaleria a baixar e executar um
+ * instalador arbitrário. Em desenvolvimento nada disso roda.
  */
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -33,25 +34,6 @@ function patch(next: Partial<UpdateStatus>): void {
   Object.assign(status, next)
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('update:status', { ...status })
-  }
-}
-
-/**
- * Permite apontar para outro repositório sem regerar o instalador (campo em
- * Configurações). Vazio — o normal — mantém o que veio no instalador.
- */
-function applyFeedOverride(): void {
-  try {
-    const repo = getSettings().githubRepo.trim()
-    if (repo === '') return
-    const match = /^([\w.-]+)\/([\w.-]+)$/.exec(repo)
-    if (!match) {
-      patch({ error: `Repositório de atualização inválido: "${repo}" (use dono/repo).` })
-      return
-    }
-    autoUpdater.setFeedURL({ provider: 'github', owner: match[1], repo: match[2] })
-  } catch (err) {
-    console.warn('[update] não foi possível aplicar o repositório configurado:', err)
   }
 }
 
@@ -123,7 +105,6 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
   if (status.state === 'downloaded') return getUpdateStatus()
 
   try {
-    applyFeedOverride()
     await autoUpdater.checkForUpdates()
   } catch (err) {
     patch({ state: 'error', error: String(err instanceof Error ? err.message : err) })

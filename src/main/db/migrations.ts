@@ -186,6 +186,42 @@ const migrations: string[] = [
   `
   ALTER TABLE orders ADD COLUMN package_number TEXT;
   CREATE INDEX idx_orders_package_number ON orders(package_number);
+  `,
+  // 9 — campos **nossos**, calculados quando o pedido entra.
+  //     Antes a aba era recalculada em toda leitura e o filtro de recebimentos
+  //     repetia a mesma regra em SQL com LIKE nos textos da Shopee: duas cópias
+  //     da mesma decisão, que podiam divergir sem ninguém notar. Agora a
+  //     tradução acontece uma vez, na fronteira, e o resto do app só lê daqui.
+  `
+  ALTER TABLE orders ADD COLUMN tab TEXT;
+  ALTER TABLE orders ADD COLUMN ready_to_post INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_orders_tab ON orders(tab);
+  `,
+  // 10 — extrato financeiro por pedido, com as taxas separadas.
+  //      Colunas com nomes nossos: os campos da Shopee (MERCHANDISE_SUBTOTAL,
+  //      FEES_AND_CHARGES…) são traduzidos no client e não chegam até aqui. O
+  //      raw_json fica junto para que uma taxa nova que a Shopee invente possa
+  //      ser identificada depois, sem rebaixar centenas de extratos de novo.
+  `
+  CREATE TABLE order_income (
+    order_sn TEXT PRIMARY KEY REFERENCES orders(order_sn) ON DELETE CASCADE,
+    valor_produtos REAL,
+    valor_frete REAL,
+    desconto_cupons REAL,
+    taxa_comissao REAL,
+    taxa_servico REAL,
+    outras_taxas REAL,
+    valor_recebido REAL,
+    recebido_em INTEGER,
+    atualizado_em INTEGER NOT NULL,
+    raw_json TEXT
+  );
+  `,
+  // 11 — data prevista de liberação. O `released_time` da Shopee guarda a
+  //      **previsão** enquanto o dinheiro não sai, então tratá-lo como
+  //      "recebido" mandava pedido não pago para a aba Concluído.
+  `
+  ALTER TABLE order_income ADD COLUMN previsto_para INTEGER;
   `
 ]
 

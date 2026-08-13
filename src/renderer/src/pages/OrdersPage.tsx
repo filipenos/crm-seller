@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { Order, OrderTab, TabCounts } from '@shared/types'
-import { LOGISTICS_READY_TO_POST, MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
+import type { Order, OrderCounts, OrderTab } from '@shared/types'
+import { MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
+import BarraProgresso from '../components/BarraProgresso'
 
 /** Menos de 24h para postar: o prazo da Shopee vira multa se estourar. */
 function prazoApertado(shipByDate: number): boolean {
@@ -14,24 +15,20 @@ interface Props {
 
 export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const [orders, setOrders] = useState<Order[]>([])
-  const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>('TODOS')
-  const [readyToPost, setReadyToPost] = useState(false)
+  // Entra direto no que precisa de trabalho hoje, não na base inteira.
+  const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>('A_ENVIAR')
   const [search, setSearch] = useState('')
-  const [awaitingPayment, setAwaitingPayment] = useState(false)
-  const [awaitingCount, setAwaitingCount] = useState(0)
-  const [counts, setCounts] = useState<TabCounts | null>(null)
+  const [counts, setCounts] = useState<OrderCounts | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
-    void window.api.orders.list({ tab: tabFilter, search, awaitingPayment, readyToPost: readyToPost || undefined }).then(setOrders)
-    void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
+    void window.api.orders.list({ tab: tabFilter, search }).then(setOrders)
     void window.api.orders.tabCounts().then(setCounts)
-  }, [tabFilter, search, awaitingPayment, readyToPost, dataVersion])
+  }, [tabFilter, search, dataVersion])
 
   const refresh = (): void => {
-    void window.api.orders.list({ tab: tabFilter, search, awaitingPayment, readyToPost: readyToPost || undefined }).then(setOrders)
-    void window.api.orders.awaitingPaymentCount().then(setAwaitingCount)
+    void window.api.orders.list({ tab: tabFilter, search }).then(setOrders)
     void window.api.orders.tabCounts().then(setCounts)
   }
 
@@ -56,17 +53,30 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     }
   }
 
-  // Os totais só aparecem sem filtro: com uma aba escolhida, o número dela
-  // seria o da própria lista e os outros, ruído.
-  const semFiltro = tabFilter === 'TODOS' && !awaitingPayment && !readyToPost
-  // "Todos" não conta cancelados — eles têm página própria, como na Shopee.
-  const total = counts ? MAIN_TABS.reduce((soma, t) => soma + counts[t], 0) : orders.length
-  const prontosParaPostar = orders.filter((o) => o.logisticsCode === LOGISTICS_READY_TO_POST).length
-
-  const limpaFiltros = (): void => {
-    setAwaitingPayment(false)
-    setReadyToPost(false)
+  /** Cada aba tem a operação em lote que faz sentido nela. */
+  const acaoDaAba = (): { rotulo: string; titulo: string; rodar: () => Promise<unknown> } | null => {
+    if (tabFilter === 'ENVIADO') {
+      return {
+        rotulo: `🔄 Atualizar rastreios (${counts?.tabs.ENVIADO ?? 0})`,
+        titulo: 'Consulta o rastreio de todos os pedidos enviados, um a um',
+        rodar: () => window.api.orders.atualizarRastreios('ENVIADO')
+      }
+    }
+    if (tabFilter === 'CONCLUIDO' && (counts?.semExtrato ?? 0) > 0) {
+      return {
+        rotulo: `💰 Buscar valores recebidos (${counts?.semExtrato})`,
+        titulo: 'Busca o extrato dos concluídos que ainda não têm — valor de pedido concluído não muda',
+        rodar: () => window.api.orders.buscarExtratos('CONCLUIDO')
+      }
+    }
+    return null
   }
+  const acao = acaoDaAba()
+
+  // Os totais vêm do banco e ficam sempre visíveis: são eles que dizem quanto
+  // trabalho existe em cada aba antes de clicar.
+  // "Todos" não conta cancelados, que são a última aba.
+  const total = counts ? MAIN_TABS.reduce((soma, t) => soma + counts.tabs[t], 0) : orders.length
 
   return (
     <div className="page orders-page">
@@ -74,7 +84,8 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
         <h1>Pedidos</h1>
         <input
           className="search"
-          placeholder="Buscar por pedido, comprador ou nome…"
+          placeholder="Buscar em tudo, ou use tema: produto: nick: nome: id: url: rastreio:"
+          title="Sem prefixo procura em todos os campos. Com prefixo restringe: tema:kpop, nick:comprador, rastreio:BR123, url:2390000000000"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -82,63 +93,47 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
 
       <div className="status-tabs">
         <button
-          className={semFiltro && tabFilter === 'TODOS' ? 'active' : ''}
-          onClick={() => {
-            setTabFilter('TODOS')
-            limpaFiltros()
-          }}
+          className={tabFilter === 'TODOS' ? 'active' : ''}
+          onClick={() => setTabFilter('TODOS')}
         >
-          Todos{semFiltro ? ` (${total})` : ''}
+          Todos ({total})
         </button>
         {MAIN_TABS.map((t) => (
           <button
             key={t}
-            className={tabFilter === t && !readyToPost ? 'active' : ''}
-            onClick={() => {
-              setTabFilter(t)
-              limpaFiltros()
-            }}
+            className={tabFilter === t ? 'active' : ''}
+            onClick={() => setTabFilter(t)}
           >
-            {ORDER_TAB_LABELS[t]}
-            {semFiltro ? ` (${counts?.[t] ?? 0})` : ''}
+            {ORDER_TAB_LABELS[t]} ({counts?.tabs[t] ?? 0})
           </button>
         ))}
-        {/* Corte de produção: dentro de "A enviar", os que já têm etiqueta
-            gerada são os que podem ir para o ponto de coleta hoje. */}
-        <button
-          className={`ready-to-post ${readyToPost ? 'active' : ''}`}
-          title="Pedidos a enviar com etiqueta já gerada — prontos para levar ao ponto de coleta"
-          onClick={() => {
-            setReadyToPost(!readyToPost)
-            setTabFilter('A_ENVIAR')
-            setAwaitingPayment(false)
-          }}
-        >
-          🏷️ Prontos para postar
-          {tabFilter === 'A_ENVIAR' && !readyToPost ? ` (${prontosParaPostar})` : ''}
-        </button>
         <button
           className={tabFilter === 'CANCELADO' ? 'active' : ''}
-          onClick={() => {
-            setTabFilter('CANCELADO')
-            limpaFiltros()
-          }}
+          onClick={() => setTabFilter('CANCELADO')}
         >
-          {ORDER_TAB_LABELS.CANCELADO}
-          {semFiltro ? ` (${counts?.CANCELADO ?? 0})` : ''}
-        </button>
-        <button
-          className={`awaiting-payment ${awaitingPayment ? 'active' : ''}`}
-          title="Pedidos entregues cujo pagamento ainda não foi liberado pela Shopee"
-          onClick={() => {
-            setAwaitingPayment(!awaitingPayment)
-            setTabFilter('TODOS')
-            setReadyToPost(false)
-          }}
-        >
-          💰 Aguardando pagamento{semFiltro && awaitingCount > 0 ? ` (${awaitingCount})` : ''}
+          {ORDER_TAB_LABELS.CANCELADO} ({counts?.tabs.CANCELADO ?? 0})
         </button>
       </div>
+
+      {acao && (
+        <div className="acoes-da-aba">
+          <button
+            title={acao.titulo}
+            onClick={async () => {
+              const r = await acao.rodar()
+              const res = r as { feitos: number; cancelado: boolean; erros: number }
+              showToast(
+                `${res.feitos} processados${res.cancelado ? ' (parado por você)' : ''}` +
+                  (res.erros > 0 ? ` · ${res.erros} falharam` : '')
+              )
+              refresh()
+            }}
+          >
+            {acao.rotulo}
+          </button>
+        </div>
+      )}
+      <BarraProgresso />
 
       {orders.length === 0 ? (
         <div className="empty">
@@ -153,6 +148,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
               <th>Produto</th>
               <th>Qtd</th>
               <th>Valor pago</th>
+              <th>Recebido</th>
               <th>Postar até</th>
               <th>Situação</th>
               <th></th>
@@ -163,11 +159,13 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
               <tr key={o.orderSn} onClick={() => setSelected(o.orderSn)}>
                 <td>
                   <div className="mono">{o.orderSn}</div>
+                  {/* O nome do destinatário vem mascarado pela Shopee ("E******a"),
+                      então não informa nada — o username identifica melhor. */}
                   <small className="muted">
                     {o.createdAtShopee
                       ? new Date(o.createdAtShopee).toLocaleDateString('pt-BR')
                       : '—'}
-                    {o.buyerName || o.buyerUsername ? ` · ${o.buyerName ?? o.buyerUsername}` : ''}
+                    {o.buyerUsername ? ` · ${o.buyerUsername}` : ''}
                   </small>
                 </td>
                 <td className="col-produto">
@@ -187,8 +185,39 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                 </td>
                 <td className="num">{o.items.reduce((soma, i) => soma + i.quantity, 0) || '—'}</td>
                 <td className="num">
-                  {o.totalAmount != null ? `R$ ${o.totalAmount.toFixed(2)}` : '—'}
-                  {o.paymentMethod && <small className="muted"> {o.paymentMethod}</small>}
+                  <div>{o.totalAmount != null ? `R$ ${o.totalAmount.toFixed(2)}` : '—'}</div>
+                  {o.paymentMethod && (
+                    <div>
+                      <small className="muted">{o.paymentMethod}</small>
+                    </div>
+                  )}
+                </td>
+                <td className="num">
+                  {o.recebimento?.valorRecebido != null ? (
+                    <>
+                      {/* Valor sem data de liberação é previsão, não dinheiro
+                          na conta — por isso fica esmaecido e datado. */}
+                      <div className={o.recebimento.recebidoEm ? '' : 'muted'}>
+                        R$ {o.recebimento.valorRecebido.toFixed(2)}
+                      </div>
+                      {o.recebimento.totalTaxas != null && o.totalAmount ? (
+                        <div>
+                          <small className="muted" title="Comissão + serviço + outras taxas">
+                            taxas {Math.round((o.recebimento.totalTaxas / o.totalAmount) * 100)}%
+                          </small>
+                        </div>
+                      ) : null}
+                      {!o.recebimento.recebidoEm && o.recebimento.previstoPara ? (
+                        <div>
+                          <span className="previsto" title="Valor calculado; ainda não caiu na conta">
+                            previsto {new Date(o.recebimento.previstoPara).toLocaleDateString('pt-BR')}
+                          </span>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <small className="muted">aguardando</small>
+                  )}
                 </td>
                 <td>
                   {o.shipByDate ? (
@@ -203,7 +232,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                   <span className={`phase-badge ph-${o.tab}`}>
                     {o.shopeeStatus ?? ORDER_TAB_LABELS[o.tab]}
                   </span>
-                  {o.logisticsCode === LOGISTICS_READY_TO_POST && (
+                  {o.readyToPost && (
                     <div className="ready-tag">🏷️ etiqueta gerada</div>
                   )}
                   {o.statusDescription && (

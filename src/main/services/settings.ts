@@ -11,9 +11,7 @@ function defaults(): AppSettings {
     autoSyncEnabled: false,
     syncPageCount: 2,
     syncIntervalMinutes: 15,
-    shopeeBaseDomain: 'shopee.com.br',
-    // Vazio: usa o repositório gravado no instalador pelo electron-builder.
-    githubRepo: ''
+    shopeeBaseDomain: 'shopee.com.br'
   }
 }
 

@@ -14,6 +14,18 @@ import type { OrderTab } from '@shared/types'
  * para liberar).
  */
 
+/**
+ * Código de progresso de envio da Shopee (`order_ext_info.logistics_status`).
+ * Fica aqui e não nos tipos compartilhados: é vocabulário deles, e a UI não
+ * deve conhecer número de terceiro — ela recebe `readyToPost`.
+ */
+export const LOGISTICS_READY_TO_POST = 1
+
+/** Traduz o código de envio para o nosso conceito. */
+export function isReadyToPost(logisticsCode: number | null): boolean {
+  return logisticsCode === LOGISTICS_READY_TO_POST
+}
+
 const CANCELADO = /cancelad|cancelled|devolvid|returned/i
 const A_ENVIAR = /a enviar|to ship|pendente de envio/i
 const CONCLUIDO = /conclu[íi]|completed/i

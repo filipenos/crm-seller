@@ -32,7 +32,11 @@ import {
 import { createOrderFolder, ensureFolderName, openOrderFolder } from './services/folders'
 import { disconnect, openLoginWindow } from './services/shopee/session'
 import {
+  atualizarRastreios,
+  buscarExtratos,
+  cancelarLote,
   getConnectionStatus,
+  progressoLote,
   refreshTracking,
   startSyncScheduler,
   syncAll
@@ -40,6 +44,7 @@ import {
 import { probeShopeeApis } from './services/shopee/probe'
 import { fetchOrderTotal, normalizeCard } from './services/shopee/client'
 import { countDumps, dumpPath, reprocessDumps } from './services/orderDump'
+import { reprocessarExtratos } from './services/recebimentos'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   countUnseenEvents,
@@ -77,6 +82,7 @@ export function registerIpcHandlers(): void {
     })
     return r
   })
+  ipcMain.handle('orders:reprocessarExtratos', () => reprocessarExtratos())
   ipcMain.handle('shopee:dumpInfo', async () => ({ path: dumpPath(), count: await countDumps() }))
   // Diagnóstico: descobre os endpoints reais do Seller Center (leva alguns minutos).
   ipcMain.handle('shopee:probe', async (): Promise<ActionResult> => {
@@ -91,6 +97,12 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrders(filters))
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPayment())
   ipcMain.handle('orders:tabCounts', () => countByTab())
+  ipcMain.handle('orders:atualizarRastreios', (_e, tab: string) => atualizarRastreios(tab))
+  ipcMain.handle('orders:buscarExtratos', (_e, tab: string, refazer?: boolean) =>
+    buscarExtratos(tab, refazer === true)
+  )
+  ipcMain.handle('lote:progresso', () => progressoLote())
+  ipcMain.handle('lote:cancelar', () => cancelarLote())
   ipcMain.handle('orders:refreshTracking', (_e, orderSn: string) => refreshTracking(orderSn))
   ipcMain.handle('orders:get', (_e, orderSn: string) => getOrder(orderSn))
   ipcMain.handle('orders:setStatus', (_e, orderSn: string, status: InternalStatus) =>
