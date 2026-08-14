@@ -32,10 +32,13 @@ jobs:
 
       - run: npm run typecheck
 
-      - name: Build e publicação do instalador
-        run: npm run build:win -- --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # `--publish never`: quem sobe os artefatos é o passo seguinte, com o `gh`.
+      # O uploader do electron-builder encerra o processo com sucesso poucos
+      # segundos depois de *começar* os uploads — o .blockmap (100 KB) chega, o
+      # .exe (100 MB) não, e nada avisa. O build ainda gera o `latest.yml` e o
+      # `app-update.yml` normalmente, que é o que importa aqui.
+      - name: Build do instalador
+        run: npm run build:win -- --publish never
 
       # O electron-builder descobre o repositório pelo remote do git. Se isso
       # falhar, ele ainda gera o instalador — só que sem feed, e o app
@@ -52,10 +55,36 @@ jobs:
             throw "app-update.yml sem provider github — o app instalado não conseguiria se atualizar"
           }
 
-      # A release nasce como rascunho. Antes de publicar, conferir que os dois
-      # artefatos que importam chegaram: sem o .exe não há o que instalar, e sem
-      # o latest.yml o app instalado não enxerga a atualização. Já aconteceu de
-      # o build "passar" tendo subido só o .blockmap.
+      # Sem o .exe não há o que instalar; sem o latest.yml o app instalado não
+      # enxerga a atualização. Conferir antes de subir evita criar uma release
+      # pela metade.
+      - name: Enviar os artefatos para a release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v$((Get-Content package.json | ConvertFrom-Json).version)"
+          $exe = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          if (!$exe) { throw "o build não gerou o instalador .exe" }
+          if (!(Test-Path dist/latest.yml)) {
+            throw "o build não gerou latest.yml — o auto-update não funcionaria"
+          }
+          # O .blockmap é opcional: só faz a atualização baixar as partes que
+          # mudaram. Vai junto quando existe.
+          $arquivos = @($exe.FullName, (Resolve-Path dist/latest.yml).Path)
+          $blockmap = Get-ChildItem dist -Filter *.exe.blockmap | Select-Object -First 1
+          if ($blockmap) { $arquivos += $blockmap.FullName }
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @arquivos --clobber
+          } else {
+            gh release create $tag @arquivos --draft --title $tag --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw "falha ao enviar os artefatos" }
+
+      # A release nasce como rascunho e só sai do rascunho depois de confirmar,
+      # já no GitHub, que os artefatos chegaram mesmo.
       - name: Publicar a release (só com os artefatos completos)
         shell: pwsh
         env:
