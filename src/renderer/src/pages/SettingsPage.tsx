@@ -264,16 +264,6 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
             />
           </div>
         )}
-        <div className="setting-row">
-          <label>Domínio Shopee</label>
-          <input
-            value={settings.shopeeBaseDomain}
-            onChange={(e) => setSettings({ ...settings, shopeeBaseDomain: e.target.value })}
-            onBlur={(e) => update({ shopeeBaseDomain: e.target.value })}
-            style={{ width: 240 }}
-          />
-          <small className="muted">Padrão: shopee.com.br</small>
-        </div>
       </section>
 
       <section className="settings-card">

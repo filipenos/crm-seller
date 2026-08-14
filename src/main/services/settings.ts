@@ -12,8 +12,7 @@ function defaults(): AppSettings {
     syncPageCount: 2,
     syncTracking: true,
     syncPayments: true,
-    syncIntervalMinutes: 15,
-    shopeeBaseDomain: 'shopee.com.br'
+    syncIntervalMinutes: 15
   }
 }
 

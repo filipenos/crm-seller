@@ -79,6 +79,15 @@ export function salvarRecebimento(extrato: ExtratoShopee): void {
       extrato.rawJson
     )
 
+  // A criação real (com hora) só existe no extrato; a data lida do número do
+  // pedido é uma aproximação no fuso da Shopee. Quando a real aparece, ela
+  // manda.
+  if (extrato.criadoEm) {
+    getDb()
+      .prepare('UPDATE orders SET created_at_shopee = ? WHERE order_sn = ?')
+      .run(extrato.criadoEm, extrato.orderSn)
+  }
+
   // O extrato é a fonte da verdade da liberação, então escreve **sem COALESCE**:
   // um pedido que parecia pago (data prevista lida como efetiva) precisa poder
   // voltar a não-pago, e o COALESCE nunca limpava esse campo.
@@ -154,12 +163,16 @@ export function reprocessarExtratos(): { lidos: number; corrigidos: number } {
 }
 
 /**
- * Quem precisa ter o pagamento consultado.
+ * Quem precisa ter o extrato consultado.
  *
- * Duas situações: pedido sem extrato nenhum, e pedido **enviado** cujo extrato
- * ainda não mostra dinheiro na conta — esse muda sozinho quando a Shopee
- * libera, então é o único que vale reconsultar. Concluído com valor já é fato
- * consumado e fica de fora.
+ * Duas situações: pedido sem extrato nenhum, e pedido **enviado** cujo dinheiro
+ * ainda não caiu — esse muda sozinho quando a Shopee libera, e é o único que
+ * vale reconsultar. Concluído com valor é fato consumado e fica de fora.
+ *
+ * "A enviar" entra na primeira situação de propósito: mesmo sem pagamento, o
+ * extrato traz a **hora real da criação** do pedido, e sem ela a data vem do
+ * número — que está no fuso da Shopee e joga pedido da tarde para o dia
+ * seguinte.
  */
 export function pedidosParaAtualizarPagamento(): { orderSn: string; orderId: string }[] {
   return getDb()
@@ -167,7 +180,7 @@ export function pedidosParaAtualizarPagamento(): { orderSn: string; orderId: str
       `SELECT o.order_sn, o.shopee_order_id
          FROM orders o
          LEFT JOIN order_income i ON i.order_sn = o.order_sn
-        WHERE o.tab IN ('ENVIADO', 'CONCLUIDO')
+        WHERE o.tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
           AND o.shopee_order_id IS NOT NULL
           AND (i.order_sn IS NULL OR (o.tab = 'ENVIADO' AND i.recebido_em IS NULL))
         ORDER BY o.created_at_shopee ASC`

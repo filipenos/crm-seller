@@ -1,5 +1,4 @@
 import { BrowserWindow, session as electronSession } from 'electron'
-import { getSettings } from '../settings'
 
 export const SHOPEE_PARTITION = 'persist:shopee'
 
@@ -112,8 +111,19 @@ function summarizeBody(text: string | null): string {
   return body.slice(0, 300)
 }
 
+/**
+ * Domínio do Seller Center. **Constante de propósito.**
+ *
+ * Era configurável, e isso abria duas portas: a janela de login passaria a
+ * mostrar uma página controlada por outra pessoa — captura de credencial da
+ * Shopee com cara de tela do app —, e todas as chamadas relativas do
+ * `pageFetchJson` iriam para esse domínio. Trocar de país é mudança de código,
+ * não campo de texto.
+ */
+const SELLER_HOST = 'https://seller.shopee.com.br'
+
 export function sellerBaseUrl(): string {
-  return `https://seller.${getSettings().shopeeBaseDomain}`
+  return SELLER_HOST
 }
 
 /**

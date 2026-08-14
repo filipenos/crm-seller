@@ -4,14 +4,15 @@ import type { MetricaPainel, Painel, ResumoPeriodo, SerieMensal } from '@shared/
 /**
  * Números do dia a dia, agregados no banco.
  *
- * Um cuidado que muda a leitura: a **data do pedido não tem hora** — ela é
- * lida do número do pedido (AAMMDD), porque o card da Shopee não traz criação.
- * Então "hoje" aqui é o dia inteiro, e comparar períodos por dia é o máximo de
- * granularidade honesta. Já o recebimento e a postagem têm hora de verdade,
- * porque vêm do extrato e do rastreio.
+ * Tudo é agrupado no **fuso local**, que é o dia como a pessoa vive. Vale
+ * saber de onde vem cada data: recebimento e despacho têm hora real (extrato e
+ * rastreio); a criação do pedido tem hora real quando o extrato já foi
+ * consultado, e cai numa aproximação lida do número do pedido quando não —
+ * aproximação que está no fuso da Shopee (UTC+8) e pode jogar um pedido da
+ * tarde para o dia seguinte.
  */
 
-/** Início do dia local, em ms — as datas de pedido são gravadas em UTC 00:00. */
+/** Início do dia local, em ms. */
 function inicioDoDia(diasAtras = 0): number {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
@@ -19,32 +20,24 @@ function inicioDoDia(diasAtras = 0): number {
   return d.getTime()
 }
 
-/**
- * A data do pedido vem de `Date.UTC(ano, mês, dia)`, então comparar com o
- * início do dia local erraria por causa do fuso. Aqui o corte é feito na mesma
- * régua: meia-noite UTC do dia procurado.
- */
-function inicioDoDiaUtc(diasAtras = 0): number {
-  const d = new Date()
-  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate() - diasAtras)
-}
-
 /** Palavra que o rastreio usa quando o pacote é deixado no ponto de coleta. */
 const POSTADO = '%postado%'
 
 function resumo(diasAtras: number): ResumoPeriodo {
   const db = getDb()
-  const desdeUtc = inicioDoDiaUtc(diasAtras)
   const desde = inicioDoDia(diasAtras)
+  // Limite superior: pedido numerado com a data de amanhã (o número usa o fuso
+  // da Shopee) não pode entrar na conta de hoje.
+  const ate = inicioDoDia(-1)
 
   const pedidos = db
     .prepare(
       `SELECT COUNT(*) AS n, COALESCE(SUM(total_amount), 0) AS vendas
          FROM orders
-        WHERE created_at_shopee >= ?
+        WHERE created_at_shopee >= ? AND created_at_shopee < ?
           AND tab != 'CANCELADO'`
     )
-    .get(desdeUtc) as { n: number; vendas: number }
+    .get(desde, ate) as { n: number; vendas: number }
 
   // Caixas: o kit diz quantas peças tem, e o pedido pode levar mais de um kit.
   const caixas = db
@@ -52,29 +45,29 @@ function resumo(diasAtras: number): ResumoPeriodo {
       `SELECT COALESCE(SUM(i.pecas * i.quantity), 0) AS n
          FROM order_items i
          JOIN orders o ON o.order_sn = i.order_sn
-        WHERE o.created_at_shopee >= ?
+        WHERE o.created_at_shopee >= ? AND o.created_at_shopee < ?
           AND o.tab != 'CANCELADO'
           AND i.pecas IS NOT NULL`
     )
-    .get(desdeUtc) as { n: number }
+    .get(desde, ate) as { n: number }
 
   const recebido = db
     .prepare(
       `SELECT COALESCE(SUM(valor_recebido), 0) AS total, COUNT(*) AS n
          FROM order_income
-        WHERE recebido_em >= ?`
+        WHERE recebido_em >= ? AND recebido_em < ?`
     )
-    .get(desde) as { total: number; n: number }
+    .get(desde, ate) as { total: number; n: number }
 
   const despachados = db
     .prepare(
       `SELECT COUNT(DISTINCT order_sn) AS n
          FROM order_events
         WHERE source = 'logistics'
-          AND happened_at >= ?
+          AND happened_at >= ? AND happened_at < ?
           AND LOWER(description) LIKE ?`
     )
-    .get(desde, POSTADO) as { n: number }
+    .get(desde, ate, POSTADO) as { n: number }
 
   return {
     pedidos: pedidos.n,
@@ -131,14 +124,7 @@ export function montarPainel(): Painel {
   }
 }
 
-/**
- * Série diária de uma métrica dentro de um mês.
- *
- * O agrupamento por dia respeita a origem de cada data: pedido vem do número
- * (AAMMDD, gravado como meia-noite UTC) e é agrupado em UTC; recebimento e
- * despacho têm hora real e são agrupados no fuso local — que é o dia como a
- * pessoa vive.
- */
+/** Série diária de uma métrica dentro de um mês, sempre no fuso local. */
 export function serieMensal(metrica: MetricaPainel, ano: number, mes: number): SerieMensal {
   const db = getDb()
   const diasNoMes = new Date(ano, mes, 0).getDate()
@@ -146,27 +132,27 @@ export function serieMensal(metrica: MetricaPainel, ano: number, mes: number): S
 
   const consultas: Record<MetricaPainel, { sql: string; params?: unknown[] }> = {
     pedidos: {
-      sql: `SELECT strftime('%d', created_at_shopee / 1000, 'unixepoch') AS dia, COUNT(*) AS v
+      sql: `SELECT strftime('%d', created_at_shopee / 1000, 'unixepoch', 'localtime') AS dia, COUNT(*) AS v
               FROM orders
              WHERE tab != 'CANCELADO'
-               AND strftime('%Y-%m', created_at_shopee / 1000, 'unixepoch') = ?
+               AND strftime('%Y-%m', created_at_shopee / 1000, 'unixepoch', 'localtime') = ?
              GROUP BY dia`
     },
     caixas: {
-      sql: `SELECT strftime('%d', o.created_at_shopee / 1000, 'unixepoch') AS dia,
+      sql: `SELECT strftime('%d', o.created_at_shopee / 1000, 'unixepoch', 'localtime') AS dia,
                    COALESCE(SUM(i.pecas * i.quantity), 0) AS v
               FROM order_items i
               JOIN orders o ON o.order_sn = i.order_sn
              WHERE o.tab != 'CANCELADO' AND i.pecas IS NOT NULL
-               AND strftime('%Y-%m', o.created_at_shopee / 1000, 'unixepoch') = ?
+               AND strftime('%Y-%m', o.created_at_shopee / 1000, 'unixepoch', 'localtime') = ?
              GROUP BY dia`
     },
     vendas: {
-      sql: `SELECT strftime('%d', created_at_shopee / 1000, 'unixepoch') AS dia,
+      sql: `SELECT strftime('%d', created_at_shopee / 1000, 'unixepoch', 'localtime') AS dia,
                    COALESCE(SUM(total_amount), 0) AS v
               FROM orders
              WHERE tab != 'CANCELADO'
-               AND strftime('%Y-%m', created_at_shopee / 1000, 'unixepoch') = ?
+               AND strftime('%Y-%m', created_at_shopee / 1000, 'unixepoch', 'localtime') = ?
              GROUP BY dia`
     },
     recebido: {

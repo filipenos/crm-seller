@@ -201,7 +201,6 @@ export interface AppSettings {
   syncTracking: boolean
   syncPayments: boolean
   syncIntervalMinutes: number
-  shopeeBaseDomain: string
 }
 
 export type UpdateState =

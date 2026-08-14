@@ -156,12 +156,17 @@ function deepGet(obj: AnyObj, path: string): unknown {
 }
 
 /**
- * Data do pedido a partir do próprio número.
+ * Data aproximada do pedido, lida do próprio número.
  *
- * O card **não traz data de criação** (só `ship_by_date`), e sem ela a lista
- * não tinha como ser ordenada. O número do pedido começa com AAMMDD —
- * `260729W0DHMK58` = 29/07/2026 —, o que dá a data do dia sem custo nenhum.
- * É aproximada (não tem hora), e serve para ordenar, não para contabilidade.
+ * O card não traz data de criação, e o número começa com AAMMDD
+ * (`260729W0DHMK58` = 29/07/2026). Duas ressalvas que já causaram erro:
+ *
+ * 1. É **meia-noite local**, não UTC. Com UTC, o Brasil (−3) renderizava tudo
+ *    um dia antes do que o número diz.
+ * 2. Essa data está no **fuso da Shopee (UTC+8)**: um pedido feito 15h aqui
+ *    já é "amanhã" para eles. Comprovado num pedido numerado 02/08 cuja
+ *    criação real foi 01/08 às 15:03. Por isso o extrato, quando existe, tem
+ *    prioridade — ele traz o instante real.
  */
 function dateFromOrderSn(orderSn: string): number | null {
   const match = /^(\d{2})(\d{2})(\d{2})/.exec(orderSn)
@@ -171,7 +176,7 @@ function dateFromOrderSn(orderSn: string): number | null {
   const month = Number(mm)
   const day = Number(dd)
   if (month < 1 || month > 12 || day < 1 || day > 31) return null
-  return Date.UTC(year, month - 1, day)
+  return new Date(year, month - 1, day).getTime()
 }
 
 /**
@@ -677,6 +682,11 @@ export interface OrderIncome {
   recebidoEm: number | null
   /** Data prevista de liberação, quando ainda está no futuro. */
   previstoPara: number | null
+  /**
+   * Criação real do pedido, com hora. Vem da primeira transição do escrow — a
+   * única fonte precisa que a Shopee dá, já que o card não traz data.
+   */
+  criadoEm: number | null
   rawJson: string
 }
 
@@ -769,6 +779,14 @@ export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | n
   // não sai (o próprio `release_time_transify_key` fala em "estimate"), e a
   // prevista vem sempre 09:00 redondo. Tratar qualquer valor > 0 como pago
   // colocava pedido não pago na aba Concluído.
+  // A primeira transição do escrow é o nascimento do pedido, com hora.
+  const transicoes = Array.isArray(data.tracking_info_list)
+    ? (data.tracking_info_list as AnyObj[])
+        .map((t) => pickNumber(t, ['ctime']))
+        .filter((t): t is number => t !== null && t > 0)
+    : []
+  const criadoEm = transicoes.length > 0 ? toMs(Math.min(...transicoes)) : null
+
   const released = toMs(pickNumber(data.order_info as AnyObj, ['released_time']))
   const jaCaiu = released !== null && released > 0 && released <= Date.now()
 
@@ -783,6 +801,7 @@ export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | n
     valorRecebido: total,
     recebidoEm: jaCaiu ? released : null,
     previstoPara: released !== null && released > 0 && !jaCaiu ? released : null,
+    criadoEm,
     rawJson: JSON.stringify(data)
   }
 }

@@ -120,8 +120,9 @@ export default function DashboardPage({ dataVersion }: Props): React.JSX.Element
       {detalhe && <DetalheMetrica metrica={detalhe} onClose={() => setDetalhe(null)} />}
 
       <p className="muted small">
-        A data do pedido vem do próprio número (AAMMDD) — o card da Shopee não traz hora, então
-        os períodos são por dia. Recebimento e despacho têm hora real, do extrato e do rastreio.
+        A data de cada pedido vem do extrato, com hora exata. Enquanto o extrato não é
+        consultado, ela é estimada pelo número do pedido — que usa o fuso da Shopee (UTC+8) e
+        pode jogar um pedido da tarde para o dia seguinte, até a próxima sincronização acertar.
       </p>
     </div>
   )
