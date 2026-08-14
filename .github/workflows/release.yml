@@ -33,10 +33,11 @@ jobs:
       - run: npm run typecheck
 
       # `--publish never`: quem sobe os artefatos é o passo seguinte, com o `gh`.
-      # O uploader do electron-builder encerra o processo com sucesso poucos
-      # segundos depois de *começar* os uploads — o .blockmap (100 KB) chega, o
-      # .exe (100 MB) não, e nada avisa. O build ainda gera o `latest.yml` e o
-      # `app-update.yml` normalmente, que é o que importa aqui.
+      # O publisher do electron-builder roda duas vezes e cria **duas releases
+      # rascunho com a mesma tag**, dividindo os artefatos entre elas — numa
+      # ficou o .blockmap, na outra o .exe e o latest.yml. Como a tag deixa de
+      # identificar uma release só, conferir o resultado vira sorteio. O build
+      # ainda gera o `latest.yml` e o `app-update.yml`, que é o que importa aqui.
       - name: Build do instalador
         run: npm run build:win -- --publish never
 

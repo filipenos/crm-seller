@@ -24,8 +24,8 @@ publish:
   provider: github
   # Este bloco serve só para *gerar* o `latest.yml` e o `app-update.yml`: o
   # workflow roda com `--publish never` e sobe os artefatos com o `gh`, porque
-  # o uploader daqui encerra o processo no meio do upload (sobe o .blockmap de
-  # 100 KB, perde o .exe de 100 MB, e sai com sucesso).
+  # o publisher daqui cria duas releases rascunho com a mesma tag e espalha os
+  # artefatos entre as duas.
   releaseType: draft
 mac:
   target:
