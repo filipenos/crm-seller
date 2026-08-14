@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
 import DashboardPage from './pages/DashboardPage'
 import OrdersPage from './pages/OrdersPage'
+import ProdutosPage from './pages/ProdutosPage'
+import ProducaoPage from './pages/ProducaoPage'
 import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
 import BarraProgresso from './components/BarraProgresso'
 
-type Page = 'home' | 'orders' | 'activity' | 'settings'
+type Page = 'home' | 'orders' | 'produtos' | 'producao' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
   const [page, setPage] = useState<Page>('home')
@@ -65,6 +67,12 @@ export default function App(): React.JSX.Element {
           <button className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>
             Pedidos
           </button>
+          <button className={page === 'produtos' ? 'active' : ''} onClick={() => setPage('produtos')}>
+            Produtos
+          </button>
+          <button className={page === 'producao' ? 'active' : ''} onClick={() => setPage('producao')}>
+            Produção
+          </button>
           <button
             className={page === 'activity' ? 'active' : ''}
             onClick={() => setPage('activity')}
@@ -120,6 +128,8 @@ export default function App(): React.JSX.Element {
         <BarraProgresso />
         {page === 'home' && <DashboardPage dataVersion={dataVersion} />}
         {page === 'orders' && <OrdersPage dataVersion={dataVersion} />}
+        {page === 'produtos' && <ProdutosPage dataVersion={dataVersion} />}
+        {page === 'producao' && <ProducaoPage dataVersion={dataVersion} />}
         {page === 'activity' && (
           <ActivityPage dataVersion={dataVersion} onSeen={() => void refreshUnseen()} />
         )}

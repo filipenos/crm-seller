@@ -56,6 +56,10 @@ export interface NormalizedShopeeOrder {
     pecas: number | null
     imageUrl: string | null
     itemSku: string | null
+    /** Produto na Shopee — é o que liga o pedido ao catálogo. */
+    itemId: string | null
+    /** Variação vendida (o tamanho do kit). */
+    modelId: string | null
   }[]
 }
 
@@ -428,7 +432,9 @@ function extractItems(groups: AnyObj[]): NormalizedShopeeOrder['items'] {
           pecas: pecasDaVariacao(variacao),
           quantity: pickNumber(it, ['amount', 'quantity']) ?? 1,
           imageUrl: imageUrl(pickString(it, ['image'])),
-          itemSku: pickString(it, ['inner_item_ext_info.item_id', 'item_sku'])
+          itemSku: pickString(it, ['item_sku']),
+          itemId: pickString(it, ['inner_item_ext_info.item_id', 'item_id']),
+          modelId: pickString(it, ['inner_item_ext_info.model_id', 'model_id'])
         })
       }
     }
@@ -804,4 +810,90 @@ export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | n
     criadoEm,
     rawJson: JSON.stringify(data)
   }
+}
+
+// ---------- catálogo de produtos ----------
+
+export interface ShopeeProduct {
+  itemId: string
+  nome: string
+  imagemUrl: string | null
+  preco: number | null
+  /** Estoque anunciado na Shopee, que é outro número que o nosso. */
+  estoque: number | null
+  ativo: boolean | null
+  rawJson: string
+  variacoes: { modelId: string; nome: string | null; preco: number | null; estoque: number | null }[]
+}
+
+/** Chaves em que a Shopee guarda o nome do anúncio, conforme o endpoint. */
+const NOME_PRODUTO_KEYS = ['name', 'item_name', 'title']
+
+/**
+ * Lista os produtos da loja.
+ *
+ * O endpoint de catálogo não está confirmado por captura como o de pedidos —
+ * daí a lista de candidatos. O reconhecimento exige **id e nome juntos**: testar
+ * só por `item_id` faria qualquer lista da resposta passar por catálogo (a de
+ * anúncios promovidos, por exemplo) e inventaria produtos.
+ *
+ * Se todos falharem, o diagnóstico em Configurações mostra o que cada um
+ * respondeu — foi assim que os endpoints de pedido saíram de adivinhação.
+ */
+export async function fetchProducts(pageSize = 48): Promise<ShopeeProduct[]> {
+  const cds = await getSpcCds()
+  const comum = `SPC_CDS=${cds}&SPC_CDS_VER=2&page_size=${pageSize}&page_number=1`
+  const candidates: Candidate[] = [
+    { url: `/api/v3/mpsku/list/v2/get_product_list?${comum}&list_type=all&need_ads=false` },
+    { url: `/api/v3/product/search_item?${comum}&list_type=all&need_ads=false` },
+    { url: `/api/v3/product/get_product_list?${comum}&list_type=all` },
+    { url: `/api/v3/product/list?${comum}` }
+  ]
+
+  return tryCandidates<ShopeeProduct>('produtos', candidates, (json) => {
+    const arr = findArrayWhere(
+      json,
+      (el) =>
+        ('item_id' in el || 'id' in el) && NOME_PRODUTO_KEYS.some((k) => typeof el[k] === 'string')
+    )
+    if (!arr) {
+      return hasEmptyListNamed(json, ['list', 'items', 'product_list', 'item_list']) ? [] : null
+    }
+
+    const produtos: ShopeeProduct[] = []
+    for (const p of arr) {
+      const itemId = pickString(p, ['item_id', 'id'])
+      const nome = pickString(p, NOME_PRODUTO_KEYS)
+      if (!itemId || !nome) continue
+
+      const modelos = Array.isArray(p.model_list)
+        ? (p.model_list as AnyObj[])
+        : Array.isArray(p.models)
+          ? (p.models as AnyObj[])
+          : []
+
+      produtos.push({
+        itemId,
+        nome,
+        imagemUrl: imageUrl(pickString(p, ['image', 'images.0', 'image_url', 'cover_image'])),
+        preco: toMoney(deepGet(p, 'price') ?? deepGet(p, 'price_info.0.current_price')),
+        estoque: pickNumber(p, ['stock', 'normal_stock', 'total_available_stock']),
+        // A Shopee usa 1 para normal e 0 para inativo/banido, com nomes variados.
+        ativo: (() => {
+          const s = pickNumber(p, ['status', 'item_status', 'list_status'])
+          return s === null ? null : s === 1
+        })(),
+        rawJson: JSON.stringify(p),
+        variacoes: modelos
+          .map((m) => ({
+            modelId: pickString(m, ['model_id', 'id']) ?? '',
+            nome: pickString(m, ['name', 'model_name', 'tier_variation_name']),
+            preco: toMoney(deepGet(m, 'price') ?? deepGet(m, 'price_info.0.current_price')),
+            estoque: pickNumber(m, ['stock', 'normal_stock', 'total_available_stock'])
+          }))
+          .filter((m) => m.modelId !== '')
+      })
+    }
+    return produtos.length ? produtos : null
+  })
 }

@@ -228,6 +228,130 @@ const migrations: string[] = [
   //      permite somar caixas vendidas sem reinterpretar string em consulta.
   `
   ALTER TABLE order_items ADD COLUMN pecas INTEGER;
+  `,
+  // 13 — catálogo de produtos, e o vínculo pedido → produto.
+  //      Os ids já vinham no card: o `item_sku` guardava, com nome errado, o
+  //      `item_id` da Shopee nos 706 itens vendidos. Renomear para o que é
+  //      permite ligar pedido a produto sem uma requisição; o `model_id`
+  //      (variação) sai do reprocessamento dos JSONs salvos.
+  `
+  CREATE TABLE products (
+    item_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    image_url TEXT,
+    price REAL,
+    stock INTEGER,
+    active INTEGER,
+    -- Linha de fabricação. NULL = a padrão, que é o caso de quase todo tema.
+    line_id INTEGER,
+    synced_at INTEGER,
+    raw_json TEXT
+  );
+
+  CREATE TABLE product_variations (
+    model_id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    name TEXT,
+    pecas INTEGER,
+    price REAL,
+    stock INTEGER
+  );
+  CREATE INDEX idx_variations_item ON product_variations(item_id);
+
+  ALTER TABLE order_items ADD COLUMN item_id TEXT;
+  ALTER TABLE order_items ADD COLUMN model_id TEXT;
+  UPDATE order_items SET item_id = item_sku WHERE item_sku GLOB '[0-9]*';
+  CREATE INDEX idx_order_items_item ON order_items(item_id);
+  `,
+  // 14 — insumos, suas cores e o que se compra deles.
+  //      A cor é variante do mesmo insumo, não insumo separado: a receita pede
+  //      "26cm de fita nº9" sem dizer a cor (quem decide é o tema), mas o
+  //      estoque e o preço pago são de cada cor.
+  `
+  CREATE TABLE supplies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- Unidade em que se compra e se consome: folha, ml, cm, m, un.
+    unit TEXT NOT NULL,
+    -- Abaixo disso o insumo aparece como acabando. NULL = sem alerta.
+    min_stock REAL,
+    notes TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE supply_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    supply_id INTEGER NOT NULL REFERENCES supplies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    UNIQUE(supply_id, name)
+  );
+
+  CREATE TABLE purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    variant_id INTEGER NOT NULL REFERENCES supply_variants(id) ON DELETE CASCADE,
+    quantity REAL NOT NULL,
+    total REAL NOT NULL,
+    -- Frete entra no custo: 1000 folhas por 300 + 20 de frete custam 0,32 cada.
+    shipping REAL NOT NULL DEFAULT 0,
+    bought_at INTEGER NOT NULL,
+    supplier TEXT,
+    notes TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  -- Estoque é o saldo dos movimentos, não um número guardado: assim dá para
+  -- responder "por que tenho isso" e refazer a conta quando algo muda.
+  CREATE TABLE stock_moves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    variant_id INTEGER NOT NULL REFERENCES supply_variants(id) ON DELETE CASCADE,
+    -- Positivo entra, negativo sai.
+    quantity REAL NOT NULL,
+    reason TEXT NOT NULL,
+    -- Chave de idempotência ('pedido:<order_sn>:<variant_id>'): a baixa
+    -- automática roda a cada sincronização e não pode descontar duas vezes.
+    ref TEXT UNIQUE,
+    order_sn TEXT,
+    purchase_id INTEGER,
+    happened_at INTEGER NOT NULL,
+    notes TEXT
+  );
+  CREATE INDEX idx_moves_variant ON stock_moves(variant_id);
+  `,
+  // 15 — o que se fabrica, e com o quê.
+  //      Uma receita pode pedir outra receita (laço dentro da caixa milk), e o
+  //      conjunto de receitas de caixa forma uma linha de fabricação. O produto
+  //      aponta para a linha, que é como "estas caixas se fazem assim".
+  `
+  CREATE TABLE production_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE recipes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- NULL = componente reutilizável (o laço), que serve a qualquer linha.
+    line_id INTEGER REFERENCES production_lines(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    -- CAIXA (um dos modelos do kit) · COMPONENTE · EMBALAGEM (uma por pedido).
+    kind TEXT NOT NULL,
+    -- Quanto uma execução rende. Um laço rende 1; uma fôrma poderia render 4.
+    yields REAL NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE recipe_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    supply_id INTEGER REFERENCES supplies(id) ON DELETE CASCADE,
+    child_recipe_id INTEGER REFERENCES recipes(id) ON DELETE CASCADE,
+    -- NULL é "um pouco": cola e tinta entram na lista do que é preciso ter,
+    -- mas não têm quantidade certa, então não custam nem baixam estoque.
+    quantity REAL,
+    position INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_recipe_items_recipe ON recipe_items(recipe_id);
   `
 ]
 

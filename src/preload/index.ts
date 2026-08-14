@@ -2,6 +2,14 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActionResult,
   AppSettings,
+  Compra,
+  CustoPedido,
+  Insumo,
+  LinhaFabricacao,
+  MovimentoEstoque,
+  Produto,
+  Receita,
+  TipoReceita,
   InternalStatus,
   Order,
   OrderEvent,
@@ -114,6 +122,86 @@ const api = {
       ipcRenderer.on('data:changed', listener)
       return () => ipcRenderer.removeListener('data:changed', listener)
     }
+  },
+  produtos: {
+    list: (): Promise<Produto[]> => ipcRenderer.invoke('produtos:list'),
+    sync: (): Promise<{ ok: boolean; produtos: number; error?: string }> =>
+      ipcRenderer.invoke('produtos:sync'),
+    recompor: (): Promise<{ produtos: number; variacoes: number }> =>
+      ipcRenderer.invoke('produtos:recompor'),
+    setLinha: (itemId: string, linhaId: number | null): Promise<void> =>
+      ipcRenderer.invoke('produtos:setLinha', itemId, linhaId)
+  },
+  insumos: {
+    list: (): Promise<Insumo[]> => ipcRenderer.invoke('insumos:list'),
+    criar: (input: {
+      nome: string
+      unidade: string
+      estoqueMinimo?: number | null
+      observacao?: string | null
+      variantes?: string[]
+    }): Promise<number> => ipcRenderer.invoke('insumos:criar', input),
+    atualizar: (
+      id: number,
+      input: { nome?: string; unidade?: string; estoqueMinimo?: number | null; observacao?: string | null }
+    ): Promise<void> => ipcRenderer.invoke('insumos:atualizar', id, input),
+    remover: (id: number): Promise<void> => ipcRenderer.invoke('insumos:remover', id),
+    criarVariante: (insumoId: number, nome: string): Promise<number> =>
+      ipcRenderer.invoke('insumos:criarVariante', insumoId, nome),
+    renomearVariante: (id: number, nome: string): Promise<void> =>
+      ipcRenderer.invoke('insumos:renomearVariante', id, nome),
+    removerVariante: (id: number): Promise<void> => ipcRenderer.invoke('insumos:removerVariante', id)
+  },
+  compras: {
+    list: (limite?: number): Promise<Compra[]> => ipcRenderer.invoke('compras:list', limite),
+    registrar: (input: {
+      varianteId: number
+      quantidade: number
+      valor: number
+      frete?: number
+      compradoEm?: number
+      fornecedor?: string | null
+      observacao?: string | null
+    }): Promise<number> => ipcRenderer.invoke('compras:registrar', input),
+    remover: (id: number): Promise<void> => ipcRenderer.invoke('compras:remover', id)
+  },
+  estoque: {
+    ajustar: (varianteId: number, quantidade: number, observacao?: string): Promise<void> =>
+      ipcRenderer.invoke('estoque:ajustar', varianteId, quantidade, observacao),
+    movimentos: (limite?: number): Promise<MovimentoEstoque[]> =>
+      ipcRenderer.invoke('estoque:movimentos', limite),
+    baixarDespachados: (): Promise<{ pedidos: number; movimentos: number }> =>
+      ipcRenderer.invoke('estoque:baixarDespachados'),
+    /** Desde quando as saídas contam — antes disso é história. */
+    desde: (): Promise<number> => ipcRenderer.invoke('estoque:desde')
+  },
+  fabricacao: {
+    linhas: (): Promise<LinhaFabricacao[]> => ipcRenderer.invoke('fabricacao:linhas'),
+    componentes: (): Promise<Receita[]> => ipcRenderer.invoke('fabricacao:componentes'),
+    criarLinha: (nome: string): Promise<number> => ipcRenderer.invoke('fabricacao:criarLinha', nome),
+    renomearLinha: (id: number, nome: string): Promise<void> =>
+      ipcRenderer.invoke('fabricacao:renomearLinha', id, nome),
+    removerLinha: (id: number): Promise<void> => ipcRenderer.invoke('fabricacao:removerLinha', id),
+    criarReceita: (input: {
+      linhaId: number | null
+      nome: string
+      tipo: TipoReceita
+      rende?: number
+    }): Promise<number> => ipcRenderer.invoke('fabricacao:criarReceita', input),
+    atualizarReceita: (id: number, input: { nome?: string; rende?: number }): Promise<void> =>
+      ipcRenderer.invoke('fabricacao:atualizarReceita', id, input),
+    removerReceita: (id: number): Promise<void> => ipcRenderer.invoke('fabricacao:removerReceita', id),
+    adicionarItem: (input: {
+      receitaId: number
+      insumoId?: number | null
+      receitaFilhaId?: number | null
+      quantidade: number | null
+    }): Promise<number> => ipcRenderer.invoke('fabricacao:adicionarItem', input),
+    atualizarItem: (id: number, quantidade: number | null): Promise<void> =>
+      ipcRenderer.invoke('fabricacao:atualizarItem', id, quantidade),
+    removerItem: (id: number): Promise<void> => ipcRenderer.invoke('fabricacao:removerItem', id),
+    consumoDoPedido: (orderSn: string): Promise<CustoPedido> =>
+      ipcRenderer.invoke('fabricacao:consumoDoPedido', orderSn)
   },
   shell: {
     openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),

@@ -138,6 +138,44 @@ assim que o código da etiqueta foi descoberto e aplicado.
 O índice (`search_order_list_index`) devolve só ids, mas traz
 `pagination.total` — dá para saber o tamanho da base numa requisição.
 
+### Produtos e fabricação
+
+O catálogo **não depende de sincronizar nada**: cada item de pedido carrega
+`item_id` e `model_id` da Shopee (o `item_sku` guardava o `item_id` com nome
+errado, e a migração 13 corrigiu isso nos 706 itens). `recomporCatalogoDosPedidos`
+reconstrói produtos e variações da base local, sem uma requisição — roda na
+abertura do app e a cada sincronização. O endpoint de catálogo
+(`fetchProducts`) ainda é candidato, não confirmado por captura; quando falha,
+a página continua de pé.
+
+A fabricação tem três peças, e confundi-las é o erro fácil:
+
+- **Insumo** com **variantes de cor**. A receita pede "26cm de fita nº9" sem
+  cor — quem decide é o tema —, mas estoque e preço pago são de cada cor. Na
+  baixa automática, sai da variante com mais estoque.
+- **Receita**, que pede insumos *e outras receitas*: o laço é uma receita, e a
+  caixa milk pede um laço. Quantidade `NULL` é "um pouco" (cola, tinta): entra
+  na lista, fica fora do custo. Por isso todo custo é **piso**, e `incertos`
+  diz quanto ficou de fora.
+- **Linha de fabricação**, o conjunto de receitas de caixa; o produto aponta
+  para ela (`products.line_id`, NULL = a padrão).
+
+O kit vendido **não é cadastrado**: a variação já diz o tamanho ("20 peças / 4
+de cada modelo"), então as caixas por modelo saem de `peças ÷ receitas CAIXA da
+linha`. A embalagem entra uma vez por pedido.
+
+Estoque é **saldo de `stock_moves`**, nunca um contador. A baixa automática roda
+a cada sincronização sobre os pedidos com evento "postado", com idempotência
+pelo `ref` único (`pedido:<order_sn>:<variant_id>`). Dois detalhes que já
+morderam:
+
+1. **`estoqueDesde`** (chave em `settings`, gravada na primeira execução) limita
+   a baixa ao que foi despachado depois que o controle começou. Sem isso a
+   primeira baixa desce sobre 550 pedidos antigos e o estoque nasce centenas de
+   unidades negativo.
+2. O alerta de "está acabando" só vale para insumo **já comprado alguma vez** —
+   senão um cadastro novo grita que tudo acabou.
+
 ### Banco
 
 SQLite em `app.getPath('userData')`, WAL. Migrações são um array de strings em

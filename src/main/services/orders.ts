@@ -553,6 +553,9 @@ export interface UpsertOrderInput {
     quantity: number
     imageUrl: string | null
     itemSku: string | null
+    /** Ids do catálogo da Shopee; é o que liga o pedido ao produto. */
+    itemId?: string | null
+    modelId?: string | null
     pecas?: number | null
   }[]
 }
@@ -649,8 +652,8 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
     if (input.items && input.items.length > 0) {
       db.prepare('DELETE FROM order_items WHERE order_sn = ?').run(input.orderSn)
       const insertItem = db.prepare(
-        `INSERT INTO order_items (order_sn, item_name, model_name, quantity, image_url, item_sku, pecas)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO order_items (order_sn, item_name, model_name, quantity, image_url, item_sku, pecas, item_id, model_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       for (const item of input.items) {
         insertItem.run(
@@ -660,7 +663,9 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
           item.quantity,
           item.imageUrl,
           item.itemSku,
-          item.pecas ?? null
+          item.pecas ?? null,
+          item.itemId ?? null,
+          item.modelId ?? null
         )
       }
     }

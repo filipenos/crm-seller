@@ -2,6 +2,8 @@ import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { getDb, closeDb } from './db'
 import { registerIpcHandlers } from './ipc'
+import { garantirCadastroDeFabricacao } from './services/seed'
+import { recomporCatalogoDosPedidos } from './services/produtos'
 import { startSyncScheduler, stopSyncScheduler } from './services/shopee/sync'
 import { initUpdater, stopUpdater } from './services/updates'
 
@@ -30,6 +32,12 @@ function createMainWindow(): void {
 
 app.whenReady().then(() => {
   getDb() // inicializa banco + migrações
+  // Só age em base virgem: o kit de hoje é sempre o mesmo, então a página de
+  // fabricação já abre com os cinco modelos e os insumos para corrigir.
+  garantirCadastroDeFabricacao()
+  // O catálogo sai dos pedidos que já estão no banco, sem rede — então a página
+  // de produtos abre cheia mesmo antes da primeira sincronização.
+  recomporCatalogoDosPedidos()
   registerIpcHandlers()
   createMainWindow()
   startSyncScheduler()

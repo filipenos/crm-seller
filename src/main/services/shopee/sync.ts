@@ -8,6 +8,7 @@ import type {
 import {
   fetchOrderIncome,
   fetchOrders,
+  fetchProducts,
   fetchRatings,
   fetchTrackingInfo
 } from './client'
@@ -23,6 +24,8 @@ import { recordEvent } from '../events'
 import { pedidosParaAtualizarPagamento, salvarRecebimento } from '../recebimentos'
 import { getSettings } from '../settings'
 import { saveOrderDump } from '../orderDump'
+import { recomporCatalogoDosPedidos, salvarProdutoShopee } from '../produtos'
+import { baixarEstoqueDosDespachados } from '../receitas'
 
 /** Palavras que indicam entrega concluída num checkpoint de rastreio. */
 const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
@@ -188,6 +191,16 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
       }
     }
 
+    // O catálogo sai dos próprios pedidos (cada item traz o item_id), e a
+    // baixa de estoque acompanha quem já foi postado. Nenhum dos dois faz
+    // requisição, então rodam sempre, mesmo que as etapas acima falhem.
+    try {
+      recomporCatalogoDosPedidos()
+      baixarEstoqueDosDespachados()
+    } catch (err) {
+      console.warn('[sync] catálogo/estoque:', err)
+    }
+
     state.lastSyncAt = Date.now()
     if (errors.length > 0) {
       result.ok =
@@ -339,5 +352,28 @@ export function stopSyncScheduler(): void {
   if (timer) {
     clearInterval(timer)
     timer = null
+  }
+}
+
+/**
+ * Sincroniza o catálogo de produtos.
+ *
+ * Fica fora do botão Sincronizar de propósito: produto muda de mês em mês, não
+ * de hora em hora, e o que interessa no dia a dia (nome, variação, quanto
+ * vendeu) já vem dos pedidos.
+ */
+export async function sincronizarProdutos(): Promise<{
+  ok: boolean
+  produtos: number
+  error?: string
+}> {
+  try {
+    const produtos = await fetchProducts()
+    for (const p of produtos) salvarProdutoShopee(p)
+    recomporCatalogoDosPedidos()
+    broadcast('data:changed', null)
+    return { ok: true, produtos: produtos.length }
+  } catch (err) {
+    return { ok: false, produtos: 0, error: String(err instanceof Error ? err.message : err) }
   }
 }

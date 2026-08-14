@@ -310,6 +310,154 @@ export interface Painel {
   prazoApertado: number
 }
 
+// ---------- produtos e fabricação ----------
+
+/** Produto do catálogo, com o que os pedidos já sabem dele. */
+export interface Produto {
+  itemId: string
+  nome: string
+  imagemUrl: string | null
+  preco: number | null
+  /** Estoque anunciado na Shopee (só chega pela sincronização). */
+  estoqueShopee: number | null
+  ativo: boolean | null
+  /** Linha de fabricação; null significa a padrão. */
+  linhaId: number | null
+  linhaNome: string | null
+  sincronizadoEm: number | null
+  variacoes: number
+  pedidos: number
+  caixasVendidas: number
+  vendas: number
+  ultimoPedidoEm: number | null
+  /** Custo dos insumos de uma caixa, pela linha de fabricação. */
+  custoPorCaixa: number | null
+}
+
+/** Unidades em que um insumo é comprado e consumido. */
+export const UNIDADES = ['un', 'folha', 'm', 'cm', 'ml', 'g'] as const
+export type Unidade = (typeof UNIDADES)[number]
+
+/** Uma cor (ou versão) do insumo: é aqui que moram estoque e preço pago. */
+export interface VarianteInsumo {
+  id: number
+  nome: string
+  estoque: number
+  /** Média ponderada das compras, com frete. Null enquanto nada foi comprado. */
+  custoMedio: number | null
+  compras: number
+}
+
+export interface Insumo {
+  id: number
+  nome: string
+  unidade: Unidade
+  estoqueMinimo: number | null
+  observacao: string | null
+  variantes: VarianteInsumo[]
+  /** Soma das variantes. */
+  estoque: number
+  custoMedio: number | null
+  acabando: boolean
+}
+
+export interface Compra {
+  id: number
+  varianteId: number
+  varianteNome: string
+  insumoId: number
+  insumoNome: string
+  unidade: string
+  quantidade: number
+  valor: number
+  frete: number
+  /** (valor + frete) / quantidade. */
+  custoUnitario: number
+  compradoEm: number
+  fornecedor: string | null
+  observacao: string | null
+}
+
+export type MotivoMovimento = 'compra' | 'pedido' | 'ajuste'
+
+export interface MovimentoEstoque {
+  id: number
+  varianteId: number
+  insumoNome: string
+  varianteNome: string
+  unidade: string
+  quantidade: number
+  motivo: MotivoMovimento
+  orderSn: string | null
+  aconteceuEm: number
+  observacao: string | null
+}
+
+/** CAIXA é um modelo do kit; COMPONENTE entra em outras receitas; EMBALAGEM vai uma por pedido. */
+export const TIPOS_RECEITA = ['CAIXA', 'COMPONENTE', 'EMBALAGEM'] as const
+export type TipoReceita = (typeof TIPOS_RECEITA)[number]
+
+export const TIPO_RECEITA_LABELS: Record<TipoReceita, string> = {
+  CAIXA: 'Caixa',
+  COMPONENTE: 'Componente',
+  EMBALAGEM: 'Embalagem'
+}
+
+export interface ItemReceita {
+  id: number
+  insumoId: number | null
+  insumoNome: string | null
+  unidade: string | null
+  receitaFilhaId: number | null
+  receitaFilhaNome: string | null
+  /** Null é "um pouco": aparece na lista, não entra no custo nem baixa estoque. */
+  quantidade: number | null
+  custo: number | null
+}
+
+export interface Receita {
+  id: number
+  linhaId: number | null
+  nome: string
+  tipo: TipoReceita
+  rende: number
+  itens: ItemReceita[]
+  /** Soma do que tem quantidade e preço conhecidos. */
+  custo: number
+  /** Quantos itens ficaram de fora do custo (sem quantidade ou sem compra). */
+  incertos: number
+}
+
+export interface LinhaFabricacao {
+  id: number
+  nome: string
+  padrao: boolean
+  receitas: Receita[]
+  /** Produtos que usam esta linha (a padrão conta os que não escolheram outra). */
+  produtos: number
+  /** Custo de uma caixa: a média dos modelos da linha. */
+  custoPorCaixa: number
+}
+
+/** Quanto de um insumo uma produção consome. */
+export interface ConsumoInsumo {
+  insumoId: number
+  insumoNome: string
+  unidade: string
+  quantidade: number
+  custo: number | null
+  estoque: number
+}
+
+/** O que um pedido consome de insumo, e quanto isso custou. */
+export interface CustoPedido {
+  orderSn: string
+  custo: number
+  /** Algum item não tem quantidade ou preço: o custo é piso, não total. */
+  incompleto: boolean
+  insumos: ConsumoInsumo[]
+}
+
 export interface OrderCounts {
   tabs: TabCounts
   /** Dentro de A enviar, quantos já têm etiqueta gerada. */
