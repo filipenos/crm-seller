@@ -352,6 +352,12 @@ const migrations: string[] = [
     position INTEGER NOT NULL DEFAULT 0
   );
   CREATE INDEX idx_recipe_items_recipe ON recipe_items(recipe_id);
+  `,
+
+  // 16 — listagem principal filtra por aba e ordena pelos pedidos recentes.
+  `
+  CREATE INDEX idx_orders_tab_created
+    ON orders(tab, created_at_shopee DESC, order_sn DESC);
   `
 ]
 

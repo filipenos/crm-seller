@@ -12,6 +12,9 @@ interface EventRow {
   seen: number
 }
 
+const EVENT_VIEW_COLUMNS =
+  'event_key, order_sn, source, description, happened_at, created_at, seen'
+
 function rowToEvent(r: EventRow): OrderEvent {
   return {
     eventKey: r.event_key,
@@ -58,7 +61,7 @@ export function recordEvent(input: RecordEventInput): boolean {
 export function listEvents(opts: { onlyUnseen?: boolean; limit?: number } = {}): OrderEvent[] {
   const where = opts.onlyUnseen ? 'WHERE seen = 0' : ''
   const rows = getDb()
-    .prepare(`SELECT * FROM order_events ${where} ORDER BY happened_at DESC LIMIT ?`)
+    .prepare(`SELECT ${EVENT_VIEW_COLUMNS} FROM order_events ${where} ORDER BY happened_at DESC LIMIT ?`)
     .all(opts.limit ?? 200) as EventRow[]
   return rows.map(rowToEvent)
 }
@@ -68,21 +71,21 @@ export async function listEventsAsync(
 ): Promise<OrderEvent[]> {
   const where = opts.onlyUnseen ? 'WHERE seen = 0' : ''
   const statement = await getAsyncDb().prepare(
-    `SELECT * FROM order_events ${where} ORDER BY happened_at DESC LIMIT ?`
+    `SELECT ${EVENT_VIEW_COLUMNS} FROM order_events ${where} ORDER BY happened_at DESC LIMIT ?`
   )
   return ((await statement.all([opts.limit ?? 200])) as EventRow[]).map(rowToEvent)
 }
 
 export function listEventsForOrder(orderSn: string): OrderEvent[] {
   const rows = getDb()
-    .prepare('SELECT * FROM order_events WHERE order_sn = ? ORDER BY happened_at ASC')
+    .prepare(`SELECT ${EVENT_VIEW_COLUMNS} FROM order_events WHERE order_sn = ? ORDER BY happened_at ASC`)
     .all(orderSn) as EventRow[]
   return rows.map(rowToEvent)
 }
 
 export async function listEventsForOrderAsync(orderSn: string): Promise<OrderEvent[]> {
   const statement = await getAsyncDb().prepare(
-    'SELECT * FROM order_events WHERE order_sn = ? ORDER BY happened_at ASC'
+    `SELECT ${EVENT_VIEW_COLUMNS} FROM order_events WHERE order_sn = ? ORDER BY happened_at ASC`
   )
   return ((await statement.all([orderSn])) as EventRow[]).map(rowToEvent)
 }

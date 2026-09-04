@@ -53,6 +53,23 @@ interface OrderRow {
   escrow_released_at: number | null
 }
 
+// `raw_json` pode ser muito maior que todos os demais campos juntos e não é
+// usado nas telas. Nunca o transfira do Turso para uma listagem ou detalhe.
+const ORDER_VIEW_COLUMNS = `
+  o.order_sn, o.shopee_order_id, o.shopee_status, o.internal_status,
+  o.buyer_username, o.buyer_name, o.total_amount, o.currency, o.child_name,
+  o.note, o.tracking_number, o.ship_by_date, o.folder_path, o.created_at_shopee,
+  o.updated_at_shopee, o.synced_at, o.logistics_status, o.logistics_code, o.tab,
+  o.ready_to_post, o.status_description, o.payment_method, o.carrier,
+  o.shipping_city, o.shopee_url_path, o.package_number, o.logistics_phase,
+  o.stage_id, o.delivered_at, o.rating_star, o.rating_comment, o.rated_at,
+  o.escrow_amount, o.escrow_released_at,
+  s.name AS stage_name, s.color AS stage_color`
+
+const INCOME_VIEW_COLUMNS = `
+  order_sn, valor_produtos, valor_frete, desconto_cupons, taxa_comissao,
+  taxa_servico, outras_taxas, valor_recebido, recebido_em, previsto_para`
+
 function rowToOrder(row: OrderRow, items: OrderItem[], recebimento: Recebimento | null = null): Order {
   return {
     orderSn: row.order_sn,
@@ -301,7 +318,7 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const rows = db
     .prepare(
-      `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+      `SELECT ${ORDER_VIEW_COLUMNS}
          FROM orders o
          LEFT JOIN workflow_stages s ON s.id = o.stage_id
          ${where}
@@ -344,7 +361,7 @@ export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const statement = await getAsyncDb().prepare(
-    `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+    `SELECT ${ORDER_VIEW_COLUMNS}
        FROM orders o LEFT JOIN workflow_stages s ON s.id = o.stage_id
        ${where}
       ORDER BY o.created_at_shopee DESC, o.order_sn DESC`
@@ -364,7 +381,7 @@ function loadRecebimentos(orderSns: string[]): Map<string, Recebimento> {
   if (orderSns.length === 0) return map
   const placeholders = orderSns.map(() => '?').join(',')
   const rows = getDb()
-    .prepare(`SELECT * FROM order_income WHERE order_sn IN (${placeholders})`)
+    .prepare(`SELECT ${INCOME_VIEW_COLUMNS} FROM order_income WHERE order_sn IN (${placeholders})`)
     .all(...orderSns) as Parameters<typeof rowToRecebimento>[0][]
   for (const row of rows) map.set(row.order_sn, rowToRecebimento(row))
   return map
@@ -374,7 +391,7 @@ async function loadRecebimentosAsync(orderSns: string[]): Promise<Map<string, Re
   const map = new Map<string, Recebimento>()
   if (orderSns.length === 0) return map
   const statement = await getAsyncDb().prepare(
-    `SELECT * FROM order_income WHERE order_sn IN (${orderSns.map(() => '?').join(',')})`
+    `SELECT ${INCOME_VIEW_COLUMNS} FROM order_income WHERE order_sn IN (${orderSns.map(() => '?').join(',')})`
   )
   const rows = (await statement.all(orderSns)) as Parameters<typeof rowToRecebimento>[0][]
   for (const row of rows) map.set(row.order_sn, rowToRecebimento(row))
@@ -422,7 +439,7 @@ export async function countByTabAsync(): Promise<OrderCounts> {
 export function getOrder(orderSn: string): Order | null {
   const row = getDb()
     .prepare(
-      `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+      `SELECT ${ORDER_VIEW_COLUMNS}
          FROM orders o
          LEFT JOIN workflow_stages s ON s.id = o.stage_id
         WHERE o.order_sn = ?`
@@ -436,13 +453,15 @@ export function getOrder(orderSn: string): Order | null {
 export async function getOrderAsync(orderSn: string): Promise<Order | null> {
   const db = getAsyncDb()
   const orderStatement = await db.prepare(
-    `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+    `SELECT ${ORDER_VIEW_COLUMNS}
        FROM orders o LEFT JOIN workflow_stages s ON s.id = o.stage_id
       WHERE o.order_sn = ?`
   )
   const row = (await orderStatement.get([orderSn])) as OrderRow | undefined
   if (!row) return null
-  const incomeStatement = await db.prepare('SELECT * FROM order_income WHERE order_sn = ?')
+  const incomeStatement = await db.prepare(
+    `SELECT ${INCOME_VIEW_COLUMNS} FROM order_income WHERE order_sn = ?`
+  )
   const [items, incomeRow] = await Promise.all([
     loadItemsAsync([orderSn]),
     incomeStatement.get([orderSn]) as Promise<Parameters<typeof rowToRecebimento>[0] | undefined>
@@ -602,7 +621,7 @@ export function countAwaitingPayment(): number {
 export function listAwaitingPayment(limit: number): Order[] {
   const rows = getDb()
     .prepare(
-      `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+      `SELECT ${ORDER_VIEW_COLUMNS}
          FROM orders o
          LEFT JOIN workflow_stages s ON s.id = o.stage_id
         WHERE ${AWAITING_PAYMENT_WHERE}
