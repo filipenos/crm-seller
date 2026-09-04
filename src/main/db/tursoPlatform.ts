@@ -65,12 +65,18 @@ async function ensureGroup(platformToken: string, organization: string): Promise
 async function ensureDatabase(
   platformToken: string,
   organization: string,
-  group: string
+  group: string,
+  onProgress: (message: string) => void
 ): Promise<TursoDatabase> {
   const path = `/organizations/${encodeURIComponent(organization)}/databases`
+  onProgress('Procurando um banco existente…')
   const listed = await request<{ databases: TursoDatabase[] }>(platformToken, path)
   const existing = listed.databases.find((database) => database.Name === DATABASE_NAME)
-  if (existing) return existing
+  if (existing) {
+    onProgress('Banco encontrado. Vamos usar o banco existente.')
+    return existing
+  }
+  onProgress('Nenhum banco encontrado. Criando um novo…')
   const created = await request<{ database: TursoDatabase }>(platformToken, path, {
     method: 'POST',
     body: JSON.stringify({ name: DATABASE_NAME, group })
@@ -82,17 +88,23 @@ async function ensureDatabase(
  * Usa o token amplo apenas durante o provisionamento. O que fica no computador
  * é um token restrito ao banco criado, reduzindo o impacto se a máquina vazar.
  */
-export async function provisionTursoDatabase(platformTokenInput: string): Promise<TursoCredentials> {
+export async function provisionTursoDatabase(
+  platformTokenInput: string,
+  onProgress: (message: string) => void = () => undefined
+): Promise<TursoCredentials> {
   const platformToken = platformTokenInput.trim()
   if (!platformToken) throw new Error('Informe o token da sua conta Turso.')
+  onProgress('Conectando à sua conta Turso…')
   const organization = await chooseOrganization(platformToken)
+  onProgress('Verificando a estrutura da conta…')
   const group = await ensureGroup(platformToken, organization.slug)
-  const database = await ensureDatabase(platformToken, organization.slug, group)
+  const database = await ensureDatabase(platformToken, organization.slug, group, onProgress)
   if (!database.Hostname) throw new Error('O Turso criou o banco, mas não informou o endereço.')
 
   const tokenPath =
     `/organizations/${encodeURIComponent(organization.slug)}/databases/` +
     `${encodeURIComponent(database.Name)}/auth/tokens?authorization=full-access&expiration=never`
+  onProgress('Gerando uma credencial segura para o banco…')
   const token = await request<{ jwt: string }>(platformToken, tokenPath, { method: 'POST' })
   if (!token.jwt) throw new Error('O Turso não devolveu a credencial do banco.')
   return { url: `libsql://${database.Hostname}`, authToken: token.jwt }

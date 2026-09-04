@@ -1,6 +1,7 @@
 import Database from 'libsql'
-import { MIGRATION_COUNT, runMigrations } from './migrations'
-import { normalizeTursoUrl, readTursoConfig, type TursoCredentials } from './config'
+import PromiseDatabase from 'libsql/promise'
+import { MIGRATION_COUNT, migrationStatements, runMigrations } from './migrations'
+import { readTursoConfig, type TursoCredentials } from './config'
 
 let db: Database.Database | null = null
 
@@ -55,38 +56,37 @@ function installRemoteTransactionAdapter(remote: Database.Database): void {
   }) as unknown as typeof remote.transaction
 }
 
-export function testTursoConnection(credentials: TursoCredentials): void {
-  const url = normalizeTursoUrl(credentials.url)
-  const authToken = credentials.authToken.trim()
-  if (!authToken) throw new Error('Informe o token de autenticação do Turso.')
-  const testDb = openRemote(url, authToken)
+export async function prepareTursoDatabaseAsync(
+  credentials: TursoCredentials,
+  onProgress: (message: string) => void
+): Promise<void> {
+  const candidate = new PromiseDatabase(credentials.url, { authToken: credentials.authToken })
   try {
-    testDb.prepare('SELECT 1 AS ok').get()
-  } finally {
-    testDb.close()
-  }
-}
-
-export async function waitForTursoConnection(credentials: TursoCredentials): Promise<void> {
-  let lastError: unknown
-  for (let attempt = 0; attempt < 7; attempt++) {
-    try {
-      testTursoConnection(credentials)
-      return
-    } catch (error) {
-      lastError = error
-      if (attempt < 6) await new Promise((resolve) => setTimeout(resolve, 500))
+    const run = async (sql: string, parameters: unknown[] = []): Promise<void> => {
+      const statement = await candidate.prepare(sql)
+      await statement.run(parameters)
     }
-  }
-  throw lastError
-}
-
-export function prepareTursoDatabase(credentials: TursoCredentials): void {
-  const candidate = openRemote(credentials.url, credentials.authToken)
-  try {
-    candidate.pragma('foreign_keys = ON')
-    runMigrations(candidate)
-    verifyDatabaseReady(candidate)
+    await run('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)')
+    const versionStatement = await candidate.prepare(
+      'SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations'
+    )
+    const row = (await versionStatement.get([])) as { version: number }
+    const currentVersion = Number(row.version)
+    if (currentVersion < MIGRATION_COUNT) onProgress('Preparando as tabelas do banco…')
+    for (let i = currentVersion; i < MIGRATION_COUNT; i++) {
+      for (const statement of migrationStatements(i)) await run(statement)
+      await run('INSERT INTO schema_migrations (version) VALUES (?)', [i + 1])
+      onProgress(`Aplicando migrações… ${i + 1}/${MIGRATION_COUNT}`)
+    }
+    onProgress('Verificando se o banco está pronto…')
+    const tableStatement = await candidate.prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+    const tables = (await tableStatement.all([])) as { name: string }[]
+    const existing = new Set(tables.map((table) => table.name))
+    const required = ['settings', 'orders', 'supplies', 'production_lines', 'recipes']
+    const missing = required.filter((table) => !existing.has(table))
+    if (missing.length > 0) {
+      throw new Error(`O banco Turso está incompleto. Tabelas ausentes: ${missing.join(', ')}.`)
+    }
   } finally {
     candidate.close()
   }

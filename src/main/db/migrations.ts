@@ -419,6 +419,10 @@ function splitStatements(sql: string): string[] {
   return statements
 }
 
+export function migrationStatements(index: number): string[] {
+  return splitStatements(migrations[index])
+}
+
 export function runMigrations(db: Database.Database): void {
   db.prepare('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)').run()
   const row = db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as {
@@ -429,7 +433,7 @@ export function runMigrations(db: Database.Database): void {
     // O executor Hrana cria sua própria transação quando exec() recebe vários
     // comandos e rejeita a transação interna do driver. Enviar um por vez evita
     // o BEGIN aninhado; a versão só avança depois que todos terminarem.
-    const statements = splitStatements(migrations[i])
+    const statements = migrationStatements(i)
     for (const statement of statements) db.prepare(statement).run()
     db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(i + 1)
   }

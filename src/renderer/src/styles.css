@@ -1278,3 +1278,4 @@ code {
 }
 .database-setup-icon { font-size: 42px; text-align: center; }
 .database-setup-error { padding: 10px 12px; border-radius: 8px; color: #991b1b; background: #fef2f2; }
+.database-setup-progress { padding: 10px 12px; border-radius: 8px; color: #1e40af; background: #eff6ff; }

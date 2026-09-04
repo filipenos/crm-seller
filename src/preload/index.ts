@@ -38,7 +38,12 @@ const api = {
     }> =>
       ipcRenderer.invoke('database:status'),
     configure: (input: { platformToken: string }): Promise<{ ok: true; url: string }> =>
-      ipcRenderer.invoke('database:configure', input)
+      ipcRenderer.invoke('database:configure', input),
+    onProgress: (cb: (message: string) => void): (() => void) => {
+      const listener = (_event: unknown, message: string): void => cb(message)
+      ipcRenderer.on('database:progress', listener)
+      return () => ipcRenderer.removeListener('database:progress', listener)
+    }
   },
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 interface Props {
   databaseConfigured: boolean
@@ -18,11 +18,15 @@ export default function DatabaseSetupPage({
   const [error, setError] = useState<string | null>(initialError ?? null)
   const [binding, setBinding] = useState(false)
   const [started, setStarted] = useState(Boolean(initialError))
+  const [progress, setProgress] = useState<string | null>(null)
+
+  useEffect(() => window.api.database.onProgress(setProgress), [])
 
   const configure = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
     setSaving(true)
     setError(null)
+    setProgress('Iniciando conexão…')
     try {
       const result = await window.api.database.configure({ platformToken })
       onConfigured(result.url)
@@ -90,8 +94,8 @@ export default function DatabaseSetupPage({
         <div className="database-setup-icon">☁</div>
         <h1>Conecte seu banco Turso</h1>
         <p className="muted">
-          O CRM Seller cria e configura o banco na sua própria conta Turso. Você só precisa
-          informar um token da conta; o endereço e a credencial do banco são gerados pelo app.
+          O CRM Seller procura o banco na sua conta Turso. Se ele já existir, será usado; caso
+          contrário, o app prepara um novo automaticamente.
         </p>
 
         <label htmlFor="turso-token">Token da conta Turso</label>
@@ -112,8 +116,9 @@ export default function DatabaseSetupPage({
         </small>
 
         {error && <div className="database-setup-error">⚠ {error}</div>}
+        {saving && progress && <div className="database-setup-progress">↻ {progress}</div>}
         <button type="submit" disabled={saving}>
-          {saving ? 'Preparando banco…' : 'Criar banco e continuar'}
+          {saving ? 'Conectando…' : 'Conectar ao Turso'}
         </button>
         <button
           className="link-button"

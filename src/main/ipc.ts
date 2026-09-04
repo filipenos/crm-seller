@@ -8,7 +8,7 @@ import type {
   StageActionKind
 } from '@shared/types'
 import { getSettings, updateSettings } from './services/settings'
-import { closeDb, prepareTursoDatabase, waitForTursoConnection } from './db'
+import { closeDb, prepareTursoDatabaseAsync } from './db'
 import { publicTursoConfig, writeTursoConfig } from './db/config'
 import { provisionTursoDatabase } from './db/tursoPlatform'
 import {
@@ -115,12 +115,13 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   })
   ipcMain.handle(
     'database:configure',
-    async (_e, input: { platformToken: string }): Promise<{ ok: true; url: string }> => {
-      const credentials = await provisionTursoDatabase(input.platformToken)
-      await waitForTursoConnection(credentials)
-      prepareTursoDatabase(credentials)
+    async (event, input: { platformToken: string }): Promise<{ ok: true; url: string }> => {
+      const progress = (message: string): void => event.sender.send('database:progress', message)
+      const credentials = await provisionTursoDatabase(input.platformToken, progress)
+      await prepareTursoDatabaseAsync(credentials, progress)
       closeDb()
       writeTursoConfig(credentials)
+      progress('Banco conectado e pronto.')
       onDatabaseReady()
       return { ok: true, url: credentials.url }
     }
