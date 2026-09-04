@@ -242,7 +242,9 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
 
       {selected && (
         <OrderDetail
+          key={selected}
           orderSn={selected}
+          initialOrder={orders.find((order) => order.orderSn === selected)}
           onClose={() => {
             setSelected(null)
             refresh()

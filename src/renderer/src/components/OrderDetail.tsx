@@ -28,30 +28,34 @@ const EVENT_ICONS: Record<OrderEvent['source'], string> = {
 
 interface Props {
   orderSn: string
+  initialOrder?: Order
   onClose: () => void
   onToast: (msg: string) => void
 }
 
-export default function OrderDetail({ orderSn, onClose, onToast }: Props): React.JSX.Element {
-  const [order, setOrder] = useState<Order | null>(null)
+export default function OrderDetail({ orderSn, initialOrder, onClose, onToast }: Props): React.JSX.Element {
+  const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
   const [history, setHistory] = useState<StatusHistoryEntry[]>([])
   const [events, setEvents] = useState<OrderEvent[]>([])
-  const [childName, setChildName] = useState('')
-  const [note, setNote] = useState('')
+  const [childName, setChildName] = useState(initialOrder?.childName ?? '')
+  const [note, setNote] = useState(initialOrder?.note ?? '')
   const [stages, setStages] = useState<WorkflowStage[]>([])
   const [refreshingIncome, setRefreshingIncome] = useState(false)
   const [refreshingTracking, setRefreshingTracking] = useState(false)
 
   const load = async (): Promise<void> => {
-    const [o, novoHistorico, novosEventos, novasEtapas] = await Promise.all([
-      window.api.orders.get(orderSn),
+    // Todas começam juntas, mas o pedido libera o formulário assim que chega;
+    // histórico, eventos e etapas não seguram mais a abertura do painel.
+    const extras = Promise.all([
       window.api.orders.statusHistory(orderSn),
       window.api.events.byOrder(orderSn),
       window.api.stages.list()
     ])
+    const o = await window.api.orders.get(orderSn)
     setOrder(o)
     setChildName(o?.childName ?? '')
     setNote(o?.note ?? '')
+    const [novoHistorico, novosEventos, novasEtapas] = await extras
     setHistory(novoHistorico)
     setEvents(novosEventos)
     setStages(novasEtapas)
@@ -62,7 +66,20 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderSn])
 
-  if (!order) return <div className="drawer-backdrop" onClick={onClose} />
+  if (!order) {
+    return (
+      <>
+        <div className="drawer-backdrop" onClick={onClose} />
+        <div className="drawer drawer-loading" aria-busy="true">
+          <header className="drawer-header">
+            <h2 className="mono">{orderSn}</h2>
+            <button className="close-btn" onClick={onClose}>✕</button>
+          </header>
+          <div className="loading-indicator">Carregando pedido…</div>
+        </div>
+      </>
+    )
+  }
 
   const saveChildName = async (): Promise<void> => {
     await window.api.orders.setChildName(orderSn, childName)

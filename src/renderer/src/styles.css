@@ -370,6 +370,11 @@ select:focus {
   font-size: 18px;
 }
 
+.drawer-loading .loading-indicator {
+  color: var(--muted);
+  padding: 28px 0;
+}
+
 .close-btn {
   border: none;
   background: none;
