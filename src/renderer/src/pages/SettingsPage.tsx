@@ -142,11 +142,16 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
         <div className="action-buttons">
           <button
             onClick={async () => {
-              await window.api.shopee.connect()
-              onStatusChange()
+              setShopeeBindError(null)
+              try {
+                setBoundShopId(await window.api.shopee.setup())
+                onStatusChange()
+              } catch (reason) {
+                setShopeeBindError(String(reason instanceof Error ? reason.message : reason))
+              }
             }}
           >
-            🔑 Conectar / abrir Seller Center
+            🔑 Conectar / reconectar Seller Center
           </button>
           {!boundShopId && (
             <button

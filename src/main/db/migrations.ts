@@ -355,6 +355,8 @@ const migrations: string[] = [
   `
 ]
 
+export const MIGRATION_COUNT = migrations.length
+
 function splitStatements(sql: string): string[] {
   const statements: string[] = []
   let current = ''

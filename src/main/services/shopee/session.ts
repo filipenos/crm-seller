@@ -156,6 +156,14 @@ export async function openLoginWindow(): Promise<void> {
   await loginWindow.loadURL(sellerBaseUrl())
 }
 
+/** Abre o login e só conclui quando o usuário fecha a janela. */
+export async function openLoginWindowAndWait(): Promise<void> {
+  await openLoginWindow()
+  const currentWindow = loginWindow
+  if (!currentWindow || currentWindow.isDestroyed()) return
+  await new Promise<void>((resolve) => currentWindow.once('closed', resolve))
+}
+
 async function ensureHiddenWindow(): Promise<BrowserWindow> {
   if (hiddenWindow && !hiddenWindow.isDestroyed()) {
     // A janela é reaproveitada entre chamadas, e o fetch usa caminho relativo:

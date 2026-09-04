@@ -1,5 +1,5 @@
 import Database from 'libsql'
-import { runMigrations } from './migrations'
+import { MIGRATION_COUNT, runMigrations } from './migrations'
 import { normalizeTursoUrl, readTursoConfig, type TursoCredentials } from './config'
 
 let db: Database.Database | null = null
@@ -81,6 +81,36 @@ export async function waitForTursoConnection(credentials: TursoCredentials): Pro
   throw lastError
 }
 
+export function prepareTursoDatabase(credentials: TursoCredentials): void {
+  const candidate = openRemote(credentials.url, credentials.authToken)
+  try {
+    candidate.pragma('foreign_keys = ON')
+    runMigrations(candidate)
+    verifyDatabaseReady(candidate)
+  } finally {
+    candidate.close()
+  }
+}
+
+function verifyDatabaseReady(candidate: Database.Database): void {
+  const version = candidate
+    .prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations')
+    .get() as { version: number }
+  if (Number(version.version) !== MIGRATION_COUNT) {
+    throw new Error('O banco Turso não concluiu todas as migrações.')
+  }
+  const required = ['settings', 'orders', 'supplies', 'production_lines', 'recipes']
+  const tables = candidate
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+    .all() as { name: string }[]
+  const existing = new Set(tables.map((table) => table.name))
+  const missing = required.filter((table) => !existing.has(table))
+  if (missing.length > 0) {
+    throw new Error(`O banco Turso está incompleto. Tabelas ausentes: ${missing.join(', ')}.`)
+  }
+  candidate.prepare('SELECT 1 FROM settings LIMIT 1').get()
+}
+
 export function getDb(): Database.Database {
   if (!db) {
     const config = readTursoConfig()
@@ -89,6 +119,7 @@ export function getDb(): Database.Database {
     db = openRemote(config.url, config.authToken)
     db.pragma('foreign_keys = ON')
     runMigrations(db)
+    verifyDatabaseReady(db)
   }
   return db
 }

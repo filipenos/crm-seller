@@ -175,14 +175,17 @@ vai para o banco ou repositório.
 
 ## Primeiro uso
 
-1. Crie sua conta no [Turso](https://turso.tech), gere um Platform API Token e
-   cole-o na tela inicial. O app cria/localiza `crm-seller`, gera sua credencial
-   e testa a conexão automaticamente.
-2. Na etapa seguinte, entre no Seller Center e vincule a loja ao banco. Cada
+1. Clique em **Começar**, crie sua conta no [Turso](https://turso.tech), gere um
+   Platform API Token e cole-o na janela de configuração. O app cria/localiza
+   `crm-seller`, executa as migrações, verifica as tabelas e testa a conexão.
+2. Somente depois aparece **Configurar Shopee**. Entre no Seller Center e feche
+   a janela; o app identifica e vincula a loja automaticamente. Cada
    banco aceita uma única loja; se a sessão mudar, a sincronização é bloqueada
    antes de gravar qualquer dado.
-3. Escolha a **pasta raiz dos pedidos** e a **pasta de templates**.
-4. Clique em **Sincronizar** na barra lateral.
+3. Se a sessão expirar, use **Conectar / reconectar Seller Center** em
+   Configurações. O banco e seu vínculo são mantidos.
+4. Escolha a **pasta raiz dos pedidos** e a **pasta de templates**.
+5. Clique em **Sincronizar** na barra lateral.
 
 ### Templates
 

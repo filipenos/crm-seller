@@ -8,7 +8,7 @@ import type {
   StageActionKind
 } from '@shared/types'
 import { getSettings, updateSettings } from './services/settings'
-import { closeDb, waitForTursoConnection } from './db'
+import { closeDb, prepareTursoDatabase, waitForTursoConnection } from './db'
 import { publicTursoConfig, writeTursoConfig } from './db/config'
 import { provisionTursoDatabase } from './db/tursoPlatform'
 import {
@@ -39,7 +39,7 @@ import {
   updateStage
 } from './services/stages'
 import { createOrderFolder, ensureFolderName, openOrderFolder } from './services/folders'
-import { disconnect, openLoginWindow } from './services/shopee/session'
+import { disconnect, openLoginWindow, openLoginWindowAndWait } from './services/shopee/session'
 import {
   cancelarLote,
   getConnectionStatus,
@@ -118,6 +118,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
     async (_e, input: { platformToken: string }): Promise<{ ok: true; url: string }> => {
       const credentials = await provisionTursoDatabase(input.platformToken)
       await waitForTursoConnection(credentials)
+      prepareTursoDatabase(credentials)
       closeDb()
       writeTursoConfig(credentials)
       onDatabaseReady()
@@ -139,6 +140,10 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
 
   // Shopee
   ipcMain.handle('shopee:connect', () => openLoginWindow())
+  ipcMain.handle('shopee:setup', async () => {
+    await openLoginWindowAndWait()
+    return bindCurrentShopeeAccount()
+  })
   ipcMain.handle('shopee:bind', () => bindCurrentShopeeAccount())
   ipcMain.handle('shopee:disconnect', () => disconnect())
   ipcMain.handle('shopee:status', () => getConnectionStatus())

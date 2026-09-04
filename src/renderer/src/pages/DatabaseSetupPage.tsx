@@ -17,6 +17,7 @@ export default function DatabaseSetupPage({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(initialError ?? null)
   const [binding, setBinding] = useState(false)
+  const [started, setStarted] = useState(Boolean(initialError))
 
   const configure = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault()
@@ -42,8 +43,6 @@ export default function DatabaseSetupPage({
             Este banco será reservado para uma única loja. Antes de salvar qualquer pedido,
             confirmamos que a sessão aberta pertence à loja vinculada.
           </p>
-          <button onClick={() => void window.api.shopee.connect()}>1. Entrar no Seller Center</button>
-          <small className="muted">Faça login na janela aberta e feche-a quando terminar.</small>
           {error && <div className="database-setup-error">⚠ {error}</div>}
           <button
             disabled={binding}
@@ -51,7 +50,7 @@ export default function DatabaseSetupPage({
               setBinding(true)
               setError(null)
               try {
-                onBound(await window.api.shopee.bind())
+                onBound(await window.api.shopee.setup())
               } catch (reason) {
                 setError(String(reason instanceof Error ? reason.message : reason).replace(/^Error invoking remote method '[^']+': Error: /, ''))
               } finally {
@@ -59,8 +58,27 @@ export default function DatabaseSetupPage({
               }
             }}
           >
-            {binding ? 'Confirmando loja…' : '2. Confirmar e vincular esta loja'}
+            {binding ? 'Aguardando login…' : 'Configurar Shopee'}
           </button>
+          <small className="muted">
+            Entre no Seller Center na janela que abrir e feche-a ao terminar. O vínculo será
+            confirmado automaticamente.
+          </small>
+        </div>
+      </main>
+    )
+  }
+
+  if (!started) {
+    return (
+      <main className="database-setup">
+        <div className="database-setup-card">
+          <div className="database-setup-icon">📦</div>
+          <h1>Bem-vindo ao CRM Seller</h1>
+          <p className="muted">
+            Primeiro vamos preparar seu banco de dados. Depois conectaremos sua loja Shopee.
+          </p>
+          <button onClick={() => setStarted(true)}>Começar</button>
         </div>
       </main>
     )

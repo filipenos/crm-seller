@@ -49,6 +49,7 @@ const api = {
   },
   shopee: {
     connect: (): Promise<void> => ipcRenderer.invoke('shopee:connect'),
+    setup: (): Promise<string> => ipcRenderer.invoke('shopee:setup'),
     bind: (): Promise<string> => ipcRenderer.invoke('shopee:bind'),
     disconnect: (): Promise<void> => ipcRenderer.invoke('shopee:disconnect'),
     status: (): Promise<ShopeeConnectionStatus> => ipcRenderer.invoke('shopee:status'),
