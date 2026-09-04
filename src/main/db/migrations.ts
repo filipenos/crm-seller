@@ -355,6 +355,68 @@ const migrations: string[] = [
   `
 ]
 
+function splitStatements(sql: string): string[] {
+  const statements: string[] = []
+  let current = ''
+  let quote: "'" | '"' | null = null
+  let lineComment = false
+  let blockComment = false
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i]
+    const next = sql[i + 1]
+    if (lineComment) {
+      current += char
+      if (char === '\n') lineComment = false
+      continue
+    }
+    if (blockComment) {
+      current += char
+      if (char === '*' && next === '/') {
+        current += next
+        i++
+        blockComment = false
+      }
+      continue
+    }
+    if (!quote && char === '-' && next === '-') {
+      current += char + next
+      i++
+      lineComment = true
+      continue
+    }
+    if (!quote && char === '/' && next === '*') {
+      current += char + next
+      i++
+      blockComment = true
+      continue
+    }
+    if (quote) {
+      current += char
+      if (char === quote) {
+        if (next === quote) {
+          current += next
+          i++
+        } else quote = null
+      }
+      continue
+    }
+    if (char === "'" || char === '"') {
+      quote = char
+      current += char
+      continue
+    }
+    if (char === ';') {
+      if (current.trim()) statements.push(current.trim())
+      current = ''
+      continue
+    }
+    current += char
+  }
+  if (current.trim()) statements.push(current.trim())
+  return statements
+}
+
 export function runMigrations(db: Database.Database): void {
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)')
   const row = db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as {
@@ -362,9 +424,11 @@ export function runMigrations(db: Database.Database): void {
   }
   const currentVersion = Number(row.version)
   for (let i = currentVersion; i < migrations.length; i++) {
-    // No Turso remoto, exec() já trata o bloco de múltiplos comandos como uma
-    // transação. Envolver em db.transaction() criaria uma transação aninhada.
-    db.exec(`${migrations[i]}
-      INSERT INTO schema_migrations (version) VALUES (${i + 1});`)
+    // O executor Hrana cria sua própria transação quando exec() recebe vários
+    // comandos e rejeita a transação interna do driver. Enviar um por vez evita
+    // o BEGIN aninhado; a versão só avança depois que todos terminarem.
+    const statements = splitStatements(migrations[i])
+    for (const statement of statements) db.exec(statement)
+    db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(i + 1)
   }
 }
