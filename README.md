@@ -2,7 +2,7 @@
 
 CRM para Windows, macOS e Linux que gerencia pedidos personalizados vendidos
 na Shopee. Electron + Node + React + Turso: o banco pertence ao usuário e o app
-mantém uma réplica local para continuar rápido e tolerar quedas de conexão.
+se conecta diretamente a ele, sem manter outro SQLite com os dados localmente.
 
 ## O que faz
 
@@ -156,9 +156,9 @@ direito → **Abrir**, ou `xattr -dc "/Applications/CRM Seller.app"`.
 
 ## Onde ficam os dados e configurações
 
-O banco principal fica na conta Turso configurada na primeira abertura. A
-réplica, a sessão da Shopee e a configuração local ficam no diretório de dados
-padrão do usuário — `app.getPath('userData')`:
+O banco fica na conta Turso configurada na primeira abertura. A sessão da Shopee
+e a configuração local ficam no diretório de dados padrão do usuário —
+`app.getPath('userData')`:
 
 | Sistema | Caminho |
 |---|---|
@@ -240,9 +240,8 @@ Duas regras que o cliente segue e valem manter ao mexer nele:
 
 ### Banco de dados
 
-Uma réplica libSQL no diretório de dados do app é sincronizada com a URL Turso
-do usuário. Cada URL recebe um arquivo de réplica separado, evitando misturar
-dados ao trocar de banco. Migrações usam `PRAGMA user_version` em
+O app se conecta diretamente à URL Turso do usuário. Migrações usam
+`PRAGMA user_version` em
 `src/main/db/migrations.ts`; para alterar o schema, acrescente uma entrada ao
 array `migrations`. O identificador estável da loja Shopee fica na tabela
 `settings` do próprio banco. Toda operação que importa dados da Shopee confere

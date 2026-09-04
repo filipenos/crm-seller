@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 CRM Electron + React + libSQL/Turso para pedidos de caixas personalizadas
-vendidas na Shopee. Usa uma réplica embutida sincronizada com o banco do usuário.
+vendidas na Shopee. Conecta diretamente ao banco Turso do usuário.
 Visão de produto e o que está planejado: [README.md](README.md) e
 [ROADMAP.md](ROADMAP.md).
 
@@ -179,8 +179,8 @@ morderam:
 
 ### Banco
 
-Réplica libSQL em `app.getPath('userData')`, sincronizada com o Turso. O
-Platform API Token provisiona o banco em `db/tursoPlatform.ts` e é descartado;
+Conexão libSQL direta com o Turso. O Platform API Token provisiona o banco em
+`db/tursoPlatform.ts` e é descartado;
 URL e token restrito vêm de `db/config.ts`, persistidos com `safeStorage` ou,
 quando o chaveiro Linux não existe, em arquivo `0600`. Migrações são
 um array de strings em `db/migrations.ts` versionado por `PRAGMA user_version`:
