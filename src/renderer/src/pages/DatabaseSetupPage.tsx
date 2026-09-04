@@ -89,7 +89,8 @@ export default function DatabaseSetupPage({
         />
         <small className="muted">
           Esse token é usado uma vez para preparar o banco e não fica salvo. O app armazena
-          somente uma credencial restrita ao banco, protegida neste computador.
+          somente uma credencial restrita ao banco, protegida pelo sistema ou pelas permissões
+          exclusivas do seu usuário.
         </small>
 
         {error && <div className="database-setup-error">⚠ {error}</div>}

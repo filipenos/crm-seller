@@ -181,7 +181,8 @@ morderam:
 
 Réplica libSQL em `app.getPath('userData')`, sincronizada com o Turso. O
 Platform API Token provisiona o banco em `db/tursoPlatform.ts` e é descartado;
-URL e token restrito vêm de `db/config.ts`, persistidos com `safeStorage`. Migrações são
+URL e token restrito vêm de `db/config.ts`, persistidos com `safeStorage` ou,
+quando o chaveiro Linux não existe, em arquivo `0600`. Migrações são
 um array de strings em `db/migrations.ts` versionado por `PRAGMA user_version`:
 **só acrescente ao final**, nunca edite ou reordene as existentes. As variáveis
 `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` substituem a configuração local.

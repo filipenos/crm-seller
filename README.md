@@ -167,9 +167,11 @@ padrão do usuário — `app.getPath('userData')`:
 | Linux | `~/.config/crm-seller/` |
 
 A URL e uma credencial restrita ao banco ficam em `turso.json`; a credencial é
-criptografada pelo armazenamento seguro do sistema operacional. O Platform API
-Token informado na configuração é usado uma vez e descartado. A sessão da
-Shopee fica em `Partitions/shopee`. Nenhum token vai para o banco ou repositório.
+criptografada pelo armazenamento seguro do sistema operacional. Em sessões
+Linux sem chaveiro disponível, o arquivo usa permissão `0600` e só o usuário
+local pode lê-lo. O Platform API Token informado na configuração é usado uma
+vez e descartado. A sessão da Shopee fica em `Partitions/shopee`. Nenhum token
+vai para o banco ou repositório.
 
 ## Primeiro uso
 

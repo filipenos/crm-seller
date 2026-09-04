@@ -9,7 +9,8 @@ export interface TursoCredentials {
 
 interface StoredConfig {
   url: string
-  encryptedAuthToken: string
+  encryptedAuthToken?: string
+  authToken?: string
 }
 
 const CONFIG_FILE = 'turso.json'
@@ -42,9 +43,13 @@ export function readTursoConfig(): TursoCredentials | null {
 
   try {
     const stored = JSON.parse(readFileSync(configPath(), 'utf8')) as StoredConfig
+    const authToken = stored.encryptedAuthToken
+      ? safeStorage.decryptString(Buffer.from(stored.encryptedAuthToken, 'base64'))
+      : stored.authToken
+    if (!authToken) throw new Error('credencial ausente')
     return {
       url: normalizeTursoUrl(stored.url),
-      authToken: safeStorage.decryptString(Buffer.from(stored.encryptedAuthToken, 'base64'))
+      authToken
     }
   } catch {
     throw new Error('Não foi possível ler a configuração local do Turso. Configure a conexão novamente.')
@@ -55,16 +60,14 @@ export function writeTursoConfig(input: TursoCredentials): void {
   const url = normalizeTursoUrl(input.url)
   const authToken = input.authToken.trim()
   if (!authToken) throw new Error('Informe o token de autenticação do Turso.')
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('O armazenamento seguro do sistema não está disponível para proteger o token.')
-  }
-
   const path = configPath()
   const temporaryPath = `${path}.tmp`
-  const stored: StoredConfig = {
-    url,
-    encryptedAuthToken: safeStorage.encryptString(authToken).toString('base64')
-  }
+  const stored: StoredConfig = safeStorage.isEncryptionAvailable()
+    ? {
+        url,
+        encryptedAuthToken: safeStorage.encryptString(authToken).toString('base64')
+      }
+    : { url, authToken }
   writeFileSync(temporaryPath, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600 })
   renameSync(temporaryPath, path)
   chmodSync(path, 0o600)
