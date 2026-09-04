@@ -240,9 +240,8 @@ Duas regras que o cliente segue e valem manter ao mexer nele:
 
 ### Banco de dados
 
-O app se conecta diretamente à URL Turso do usuário. Migrações usam
-`PRAGMA user_version` em
-`src/main/db/migrations.ts`; para alterar o schema, acrescente uma entrada ao
+O app se conecta diretamente à URL Turso do usuário. Migrações usam a tabela
+`schema_migrations` em `src/main/db/migrations.ts`; para alterar o schema, acrescente uma entrada ao
 array `migrations`. O identificador estável da loja Shopee fica na tabela
 `settings` do próprio banco. Toda operação que importa dados da Shopee confere
 esse vínculo primeiro.

@@ -356,15 +356,15 @@ const migrations: string[] = [
 ]
 
 export function runMigrations(db: Database.Database): void {
-  const pragmaResult = db.pragma('user_version', { simple: true }) as
-    | number
-    | { user_version?: number }
-  const currentVersion =
-    typeof pragmaResult === 'number' ? pragmaResult : Number(pragmaResult.user_version ?? 0)
+  db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)')
+  const row = db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as {
+    version: number
+  }
+  const currentVersion = Number(row.version)
   for (let i = currentVersion; i < migrations.length; i++) {
     const apply = db.transaction(() => {
       db.exec(migrations[i])
-      db.pragma(`user_version = ${i + 1}`)
+      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(i + 1)
     })
     apply()
   }
