@@ -359,6 +359,25 @@ async function fetchOrderIndex(cds: string, maxPages: number | null): Promise<Or
   return refs
 }
 
+/** Identificador estável da loja autenticada, usado para impedir mistura de bancos. */
+export async function fetchShopeeIdentity(): Promise<{ shopId: string; orderIds: string[] }> {
+  const refs = await fetchOrderIndex(await getSpcCds(), 1)
+  const shopId = refs[0]?.shop_id
+  if (!Number.isFinite(shopId)) {
+    throw new Error(
+      'Não foi possível identificar a loja Shopee. A conta precisa ter ao menos um pedido.'
+    )
+  }
+  if (refs.some((ref) => ref.shop_id !== shopId)) {
+    throw new Error('A Shopee retornou pedidos de lojas diferentes na mesma sessão.')
+  }
+  return { shopId: String(shopId), orderIds: refs.map((ref) => String(ref.order_id)) }
+}
+
+export async function fetchShopeeShopId(): Promise<string> {
+  return (await fetchShopeeIdentity()).shopId
+}
+
 /** Passo 2 — detalhes dos pedidos, em lotes, via get_order_list_card_list. */
 async function fetchOrderCards(
   cds: string,

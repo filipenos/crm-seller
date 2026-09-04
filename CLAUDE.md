@@ -185,6 +185,10 @@ um array de strings em `db/migrations.ts` versionado por `PRAGMA user_version`:
 **só acrescente ao final**, nunca edite ou reordene as existentes. As variáveis
 `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` substituem a configuração local.
 
+O banco e a loja Shopee são pareados por `settings.shopeeShopId`. Qualquer fluxo
+que grave dados vindos da Shopee deve chamar `assertCurrentShopeeAccount()`
+antes da primeira escrita. Nunca ofereça troca silenciosa desse vínculo.
+
 ### Atualização automática
 
 `electron-updater` com feed nas Releases do GitHub; tag `v*` dispara o workflow

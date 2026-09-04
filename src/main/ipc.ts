@@ -11,6 +11,11 @@ import { getSettings, updateSettings } from './services/settings'
 import { closeDb, testTursoConnection } from './db'
 import { publicTursoConfig, writeTursoConfig } from './db/config'
 import {
+  assertCurrentShopeeAccount,
+  bindCurrentShopeeAccount,
+  getBoundShopeeShopId
+} from './services/shopee/accountBinding'
+import {
   countAwaitingPayment,
   countByTab,
   getOrder,
@@ -98,7 +103,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
     if (!status.configured) return status
     try {
       onDatabaseReady()
-      return status
+      return { ...status, shopeeShopId: getBoundShopeeShopId() }
     } catch (reason) {
       return {
         configured: false,
@@ -132,6 +137,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
 
   // Shopee
   ipcMain.handle('shopee:connect', () => openLoginWindow())
+  ipcMain.handle('shopee:bind', () => bindCurrentShopeeAccount())
   ipcMain.handle('shopee:disconnect', () => disconnect())
   ipcMain.handle('shopee:status', () => getConnectionStatus())
   ipcMain.handle('shopee:sync', () => syncAll())
@@ -140,6 +146,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('shopee:orderTotal', () => fetchOrderTotal())
   // Reaplica o parsing aos JSON já salvos — sem rede.
   ipcMain.handle('shopee:reprocess', async () => {
+    await assertCurrentShopeeAccount()
     const r = await reprocessDumps((card) => {
       const order = normalizeCard(card)
       if (order) upsertShopeeOrder(order)

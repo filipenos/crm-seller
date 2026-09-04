@@ -42,13 +42,18 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [tursoToken, setTursoToken] = useState('')
   const [savingTurso, setSavingTurso] = useState(false)
   const [tursoResult, setTursoResult] = useState<string | null>(null)
+  const [boundShopId, setBoundShopId] = useState<string | null>(null)
+  const [shopeeBindError, setShopeeBindError] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.settings.get().then(setSettings)
     void window.api.app.version().then(setVersion)
     void window.api.updates.status().then(setUpdateStatus)
     void window.api.shopee.dumpInfo().then(setDumpInfo)
-    void window.api.database.status().then((status) => setTursoUrl(status.url ?? ''))
+    void window.api.database.status().then((status) => {
+      setTursoUrl(status.url ?? '')
+      setBoundShopId(status.shopeeShopId ?? null)
+    })
     return window.api.updates.onStatus(setUpdateStatus)
   }, [])
 
@@ -114,6 +119,8 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
                 })
                 setTursoUrl(result.url)
                 setTursoToken('')
+                const status = await window.api.database.status()
+                setBoundShopId(status.shopeeShopId ?? null)
                 setTursoResult('✓ conexão testada e salva')
               } catch (reason) {
                 setTursoResult(`⚠ ${String(reason instanceof Error ? reason.message : reason)}`)
@@ -134,6 +141,10 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           Abre a janela do Seller Center para você entrar com sua conta. A sessão fica salva
           neste computador — depois de logar, feche a janela e clique em Sincronizar.
         </p>
+        <p className="muted">
+          Banco vinculado à loja:{' '}
+          <b>{boundShopId ? `#${boundShopId}` : 'ainda não vinculado'}</b>.
+        </p>
         <div className="action-buttons">
           <button
             onClick={async () => {
@@ -143,6 +154,20 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           >
             🔑 Conectar / abrir Seller Center
           </button>
+          {!boundShopId && (
+            <button
+              onClick={async () => {
+                setShopeeBindError(null)
+                try {
+                  setBoundShopId(await window.api.shopee.bind())
+                } catch (reason) {
+                  setShopeeBindError(String(reason instanceof Error ? reason.message : reason))
+                }
+              }}
+            >
+              Vincular conta a este banco
+            </button>
+          )}
           <button
             className="danger"
             onClick={async () => {
@@ -153,6 +178,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
             Desconectar (limpar sessão)
           </button>
         </div>
+        {shopeeBindError && <small className="muted">⚠ {shopeeBindError}</small>}
       </section>
 
       <section className="settings-card">

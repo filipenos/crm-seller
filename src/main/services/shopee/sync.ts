@@ -26,6 +26,7 @@ import { getSettings } from '../settings'
 import { saveOrderDump } from '../orderDump'
 import { recomporCatalogoDosPedidos, salvarProdutoShopee } from '../produtos'
 import { baixarEstoqueDosDespachados } from '../receitas'
+import { assertCurrentShopeeAccount } from './accountBinding'
 
 /** Palavras que indicam entrega concluída num checkpoint de rastreio. */
 const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
@@ -81,6 +82,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     if (!(await isConnected())) {
       throw new Error('Não conectado à Shopee. Abra Configurações e faça login no Seller Center.')
     }
+    await assertCurrentShopeeAccount()
 
     // Pedidos
     try {
@@ -272,6 +274,7 @@ export async function refreshIncome(orderSn: string): Promise<{ ok: boolean; err
     if (!(await isConnected())) {
       throw new Error('Não conectado à Shopee. Faça login em Configurações.')
     }
+    await assertCurrentShopeeAccount()
     const order = getOrder(orderSn)
     if (!order?.shopeeOrderId) throw new Error(`Pedido ${orderSn} sem id da Shopee`)
     const income = await fetchOrderIncome(orderSn, order.shopeeOrderId)
@@ -293,6 +296,7 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
     if (!(await isConnected())) {
       throw new Error('Não conectado à Shopee. Faça login em Configurações.')
     }
+    await assertCurrentShopeeAccount()
     const order = getOrder(orderSn)
     if (!order) throw new Error(`Pedido ${orderSn} não encontrado`)
 
@@ -368,6 +372,7 @@ export async function sincronizarProdutos(): Promise<{
   error?: string
 }> {
   try {
+    await assertCurrentShopeeAccount()
     const produtos = await fetchProducts()
     for (const p of produtos) salvarProdutoShopee(p)
     recomporCatalogoDosPedidos()

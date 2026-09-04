@@ -174,8 +174,9 @@ nunca é salvo no banco ou no repositório.
 
 1. Crie seu banco no [Turso](https://turso.tech), gere um token e informe ambos
    na tela inicial. A conexão é testada antes de salvar.
-2. Abra **Configurações** e clique em **Conectar / abrir Seller Center**.
-   Faça login na sua conta Shopee e feche a janela (a sessão fica salva).
+2. Na etapa seguinte, entre no Seller Center e vincule a loja ao banco. Cada
+   banco aceita uma única loja; se a sessão mudar, a sincronização é bloqueada
+   antes de gravar qualquer dado.
 3. Escolha a **pasta raiz dos pedidos** e a **pasta de templates**.
 4. Clique em **Sincronizar** na barra lateral.
 
@@ -239,7 +240,9 @@ Uma réplica libSQL no diretório de dados do app é sincronizada com a URL Turs
 do usuário. Cada URL recebe um arquivo de réplica separado, evitando misturar
 dados ao trocar de banco. Migrações usam `PRAGMA user_version` em
 `src/main/db/migrations.ts`; para alterar o schema, acrescente uma entrada ao
-array `migrations`.
+array `migrations`. O identificador estável da loja Shopee fica na tabela
+`settings` do próprio banco. Toda operação que importa dados da Shopee confere
+esse vínculo primeiro.
 
 ## Smoke test do backend
 

@@ -30,7 +30,12 @@ import type {
 
 const api = {
   database: {
-    status: (): Promise<{ configured: boolean; url: string | null; error?: string }> =>
+    status: (): Promise<{
+      configured: boolean
+      url: string | null
+      error?: string
+      shopeeShopId?: string | null
+    }> =>
       ipcRenderer.invoke('database:status'),
     configure: (input: { url: string; authToken: string }): Promise<{ ok: true; url: string }> =>
       ipcRenderer.invoke('database:configure', input)
@@ -44,6 +49,7 @@ const api = {
   },
   shopee: {
     connect: (): Promise<void> => ipcRenderer.invoke('shopee:connect'),
+    bind: (): Promise<string> => ipcRenderer.invoke('shopee:bind'),
     disconnect: (): Promise<void> => ipcRenderer.invoke('shopee:disconnect'),
     status: (): Promise<ShopeeConnectionStatus> => ipcRenderer.invoke('shopee:status'),
     sync: (): Promise<SyncResult> => ipcRenderer.invoke('shopee:sync'),

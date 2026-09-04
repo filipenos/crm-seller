@@ -16,6 +16,7 @@ export default function App(): React.JSX.Element {
     configured: boolean
     url: string | null
     error?: string
+    shopeeShopId?: string | null
   } | null>(null)
   const [page, setPage] = useState<Page>('home')
   const [status, setStatus] = useState<ShopeeConnectionStatus | null>(null)
@@ -59,12 +60,20 @@ export default function App(): React.JSX.Element {
   }, [database?.configured, refreshStatus, refreshUnseen])
 
   if (!database) return <div className="app-loading">Abrindo CRM Seller…</div>
-  if (!database.configured) {
+  if (!database.configured || !database.shopeeShopId) {
     return (
       <DatabaseSetupPage
+        databaseConfigured={database.configured}
         initialUrl={database.url}
         initialError={database.error}
-        onConfigured={() => setDatabase((current) => ({ configured: true, url: current?.url ?? null }))}
+        onConfigured={(url) => setDatabase({ configured: true, url, shopeeShopId: null })}
+        onBound={(shopeeShopId) =>
+          setDatabase((current) => ({
+            configured: true,
+            url: current?.url ?? null,
+            shopeeShopId
+          }))
+        }
       />
     )
   }
