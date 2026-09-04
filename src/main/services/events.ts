@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { getDb } from '../db'
+import { getAsyncDb, getDb } from '../db'
 import type { OrderEvent, OrderEventSource } from '@shared/types'
 
 interface EventRow {
@@ -63,6 +63,16 @@ export function listEvents(opts: { onlyUnseen?: boolean; limit?: number } = {}):
   return rows.map(rowToEvent)
 }
 
+export async function listEventsAsync(
+  opts: { onlyUnseen?: boolean; limit?: number } = {}
+): Promise<OrderEvent[]> {
+  const where = opts.onlyUnseen ? 'WHERE seen = 0' : ''
+  const statement = await getAsyncDb().prepare(
+    `SELECT * FROM order_events ${where} ORDER BY happened_at DESC LIMIT ?`
+  )
+  return ((await statement.all([opts.limit ?? 200])) as EventRow[]).map(rowToEvent)
+}
+
 export function listEventsForOrder(orderSn: string): OrderEvent[] {
   const rows = getDb()
     .prepare('SELECT * FROM order_events WHERE order_sn = ? ORDER BY happened_at ASC')
@@ -70,10 +80,25 @@ export function listEventsForOrder(orderSn: string): OrderEvent[] {
   return rows.map(rowToEvent)
 }
 
+export async function listEventsForOrderAsync(orderSn: string): Promise<OrderEvent[]> {
+  const statement = await getAsyncDb().prepare(
+    'SELECT * FROM order_events WHERE order_sn = ? ORDER BY happened_at ASC'
+  )
+  return ((await statement.all([orderSn])) as EventRow[]).map(rowToEvent)
+}
+
 export function countUnseenEvents(): number {
   const row = getDb().prepare('SELECT COUNT(*) AS n FROM order_events WHERE seen = 0').get() as {
     n: number
   }
+  return row.n
+}
+
+export async function countUnseenEventsAsync(): Promise<number> {
+  const statement = await getAsyncDb().prepare(
+    'SELECT COUNT(*) AS n FROM order_events WHERE seen = 0'
+  )
+  const row = (await statement.get([])) as { n: number }
   return row.n
 }
 

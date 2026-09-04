@@ -18,10 +18,10 @@ import {
 } from './services/shopee/accountBinding'
 import {
   countAwaitingPayment,
-  countByTab,
-  getOrder,
+  countByTabAsync,
+  getOrderAsync,
   getStatusHistory,
-  listOrders,
+  listOrdersAsync,
   setChildName,
   setInternalStatus,
   setNote,
@@ -92,9 +92,9 @@ import {
   renomearLinha
 } from './services/receitas'
 import {
-  countUnseenEvents,
-  listEvents,
-  listEventsForOrder,
+  countUnseenEventsAsync,
+  listEventsAsync,
+  listEventsForOrderAsync,
   markAllEventsSeen
 } from './services/events'
 
@@ -173,9 +173,9 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   })
 
   // Pedidos
-  ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrders(filters))
+  ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrdersAsync(filters))
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPayment())
-  ipcMain.handle('orders:tabCounts', () => countByTab())
+  ipcMain.handle('orders:tabCounts', () => countByTabAsync())
   ipcMain.handle('painel:resumo', () => montarPainel())
   ipcMain.handle('painel:serie', (_e, metrica: MetricaPainel, ano: number, mes: number) =>
     serieMensal(metrica, ano, mes)
@@ -184,7 +184,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('lote:progresso', () => progressoLote())
   ipcMain.handle('lote:cancelar', () => cancelarLote())
   ipcMain.handle('orders:refreshTracking', (_e, orderSn: string) => refreshTracking(orderSn))
-  ipcMain.handle('orders:get', (_e, orderSn: string) => getOrder(orderSn))
+  ipcMain.handle('orders:get', (_e, orderSn: string) => getOrderAsync(orderSn))
   ipcMain.handle('orders:setStatus', (_e, orderSn: string, status: InternalStatus) =>
     setInternalStatus(orderSn, status)
   )
@@ -230,10 +230,10 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
 
   // Eventos (rastreio, avaliação, pagamento)
   ipcMain.handle('events:list', (_e, opts: { onlyUnseen?: boolean; limit?: number }) =>
-    listEvents(opts)
+    listEventsAsync(opts)
   )
-  ipcMain.handle('events:byOrder', (_e, orderSn: string) => listEventsForOrder(orderSn))
-  ipcMain.handle('events:unseenCount', () => countUnseenEvents())
+  ipcMain.handle('events:byOrder', (_e, orderSn: string) => listEventsForOrderAsync(orderSn))
+  ipcMain.handle('events:unseenCount', () => countUnseenEventsAsync())
   ipcMain.handle('events:markAllSeen', () => markAllEventsSeen())
 
   // Produtos

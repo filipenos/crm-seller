@@ -17,18 +17,39 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   // Entra direto no que precisa de trabalho hoje, não na base inteira.
   const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>('A_ENVIAR')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [counts, setCounts] = useState<OrderCounts | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   useEffect(() => {
-    void window.api.orders.list({ tab: tabFilter, search }).then(setOrders)
-    void window.api.orders.tabCounts().then(setCounts)
-  }, [tabFilter, search, dataVersion])
+    const timer = setTimeout(() => setDebouncedSearch(search), 250)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    let current = true
+    void Promise.all([
+      window.api.orders.list({ tab: tabFilter, search: debouncedSearch }),
+      window.api.orders.tabCounts()
+    ]).then(([nextOrders, nextCounts]) => {
+      if (!current) return
+      setOrders(nextOrders)
+      setCounts(nextCounts)
+    })
+    return () => {
+      current = false
+    }
+  }, [tabFilter, debouncedSearch, dataVersion])
 
   const refresh = (): void => {
-    void window.api.orders.list({ tab: tabFilter, search }).then(setOrders)
-    void window.api.orders.tabCounts().then(setCounts)
+    void Promise.all([
+      window.api.orders.list({ tab: tabFilter, search: debouncedSearch }),
+      window.api.orders.tabCounts()
+    ]).then(([nextOrders, nextCounts]) => {
+      setOrders(nextOrders)
+      setCounts(nextCounts)
+    })
   }
 
   const showToast = (msg: string): void => {

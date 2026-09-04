@@ -41,13 +41,18 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
   const [stages, setStages] = useState<WorkflowStage[]>([])
 
   const load = async (): Promise<void> => {
-    const o = await window.api.orders.get(orderSn)
+    const [o, novoHistorico, novosEventos, novasEtapas] = await Promise.all([
+      window.api.orders.get(orderSn),
+      window.api.orders.statusHistory(orderSn),
+      window.api.events.byOrder(orderSn),
+      window.api.stages.list()
+    ])
     setOrder(o)
     setChildName(o?.childName ?? '')
     setNote(o?.note ?? '')
-    setHistory(await window.api.orders.statusHistory(orderSn))
-    setEvents(await window.api.events.byOrder(orderSn))
-    setStages(await window.api.stages.list())
+    setHistory(novoHistorico)
+    setEvents(novosEventos)
+    setStages(novasEtapas)
   }
 
   useEffect(() => {

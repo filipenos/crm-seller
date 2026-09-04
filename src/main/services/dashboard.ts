@@ -1,4 +1,4 @@
-import { getDb } from '../db'
+import { getAsyncDb } from '../db'
 import type { MetricaPainel, Painel, ResumoPeriodo, SerieMensal } from '@shared/types'
 
 /**
@@ -23,110 +23,97 @@ function inicioDoDia(diasAtras = 0): number {
 /** Palavra que o rastreio usa quando o pacote é deixado no ponto de coleta. */
 const POSTADO = '%postado%'
 
-function resumo(diasAtras: number): ResumoPeriodo {
-  const db = getDb()
-  const desde = inicioDoDia(diasAtras)
-  // Limite superior: pedido numerado com a data de amanhã (o número usa o fuso
-  // da Shopee) não pode entrar na conta de hoje.
-  const ate = inicioDoDia(-1)
+type DashboardRow = Record<string, number>
 
-  const pedidos = db
-    .prepare(
-      `SELECT COUNT(*) AS n, COALESCE(SUM(total_amount), 0) AS vendas
-         FROM orders
-        WHERE created_at_shopee >= ? AND created_at_shopee < ?
-          AND tab != 'CANCELADO'`
-    )
-    .get(desde, ate) as { n: number; vendas: number }
-
-  // Caixas: o kit diz quantas peças tem, e o pedido pode levar mais de um kit.
-  const caixas = db
-    .prepare(
-      `SELECT COALESCE(SUM(i.pecas * i.quantity), 0) AS n
-         FROM order_items i
-         JOIN orders o ON o.order_sn = i.order_sn
-        WHERE o.created_at_shopee >= ? AND o.created_at_shopee < ?
-          AND o.tab != 'CANCELADO'
-          AND i.pecas IS NOT NULL`
-    )
-    .get(desde, ate) as { n: number }
-
-  const recebido = db
-    .prepare(
-      `SELECT COALESCE(SUM(valor_recebido), 0) AS total, COUNT(*) AS n
-         FROM order_income
-        WHERE recebido_em >= ? AND recebido_em < ?`
-    )
-    .get(desde, ate) as { total: number; n: number }
-
-  const despachados = db
-    .prepare(
-      `SELECT COUNT(DISTINCT order_sn) AS n
-         FROM order_events
-        WHERE source = 'logistics'
-          AND happened_at >= ? AND happened_at < ?
-          AND LOWER(description) LIKE ?`
-    )
-    .get(desde, ate, POSTADO) as { n: number }
-
+function periodo(row: DashboardRow, prefixo: 'hoje' | 'sete' | 'trinta'): ResumoPeriodo {
   return {
-    pedidos: pedidos.n,
-    vendas: Number(pedidos.vendas.toFixed(2)),
-    caixas: caixas.n,
-    recebido: Number(recebido.total.toFixed(2)),
-    pedidosRecebidos: recebido.n,
-    despachados: despachados.n
+    pedidos: row[`${prefixo}_pedidos`],
+    vendas: Number(row[`${prefixo}_vendas`].toFixed(2)),
+    caixas: row[`${prefixo}_caixas`],
+    recebido: Number(row[`${prefixo}_recebido`].toFixed(2)),
+    pedidosRecebidos: row[`${prefixo}_pedidos_recebidos`],
+    despachados: row[`${prefixo}_despachados`]
   }
 }
 
-export function montarPainel(): Painel {
-  const db = getDb()
-
-  const aEnviar = db
-    .prepare("SELECT COUNT(*) AS n FROM orders WHERE tab = 'A_ENVIAR'")
-    .get() as { n: number }
-  const prontos = db
-    .prepare("SELECT COUNT(*) AS n FROM orders WHERE tab = 'A_ENVIAR' AND ready_to_post = 1")
-    .get() as { n: number }
-  const emTransito = db
-    .prepare("SELECT COUNT(*) AS n FROM orders WHERE tab = 'ENVIADO'")
-    .get() as { n: number }
-
-  // A receber: valor já calculado pela Shopee que ainda não caiu na conta.
-  const aReceber = db
-    .prepare(
-      `SELECT COALESCE(SUM(i.valor_recebido), 0) AS total, COUNT(*) AS n
-         FROM order_income i
-         JOIN orders o ON o.order_sn = i.order_sn
-        WHERE i.recebido_em IS NULL
-          AND o.tab != 'CANCELADO'`
+/** Monta o painel em uma viagem ao Turso e sem bloquear a thread do Electron. */
+export async function montarPainel(): Promise<Painel> {
+  const db = getAsyncDb()
+  const statement = await db.prepare(`
+    WITH limites AS (SELECT ? AS hoje, ? AS sete, ? AS trinta, ? AS amanha, ? AS prazo),
+    pedidos AS (
+      SELECT
+        COUNT(CASE WHEN created_at_shopee >= limites.hoje THEN 1 END) AS hoje_pedidos,
+        COUNT(CASE WHEN created_at_shopee >= limites.sete THEN 1 END) AS sete_pedidos,
+        COUNT(CASE WHEN created_at_shopee >= limites.trinta THEN 1 END) AS trinta_pedidos,
+        COALESCE(SUM(CASE WHEN created_at_shopee >= limites.hoje THEN total_amount ELSE 0 END), 0) AS hoje_vendas,
+        COALESCE(SUM(CASE WHEN created_at_shopee >= limites.sete THEN total_amount ELSE 0 END), 0) AS sete_vendas,
+        COALESCE(SUM(CASE WHEN created_at_shopee >= limites.trinta THEN total_amount ELSE 0 END), 0) AS trinta_vendas,
+        COUNT(CASE WHEN tab = 'A_ENVIAR' THEN 1 END) AS a_enviar,
+        COUNT(CASE WHEN tab = 'A_ENVIAR' AND ready_to_post = 1 THEN 1 END) AS prontos,
+        COUNT(CASE WHEN tab = 'ENVIADO' THEN 1 END) AS em_transito,
+        COUNT(CASE WHEN tab = 'A_ENVIAR' AND ship_by_date IS NOT NULL AND ship_by_date <= limites.prazo THEN 1 END) AS prazo_apertado
+      FROM orders, limites
+      WHERE created_at_shopee < limites.amanha AND tab != 'CANCELADO'
+    ),
+    caixas AS (
+      SELECT
+        COALESCE(SUM(CASE WHEN o.created_at_shopee >= limites.hoje THEN i.pecas * i.quantity ELSE 0 END), 0) AS hoje_caixas,
+        COALESCE(SUM(CASE WHEN o.created_at_shopee >= limites.sete THEN i.pecas * i.quantity ELSE 0 END), 0) AS sete_caixas,
+        COALESCE(SUM(CASE WHEN o.created_at_shopee >= limites.trinta THEN i.pecas * i.quantity ELSE 0 END), 0) AS trinta_caixas
+      FROM order_items i JOIN orders o ON o.order_sn = i.order_sn, limites
+      WHERE o.created_at_shopee < limites.amanha AND o.tab != 'CANCELADO' AND i.pecas IS NOT NULL
+    ),
+    recebidos AS (
+      SELECT
+        COALESCE(SUM(CASE WHEN recebido_em >= limites.hoje AND recebido_em < limites.amanha THEN valor_recebido ELSE 0 END), 0) AS hoje_recebido,
+        COALESCE(SUM(CASE WHEN recebido_em >= limites.sete AND recebido_em < limites.amanha THEN valor_recebido ELSE 0 END), 0) AS sete_recebido,
+        COALESCE(SUM(CASE WHEN recebido_em >= limites.trinta AND recebido_em < limites.amanha THEN valor_recebido ELSE 0 END), 0) AS trinta_recebido,
+        COUNT(CASE WHEN recebido_em >= limites.hoje AND recebido_em < limites.amanha THEN 1 END) AS hoje_pedidos_recebidos,
+        COUNT(CASE WHEN recebido_em >= limites.sete AND recebido_em < limites.amanha THEN 1 END) AS sete_pedidos_recebidos,
+        COUNT(CASE WHEN recebido_em >= limites.trinta AND recebido_em < limites.amanha THEN 1 END) AS trinta_pedidos_recebidos
+      FROM order_income, limites
+    ),
+    despachos AS (
+      SELECT
+        COUNT(DISTINCT CASE WHEN happened_at >= limites.hoje THEN order_sn END) AS hoje_despachados,
+        COUNT(DISTINCT CASE WHEN happened_at >= limites.sete THEN order_sn END) AS sete_despachados,
+        COUNT(DISTINCT CASE WHEN happened_at >= limites.trinta THEN order_sn END) AS trinta_despachados
+      FROM order_events, limites
+      WHERE source = 'logistics' AND happened_at < limites.amanha AND LOWER(description) LIKE '${POSTADO}'
+    ),
+    pendentes AS (
+      SELECT COALESCE(SUM(i.valor_recebido), 0) AS a_receber, COUNT(*) AS pedidos_a_receber
+      FROM order_income i JOIN orders o ON o.order_sn = i.order_sn
+      WHERE i.recebido_em IS NULL AND o.tab != 'CANCELADO'
     )
-    .get() as { total: number; n: number }
-
-  // Prazo estourando: o que precisa sair hoje para não virar multa.
-  const prazoHoje = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM orders
-        WHERE tab = 'A_ENVIAR' AND ship_by_date IS NOT NULL AND ship_by_date <= ?`
-    )
-    .get(Date.now() + 24 * 60 * 60 * 1000) as { n: number }
+    SELECT * FROM pedidos, caixas, recebidos, despachos, pendentes
+  `)
+  const row = (await statement.get([
+    inicioDoDia(0), inicioDoDia(6), inicioDoDia(29), inicioDoDia(-1),
+    Date.now() + 24 * 60 * 60 * 1000
+  ])) as DashboardRow
 
   return {
-    hoje: resumo(0),
-    ultimos7: resumo(6),
-    ultimos30: resumo(29),
-    aEnviar: aEnviar.n,
-    prontosParaPostar: prontos.n,
-    emTransito: emTransito.n,
-    aReceber: Number(aReceber.total.toFixed(2)),
-    pedidosAReceber: aReceber.n,
-    prazoApertado: prazoHoje.n
+    hoje: periodo(row, 'hoje'),
+    ultimos7: periodo(row, 'sete'),
+    ultimos30: periodo(row, 'trinta'),
+    aEnviar: row.a_enviar,
+    prontosParaPostar: row.prontos,
+    emTransito: row.em_transito,
+    aReceber: Number(row.a_receber.toFixed(2)),
+    pedidosAReceber: row.pedidos_a_receber,
+    prazoApertado: row.prazo_apertado
   }
 }
 
 /** Série diária de uma métrica dentro de um mês, sempre no fuso local. */
-export function serieMensal(metrica: MetricaPainel, ano: number, mes: number): SerieMensal {
-  const db = getDb()
+export async function serieMensal(
+  metrica: MetricaPainel,
+  ano: number,
+  mes: number
+): Promise<SerieMensal> {
+  const db = getAsyncDb()
   const diasNoMes = new Date(ano, mes, 0).getDate()
   const mesTexto = `${ano}-${String(mes).padStart(2, '0')}`
 
@@ -173,7 +160,8 @@ export function serieMensal(metrica: MetricaPainel, ano: number, mes: number): S
     }
   }
 
-  const linhas = db.prepare(consultas[metrica].sql).all(mesTexto) as { dia: string; v: number }[]
+  const statement = await db.prepare(consultas[metrica].sql)
+  const linhas = (await statement.all([mesTexto])) as { dia: string; v: number }[]
   const porDia = new Map(linhas.map((l) => [Number(l.dia), l.v]))
 
   const dias = Array.from({ length: diasNoMes }, (_, i) => ({

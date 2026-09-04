@@ -37,11 +37,19 @@ export default function ProducaoPage({ dataVersion }: Props): React.JSX.Element 
   const [desde, setDesde] = useState<number | null>(null)
 
   const carregar = async (): Promise<void> => {
-    setInsumos(await window.api.insumos.list())
-    setCompras(await window.api.compras.list())
-    setLinhas(await window.api.fabricacao.linhas())
-    setComponentes(await window.api.fabricacao.componentes())
-    setDesde(await window.api.estoque.desde())
+    const [novosInsumos, novasCompras, novasLinhas, novosComponentes, novoDesde] =
+      await Promise.all([
+        window.api.insumos.list(),
+        window.api.compras.list(),
+        window.api.fabricacao.linhas(),
+        window.api.fabricacao.componentes(),
+        window.api.estoque.desde()
+      ])
+    setInsumos(novosInsumos)
+    setCompras(novasCompras)
+    setLinhas(novasLinhas)
+    setComponentes(novosComponentes)
+    setDesde(novoDesde)
   }
 
   useEffect(() => {

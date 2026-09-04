@@ -14,8 +14,12 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
   const [aviso, setAviso] = useState<string | null>(null)
 
   const carregar = async (): Promise<void> => {
-    setProdutos(await window.api.produtos.list())
-    setLinhas(await window.api.fabricacao.linhas())
+    const [novosProdutos, novasLinhas] = await Promise.all([
+      window.api.produtos.list(),
+      window.api.fabricacao.linhas()
+    ])
+    setProdutos(novosProdutos)
+    setLinhas(novasLinhas)
   }
 
   useEffect(() => {

@@ -132,6 +132,27 @@ function loadItems(orderSns: string[]): Map<string, OrderItem[]> {
   return map
 }
 
+async function loadItemsAsync(orderSns: string[]): Promise<Map<string, OrderItem[]>> {
+  const map = new Map<string, OrderItem[]>()
+  if (orderSns.length === 0) return map
+  const statement = await getAsyncDb().prepare(
+    `SELECT * FROM order_items WHERE order_sn IN (${orderSns.map(() => '?').join(',')})`
+  )
+  const rows = (await statement.all(orderSns)) as {
+    id: number; order_sn: string; item_name: string; model_name: string | null
+    quantity: number; image_url: string | null; item_sku: string | null; pecas: number | null
+  }[]
+  for (const r of rows) {
+    const list = map.get(r.order_sn) ?? []
+    list.push({
+      id: r.id, orderSn: r.order_sn, itemName: r.item_name, modelName: r.model_name,
+      quantity: r.quantity, imageUrl: r.image_url, itemSku: r.item_sku, pecas: r.pecas
+    })
+    map.set(r.order_sn, list)
+  }
+  return map
+}
+
 /**
  * Recalcula os campos que são **nossos** a partir do que a Shopee mandou.
  *
@@ -294,6 +315,49 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
   return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], extratos.get(r.order_sn) ?? null))
 }
 
+/** Leitura não bloqueante da listagem principal. */
+export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order[]> {
+  const conditions: string[] = []
+  const params: unknown[] = []
+  if (filters.internalStatus && filters.internalStatus !== 'TODOS') {
+    conditions.push('internal_status = ?')
+    params.push(filters.internalStatus)
+  }
+  if (filters.stageId !== undefined) {
+    conditions.push('o.stage_id = ?')
+    params.push(filters.stageId)
+  }
+  if (filters.search) {
+    const busca = montaBusca(filters.search)
+    if (busca.sql) {
+      conditions.push(busca.sql)
+      params.push(...busca.params)
+    }
+  }
+  if (filters.awaitingPayment) conditions.push(`(${AWAITING_PAYMENT_WHERE})`)
+  if (filters.readyToPost) conditions.push('o.ready_to_post = 1')
+  if (filters.tab && filters.tab !== 'TODOS') {
+    conditions.push('o.tab = ?')
+    params.push(filters.tab)
+  } else {
+    conditions.push("o.tab != 'CANCELADO'")
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const statement = await getAsyncDb().prepare(
+    `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+       FROM orders o LEFT JOIN workflow_stages s ON s.id = o.stage_id
+       ${where}
+      ORDER BY o.created_at_shopee DESC, o.order_sn DESC`
+  )
+  const rows = (await statement.all(params)) as OrderRow[]
+  const sns = rows.map((r) => r.order_sn)
+  const [items, extratos] = await Promise.all([
+    loadItemsAsync(sns),
+    loadRecebimentosAsync(sns)
+  ])
+  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], extratos.get(r.order_sn) ?? null))
+}
+
 /** Extratos de vários pedidos numa consulta só, para a listagem não fazer N+1. */
 function loadRecebimentos(orderSns: string[]): Map<string, Recebimento> {
   const map = new Map<string, Recebimento>()
@@ -302,6 +366,17 @@ function loadRecebimentos(orderSns: string[]): Map<string, Recebimento> {
   const rows = getDb()
     .prepare(`SELECT * FROM order_income WHERE order_sn IN (${placeholders})`)
     .all(...orderSns) as Parameters<typeof rowToRecebimento>[0][]
+  for (const row of rows) map.set(row.order_sn, rowToRecebimento(row))
+  return map
+}
+
+async function loadRecebimentosAsync(orderSns: string[]): Promise<Map<string, Recebimento>> {
+  const map = new Map<string, Recebimento>()
+  if (orderSns.length === 0) return map
+  const statement = await getAsyncDb().prepare(
+    `SELECT * FROM order_income WHERE order_sn IN (${orderSns.map(() => '?').join(',')})`
+  )
+  const rows = (await statement.all(orderSns)) as Parameters<typeof rowToRecebimento>[0][]
   for (const row of rows) map.set(row.order_sn, rowToRecebimento(row))
   return map
 }
@@ -326,6 +401,24 @@ export function countByTab(): OrderCounts {
   return { tabs, readyToPost: ready.n, semExtrato: contarSemExtrato('CONCLUIDO') }
 }
 
+export async function countByTabAsync(): Promise<OrderCounts> {
+  const db = getAsyncDb()
+  const [tabsStatement, readyStatement, incomeStatement] = await Promise.all([
+    db.prepare('SELECT tab, COUNT(*) AS n FROM orders WHERE tab IS NOT NULL GROUP BY tab'),
+    db.prepare("SELECT COUNT(*) AS n FROM orders WHERE ready_to_post = 1 AND tab = 'A_ENVIAR'"),
+    db.prepare(`SELECT COUNT(*) AS n FROM orders o LEFT JOIN order_income i ON i.order_sn = o.order_sn
+      WHERE o.tab = 'CONCLUIDO' AND o.shopee_order_id IS NOT NULL AND i.order_sn IS NULL`)
+  ])
+  const [rows, ready, semExtrato] = await Promise.all([
+    tabsStatement.all([]) as Promise<{ tab: OrderTab; n: number }[]>,
+    readyStatement.get([]) as Promise<{ n: number }>,
+    incomeStatement.get([]) as Promise<{ n: number }>
+  ])
+  const tabs = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as TabCounts
+  for (const row of rows) if (row.tab in tabs) tabs[row.tab] = row.n
+  return { tabs, readyToPost: ready.n, semExtrato: semExtrato.n }
+}
+
 export function getOrder(orderSn: string): Order | null {
   const row = getDb()
     .prepare(
@@ -338,6 +431,23 @@ export function getOrder(orderSn: string): Order | null {
   if (!row) return null
   const items = loadItems([orderSn])
   return rowToOrder(row, items.get(orderSn) ?? [], getRecebimento(orderSn))
+}
+
+export async function getOrderAsync(orderSn: string): Promise<Order | null> {
+  const db = getAsyncDb()
+  const orderStatement = await db.prepare(
+    `SELECT o.*, s.name AS stage_name, s.color AS stage_color
+       FROM orders o LEFT JOIN workflow_stages s ON s.id = o.stage_id
+      WHERE o.order_sn = ?`
+  )
+  const row = (await orderStatement.get([orderSn])) as OrderRow | undefined
+  if (!row) return null
+  const incomeStatement = await db.prepare('SELECT * FROM order_income WHERE order_sn = ?')
+  const [items, incomeRow] = await Promise.all([
+    loadItemsAsync([orderSn]),
+    incomeStatement.get([orderSn]) as Promise<Parameters<typeof rowToRecebimento>[0] | undefined>
+  ])
+  return rowToOrder(row, items.get(orderSn) ?? [], incomeRow ? rowToRecebimento(incomeRow) : null)
 }
 
 /**
