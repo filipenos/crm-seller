@@ -7,8 +7,31 @@ let db: Database.Database | null = null
 function openRemote(url: string, authToken: string): Database.Database {
   // As definições do pacote ainda não expõem authToken, embora a API oficial exponha.
   const remote = new Database(url, { authToken } as Database.Options)
+  installRemoteStatementAdapter(remote)
   installRemoteTransactionAdapter(remote)
   return remote
+}
+
+function installRemoteStatementAdapter(remote: Database.Database): void {
+  const prepare = remote.prepare.bind(remote)
+  remote.prepare = ((sql: string) => {
+    const statement = prepare(sql)
+    const mutable = statement as unknown as Record<string, (...args: unknown[]) => unknown>
+    for (const method of ['run', 'get', 'all'] as const) {
+      const execute = statement[method].bind(statement) as (...args: unknown[]) => unknown
+      mutable[method] = (...args: unknown[]) => {
+        if (args.length === 1 && (Array.isArray(args[0]) || isNamedBindings(args[0]))) {
+          return execute(args[0])
+        }
+        return execute(args)
+      }
+    }
+    return statement
+  }) as typeof remote.prepare
+}
+
+function isNamedBindings(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Buffer.isBuffer(value)
 }
 
 function installRemoteTransactionAdapter(remote: Database.Database): void {
