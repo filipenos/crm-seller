@@ -6,7 +6,38 @@ let db: Database.Database | null = null
 
 function openRemote(url: string, authToken: string): Database.Database {
   // As definições do pacote ainda não expõem authToken, embora a API oficial exponha.
-  return new Database(url, { authToken } as Database.Options)
+  const remote = new Database(url, { authToken } as Database.Options)
+  installRemoteTransactionAdapter(remote)
+  return remote
+}
+
+function installRemoteTransactionAdapter(remote: Database.Database): void {
+  remote.transaction = ((fn: (...args: unknown[]) => unknown) => {
+    const wrap = (mode = '') =>
+      (...args: unknown[]): unknown => {
+        remote.prepare(`BEGIN${mode ? ` ${mode}` : ''}`).run()
+        try {
+          const result = fn(...args)
+          remote.prepare('COMMIT').run()
+          return result
+        } catch (error) {
+          remote.prepare('ROLLBACK').run()
+          throw error
+        }
+      }
+    type Wrapped = (...args: unknown[]) => unknown
+    const transaction = wrap() as Wrapped & {
+      default: Wrapped
+      deferred: Wrapped
+      immediate: Wrapped
+      exclusive: Wrapped
+    }
+    transaction.default = transaction
+    transaction.deferred = wrap('DEFERRED')
+    transaction.immediate = wrap('IMMEDIATE')
+    transaction.exclusive = wrap('EXCLUSIVE')
+    return transaction
+  }) as unknown as typeof remote.transaction
 }
 
 export function testTursoConnection(credentials: TursoCredentials): void {
