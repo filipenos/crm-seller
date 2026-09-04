@@ -408,13 +408,21 @@ async function fetchOrderCards(
       })
     )) as { data?: { card_list?: AnyObj[] } }
     const lote = json?.data?.card_list ?? []
-    cards.push(...lote)
+    // Na carga completa, o consumidor pode persistir cada pequeno lote na hora.
+    // Assim não mantemos centenas de cards grandes simultaneamente na memória.
+    if (!options.onOrder) cards.push(...lote)
 
     if (options.onCard) {
       for (let k = 0; k < lote.length; k++) {
         // O ref e o card vêm na mesma ordem; o id do ref é a chave do arquivo.
         const id = batch[k]?.order_id
         if (id !== undefined) await options.onCard(String(id), lote[k])
+      }
+    }
+    if (options.onOrder) {
+      for (const card of lote) {
+        const order = normalizeCard(card)
+        if (order) await options.onOrder(order)
       }
     }
     options.onProgress?.(Math.min(i + batchSize, refs.length), refs.length)
@@ -548,6 +556,8 @@ export interface FetchOrdersOptions {
   onProgress?: (done: number, total: number | null) => void
   /** Guarda o JSON cru de cada card (dump local para análise sem rede). */
   onCard?: (orderId: string, card: unknown) => Promise<void>
+  /** Processa cada pedido sem acumular a carga inteira na memória. */
+  onOrder?: (order: NormalizedShopeeOrder) => Promise<void>
   /** Permite interromper uma carga completa entre os pequenos lotes da Shopee. */
   shouldCancel?: () => boolean
 }

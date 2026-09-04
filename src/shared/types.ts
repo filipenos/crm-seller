@@ -243,7 +243,7 @@ export interface SyncResult {
 export type TabCounts = Record<OrderTab, number>
 
 /** Progresso de uma operação longa (rastreios, extratos). */
-export type EtapaSync = 'pedidos' | 'gravacao' | 'rastreios' | 'pagamentos'
+export type EtapaSync = 'pedidos' | 'rastreios' | 'pagamentos'
 
 export interface ProgressoLote {
   rodando: boolean

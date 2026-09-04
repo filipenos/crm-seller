@@ -89,9 +89,16 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     try {
       const paginas = opts.todasAsPaginas ? null : Math.max(1, getSettings().syncPageCount)
       console.log(`[sync] pedidos: ${paginas === null ? 'todas as páginas' : paginas + ' página(s)'}`)
-      const orders = await fetchOrders({
+      await fetchOrders({
         maxPages: paginas,
         onCard: (orderId, card) => saveOrderDump(orderId, card),
+        onOrder: async (order) => {
+          if (lote.cancelar) return
+          const isNew = upsertShopeeOrder(order)
+          result.ordersUpserted++
+          if (isNew) result.newOrders++
+          await yieldToEventLoop()
+        },
         shouldCancel: () => lote.cancelar,
         onProgress: (feitos, total) => {
           if (lote.rotulo !== 'pedidos') iniciaEtapa('pedidos', total ?? feitos)
@@ -100,21 +107,6 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
           emiteProgresso()
         }
       })
-      // As gravações no driver síncrono do Turso bloqueiam o processo principal.
-      // Dividir o trabalho devolve o controle ao Electron entre cada pedido,
-      // mantendo a janela, o progresso e o botão Parar responsivos.
-      const baixados = orders.length
-      iniciaEtapa('gravacao', baixados)
-      for (let i = 0; i < orders.length; i++) {
-        if (lote.cancelar) break
-        const o = orders[i]
-        const isNew = upsertShopeeOrder(o)
-        result.ordersUpserted++
-        if (isNew) result.newOrders++
-        lote.feitos = i + 1
-        emiteProgresso()
-        await yieldToEventLoop()
-      }
     } catch (err) {
       errors.push(String(err instanceof Error ? err.message : err))
     }
