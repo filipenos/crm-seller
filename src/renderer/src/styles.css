@@ -1240,3 +1240,41 @@ code {
 .form-compra .medio {
   width: 150px;
 }
+/* Primeira abertura: configuração do banco antes de carregar qualquer dado. */
+.database-setup,
+.app-loading {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: #f1f5f9;
+}
+
+.database-setup-card {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 36px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 20px 45px rgb(15 23 42 / 10%);
+}
+
+.database-setup-card h1,
+.database-setup-card p { margin: 0 0 8px; }
+.database-setup-card label { margin-top: 8px; font-weight: 600; }
+.database-setup-card input { padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.database-setup-card button { margin-top: 12px; padding: 12px; }
+.database-setup-card .link-button {
+  margin: 0;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 400;
+  text-align: center;
+}
+.database-setup-icon { font-size: 42px; text-align: center; }
+.database-setup-error { padding: 10px 12px; border-radius: 8px; color: #991b1b; background: #fef2f2; }

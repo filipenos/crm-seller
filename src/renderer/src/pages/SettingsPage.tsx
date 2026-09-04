@@ -38,12 +38,17 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [syncAllResult, setSyncAllResult] = useState<string | null>(null)
   const [dumpInfo, setDumpInfo] = useState<{ path: string; count: number } | null>(null)
   const [probeResult, setProbeResult] = useState<ActionResult | null>(null)
+  const [tursoUrl, setTursoUrl] = useState('')
+  const [tursoToken, setTursoToken] = useState('')
+  const [savingTurso, setSavingTurso] = useState(false)
+  const [tursoResult, setTursoResult] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.settings.get().then(setSettings)
     void window.api.app.version().then(setVersion)
     void window.api.updates.status().then(setUpdateStatus)
     void window.api.shopee.dumpInfo().then(setDumpInfo)
+    void window.api.database.status().then((status) => setTursoUrl(status.url ?? ''))
     return window.api.updates.onStatus(setUpdateStatus)
   }, [])
 
@@ -70,6 +75,58 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
         <h1>Configurações</h1>
         {saved && <span className="saved-tag">✓ salvo</span>}
       </header>
+
+      <section className="settings-card">
+        <h3>Banco de dados Turso</h3>
+        <p className="muted">
+          Os dados são sincronizados com seu banco Turso. Para trocar a conexão, informe a URL
+          e um novo token; o token atual nunca é exibido.
+        </p>
+        <div className="setting-row">
+          <label>URL do banco</label>
+          <input
+            value={tursoUrl}
+            spellCheck={false}
+            onChange={(event) => setTursoUrl(event.target.value)}
+            placeholder="libsql://meu-banco-minha-conta.turso.io"
+          />
+        </div>
+        <div className="setting-row">
+          <label>Novo token</label>
+          <input
+            type="password"
+            value={tursoToken}
+            autoComplete="off"
+            onChange={(event) => setTursoToken(event.target.value)}
+            placeholder="Obrigatório somente ao salvar"
+          />
+        </div>
+        <div className="action-buttons">
+          <button
+            disabled={savingTurso || !tursoUrl.trim() || !tursoToken.trim()}
+            onClick={async () => {
+              setSavingTurso(true)
+              setTursoResult(null)
+              try {
+                const result = await window.api.database.configure({
+                  url: tursoUrl,
+                  authToken: tursoToken
+                })
+                setTursoUrl(result.url)
+                setTursoToken('')
+                setTursoResult('✓ conexão testada e salva')
+              } catch (reason) {
+                setTursoResult(`⚠ ${String(reason instanceof Error ? reason.message : reason)}`)
+              } finally {
+                setSavingTurso(false)
+              }
+            }}
+          >
+            {savingTurso ? 'Testando…' : 'Testar e salvar conexão'}
+          </button>
+        </div>
+        {tursoResult && <small className="muted">{tursoResult}</small>}
+      </section>
 
       <section className="settings-card">
         <h3>Conexão Shopee</h3>

@@ -1,8 +1,8 @@
 # CRM Seller
 
-CRM local (Windows, macOS e Linux) para gerenciar pedidos personalizados
-vendidos na Shopee. Electron + Node + React + SQLite — tudo roda na sua
-máquina, sem servidor.
+CRM para Windows, macOS e Linux que gerencia pedidos personalizados vendidos
+na Shopee. Electron + Node + React + Turso: o banco pertence ao usuário e o app
+mantém uma réplica local para continuar rápido e tolerar quedas de conexão.
 
 ## O que faz
 
@@ -82,8 +82,8 @@ Os instaladores (.deb/AppImage/NSIS/dmg) não têm esse problema — a permissã
 
 ## Distribuição: desenvolve no Linux/Mac, usa no Windows
 
-O desenvolvimento é em Ubuntu/macOS e o uso é em Windows. Como o
-`better-sqlite3` é um módulo nativo, o instalador Windows **não sai de uma
+O desenvolvimento é em Ubuntu/macOS e o uso é em Windows. Como o driver
+`libsql` é um módulo nativo, o instalador Windows **não sai de uma
 máquina Linux/Mac** — ele é gerado por um runner Windows no GitHub Actions.
 Você instala **uma vez**; dali em diante o app se atualiza sozinho.
 
@@ -150,14 +150,15 @@ Para testar empacotamento na sua máquina — sem publicar:
 | Linux (Ubuntu) | `npm run build:linux` | `.AppImage` + `.deb` |
 | macOS | `npm run build:mac` (precisa do Xcode CLT) | `.dmg` + `.zip` |
 
-O `npm install` recompila o `better-sqlite3` para a plataforma local
-(`postinstall`). No macOS o app não é assinado: na primeira abertura, botão
+O `npm install` instala o binário do `libsql` para a plataforma local. No macOS
+o app não é assinado: na primeira abertura, botão
 direito → **Abrir**, ou `xattr -dc "/Applications/CRM Seller.app"`.
 
 ## Onde ficam os dados e configurações
 
-Tudo (banco SQLite com pedidos, mensagens e configurações) fica no diretório
-de dados padrão do usuário em cada sistema — `app.getPath('userData')`:
+O banco principal fica na conta Turso configurada na primeira abertura. A
+réplica, a sessão da Shopee e a configuração local ficam no diretório de dados
+padrão do usuário — `app.getPath('userData')`:
 
 | Sistema | Caminho |
 |---|---|
@@ -165,15 +166,18 @@ de dados padrão do usuário em cada sistema — `app.getPath('userData')`:
 | macOS | `~/Library/Application Support/crm-seller/` |
 | Linux | `~/.config/crm-seller/` |
 
-A sessão da Shopee fica na subpasta `Partitions/shopee` do mesmo diretório.
-Para backup, basta copiar a pasta inteira; para "resetar" o app, apague-a.
+A URL fica em `turso.json`; o token é criptografado pelo armazenamento seguro
+do sistema operacional. A sessão da Shopee fica em `Partitions/shopee`. O token
+nunca é salvo no banco ou no repositório.
 
 ## Primeiro uso
 
-1. Abra **Configurações** e clique em **Conectar / abrir Seller Center**.
+1. Crie seu banco no [Turso](https://turso.tech), gere um token e informe ambos
+   na tela inicial. A conexão é testada antes de salvar.
+2. Abra **Configurações** e clique em **Conectar / abrir Seller Center**.
    Faça login na sua conta Shopee e feche a janela (a sessão fica salva).
-2. Escolha a **pasta raiz dos pedidos** e a **pasta de templates**.
-3. Clique em **Sincronizar** na barra lateral.
+3. Escolha a **pasta raiz dos pedidos** e a **pasta de templates**.
+4. Clique em **Sincronizar** na barra lateral.
 
 ### Templates
 
@@ -187,7 +191,7 @@ nome do arquivo para ser substituído pelo nome da criança, ex.:
 src/
   shared/types.ts      # tipos compartilhados (status, pedido, mensagem…)
   main/                # "backend" (processo main do Electron)
-    db/                # better-sqlite3 + migrações (user_version)
+    db/                # libSQL/Turso + configuração segura + migrações
     services/
       orders.ts        # repositório de pedidos + workflow de status
       messages.ts      # conversas e mensagens
@@ -231,17 +235,16 @@ Duas regras que o cliente segue e valem manter ao mexer nele:
 
 ### Banco de dados
 
-SQLite no diretório de dados do app (`app.getPath('userData')`): no Windows
-`%APPDATA%/crm-seller`, no macOS `~/Library/Application Support/crm-seller`,
-no Linux `~/.config/crm-seller`. Journal em WAL. Migrações via
-`PRAGMA user_version` em `src/main/db/migrations.ts` — para alterar o schema,
-adicione uma nova entrada ao array `migrations`.
+Uma réplica libSQL no diretório de dados do app é sincronizada com a URL Turso
+do usuário. Cada URL recebe um arquivo de réplica separado, evitando misturar
+dados ao trocar de banco. Migrações usam `PRAGMA user_version` em
+`src/main/db/migrations.ts`; para alterar o schema, acrescente uma entrada ao
+array `migrations`.
 
 ## Smoke test do backend
 
-A lógica de banco/pastas roda fora do GUI (variável `CRM_DB_PATH`), o que
-permite testar sem abrir janela. Ver histórico do projeto para o script de
-exemplo.
+Em desenvolvimento, `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` podem fornecer a
+conexão sem gravar `turso.json`.
 
 ## Roadmap
 

@@ -17,13 +17,12 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.2",
     "electron-updater": "^6.8.9",
+    "libsql": "^0.5.29",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -35,7 +34,6 @@
     "vite": "^7.3.6"
   },
   "allowScripts": {
-    "better-sqlite3@13.0.2": true,
     "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,

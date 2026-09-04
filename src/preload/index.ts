@@ -29,6 +29,12 @@ import type {
 } from '../shared/types'
 
 const api = {
+  database: {
+    status: (): Promise<{ configured: boolean; url: string | null; error?: string }> =>
+      ipcRenderer.invoke('database:status'),
+    configure: (input: { url: string; authToken: string }): Promise<{ ok: true; url: string }> =>
+      ipcRenderer.invoke('database:configure', input)
+  },
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
     update: (partial: Partial<AppSettings>): Promise<AppSettings> =>

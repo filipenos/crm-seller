@@ -8,6 +8,8 @@ import type {
   StageActionKind
 } from '@shared/types'
 import { getSettings, updateSettings } from './services/settings'
+import { closeDb, testTursoConnection } from './db'
+import { publicTursoConfig, writeTursoConfig } from './db/config'
 import {
   countAwaitingPayment,
   countByTab,
@@ -90,7 +92,32 @@ import {
   markAllEventsSeen
 } from './services/events'
 
-export function registerIpcHandlers(): void {
+export function registerIpcHandlers(onDatabaseReady: () => void): void {
+  ipcMain.handle('database:status', () => {
+    const status = publicTursoConfig()
+    if (!status.configured) return status
+    try {
+      onDatabaseReady()
+      return status
+    } catch (reason) {
+      return {
+        configured: false,
+        url: status.url,
+        error: String(reason instanceof Error ? reason.message : reason)
+      }
+    }
+  })
+  ipcMain.handle(
+    'database:configure',
+    (_e, input: { url: string; authToken: string }): { ok: true; url: string } => {
+      testTursoConnection(input)
+      closeDb()
+      writeTursoConfig(input)
+      onDatabaseReady()
+      return { ok: true, url: input.url.trim().replace(/\/$/, '') }
+    }
+  )
+
   // Settings
   ipcMain.handle('settings:get', () => getSettings())
   ipcMain.handle('settings:update', (_e, partial: Partial<AppSettings>) => {

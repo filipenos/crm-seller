@@ -7,10 +7,16 @@ import ProducaoPage from './pages/ProducaoPage'
 import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
 import BarraProgresso from './components/BarraProgresso'
+import DatabaseSetupPage from './pages/DatabaseSetupPage'
 
 type Page = 'home' | 'orders' | 'produtos' | 'producao' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
+  const [database, setDatabase] = useState<{
+    configured: boolean
+    url: string | null
+    error?: string
+  } | null>(null)
   const [page, setPage] = useState<Page>('home')
   const [status, setStatus] = useState<ShopeeConnectionStatus | null>(null)
   const [lastSync, setLastSync] = useState<SyncResult | null>(null)
@@ -28,6 +34,11 @@ export default function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    void window.api.database.status().then(setDatabase)
+  }, [])
+
+  useEffect(() => {
+    if (!database?.configured) return
     void refreshStatus()
     void refreshUnseen()
     const offStatus = window.api.shopee.onStatusChanged(setStatus)
@@ -45,7 +56,18 @@ export default function App(): React.JSX.Element {
       offData()
       offUpdate()
     }
-  }, [refreshStatus])
+  }, [database?.configured, refreshStatus, refreshUnseen])
+
+  if (!database) return <div className="app-loading">Abrindo CRM Seller…</div>
+  if (!database.configured) {
+    return (
+      <DatabaseSetupPage
+        initialUrl={database.url}
+        initialError={database.error}
+        onConfigured={() => setDatabase((current) => ({ configured: true, url: current?.url ?? null }))}
+      />
+    )
+  }
 
   const handleSync = async (): Promise<void> => {
     const result = await window.api.shopee.sync()

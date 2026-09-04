@@ -6,6 +6,19 @@ import { garantirCadastroDeFabricacao } from './services/seed'
 import { recomporCatalogoDosPedidos } from './services/produtos'
 import { startSyncScheduler, stopSyncScheduler } from './services/shopee/sync'
 import { initUpdater, stopUpdater } from './services/updates'
+import { hasTursoConfig } from './db/config'
+
+let servicesStarted = false
+
+function startServices(): void {
+  if (servicesStarted) return
+  getDb()
+  garantirCadastroDeFabricacao()
+  recomporCatalogoDosPedidos()
+  startSyncScheduler()
+  initUpdater()
+  servicesStarted = true
+}
 
 function createMainWindow(): void {
   const win = new BrowserWindow({
@@ -31,17 +44,15 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(() => {
-  getDb() // inicializa banco + migrações
-  // Só age em base virgem: o kit de hoje é sempre o mesmo, então a página de
-  // fabricação já abre com os cinco modelos e os insumos para corrigir.
-  garantirCadastroDeFabricacao()
-  // O catálogo sai dos pedidos que já estão no banco, sem rede — então a página
-  // de produtos abre cheia mesmo antes da primeira sincronização.
-  recomporCatalogoDosPedidos()
-  registerIpcHandlers()
+  registerIpcHandlers(startServices)
+  if (hasTursoConfig()) {
+    try {
+      startServices()
+    } catch (error) {
+      console.error('Falha ao inicializar o Turso:', error instanceof Error ? error.message : error)
+    }
+  }
   createMainWindow()
-  startSyncScheduler()
-  initUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()

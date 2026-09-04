@@ -1,4 +1,4 @@
-import type { Database } from 'better-sqlite3'
+import type Database from 'libsql'
 
 const migrations: string[] = [
   // 1 — schema inicial
@@ -355,8 +355,12 @@ const migrations: string[] = [
   `
 ]
 
-export function runMigrations(db: Database): void {
-  const currentVersion = db.pragma('user_version', { simple: true }) as number
+export function runMigrations(db: Database.Database): void {
+  const pragmaResult = db.pragma('user_version', { simple: true }) as
+    | number
+    | { user_version?: number }
+  const currentVersion =
+    typeof pragmaResult === 'number' ? pragmaResult : Number(pragmaResult.user_version ?? 0)
   for (let i = currentVersion; i < migrations.length; i++) {
     const apply = db.transaction(() => {
       db.exec(migrations[i])

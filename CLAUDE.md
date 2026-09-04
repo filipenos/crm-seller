@@ -2,8 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-CRM local (Electron + React + better-sqlite3) para pedidos de caixas
-personalizadas vendidas na Shopee. Roda só na máquina do usuário, sem servidor.
+CRM Electron + React + libSQL/Turso para pedidos de caixas personalizadas
+vendidas na Shopee. Usa uma réplica embutida sincronizada com o banco do usuário.
 Visão de produto e o que está planejado: [README.md](README.md) e
 [ROADMAP.md](ROADMAP.md).
 
@@ -30,7 +30,7 @@ No Ubuntu com Wayland, o dev costuma precisar de:
 `WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/1000 ELECTRON_DISABLE_SANDBOX=1 npm run dev`
 
 O instalador **Windows não é gerado localmente** — sai do GitHub Actions
-(`better-sqlite3` é nativo). Ver "Distribuição" no README.
+(`libsql` é nativo). Ver "Distribuição" no README.
 
 ## Testes
 
@@ -40,11 +40,12 @@ binário do Electron em modo Node.
 
 ```bash
 node_modules/.bin/esbuild smoke.ts --bundle --platform=node --format=esm \
-  --outfile=smoke.mjs --alias:electron=./electron-stub.js --external:better-sqlite3
-CRM_DB_PATH=/tmp/test.db ELECTRON_RUN_AS_NODE=1 node_modules/.bin/electron smoke.mjs
+  --outfile=smoke.mjs --alias:electron=./electron-stub.js --external:libsql
+TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... \
+  ELECTRON_RUN_AS_NODE=1 node_modules/.bin/electron smoke.mjs
 ```
 
-Dois detalhes que fazem isso funcionar: `better-sqlite3` é compilado para o ABI
+Dois detalhes que fazem isso funcionar: `libsql` é compilado para o ABI
 do Electron (por isso `ELECTRON_RUN_AS_NODE`, não `node`), e o bundle precisa
 de um `node_modules` alcançável a partir da pasta dele (link simbólico serve).
 O stub de `electron` devolve respostas canned no `executeJavaScript`, o que
@@ -178,10 +179,11 @@ morderam:
 
 ### Banco
 
-SQLite em `app.getPath('userData')`, WAL. Migrações são um array de strings em
-`db/migrations.ts` versionado por `PRAGMA user_version`: **só acrescente ao
-final**, nunca edite ou reordene as existentes. `CRM_DB_PATH` sobrepõe o
-caminho (é o que permite rodar fora do Electron).
+Réplica libSQL em `app.getPath('userData')`, sincronizada com o Turso. URL e
+token vêm de `db/config.ts`; o token persistido usa `safeStorage`. Migrações são
+um array de strings em `db/migrations.ts` versionado por `PRAGMA user_version`:
+**só acrescente ao final**, nunca edite ou reordene as existentes. As variáveis
+`TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` substituem a configuração local.
 
 ### Atualização automática
 

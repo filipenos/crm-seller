@@ -35,6 +35,7 @@ Templates/
 # Credenciais e certificados de assinatura
 .env
 .env.*
+turso.json
 *.pem
 *.key
 *.p12
