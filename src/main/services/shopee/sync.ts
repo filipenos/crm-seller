@@ -34,6 +34,7 @@ const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 const state: ShopeeConnectionStatus = {
   connected: false,
@@ -91,6 +92,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
       const orders = await fetchOrders({
         maxPages: paginas,
         onCard: (orderId, card) => saveOrderDump(orderId, card),
+        shouldCancel: () => lote.cancelar,
         onProgress: (feitos, total) => {
           if (lote.rotulo !== 'pedidos') iniciaEtapa('pedidos', total ?? feitos)
           lote.feitos = feitos
@@ -98,10 +100,20 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
           emiteProgresso()
         }
       })
-      for (const o of orders) {
+      // As gravações no driver síncrono do Turso bloqueiam o processo principal.
+      // Dividir o trabalho devolve o controle ao Electron entre cada pedido,
+      // mantendo a janela, o progresso e o botão Parar responsivos.
+      const baixados = orders.length
+      iniciaEtapa('gravacao', baixados)
+      for (let i = 0; i < orders.length; i++) {
+        if (lote.cancelar) break
+        const o = orders[i]
         const isNew = upsertShopeeOrder(o)
         result.ordersUpserted++
         if (isNew) result.newOrders++
+        lote.feitos = i + 1
+        emiteProgresso()
+        await yieldToEventLoop()
       }
     } catch (err) {
       errors.push(String(err instanceof Error ? err.message : err))

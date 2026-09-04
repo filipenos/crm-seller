@@ -20,6 +20,7 @@ export default function BarraProgresso(): React.JSX.Element | null {
   const pct = p.total > 0 ? Math.round((p.feitos / p.total) * 100) : 0
   const rotulos: Record<string, string> = {
     pedidos: 'Sincronizando pedidos',
+    gravacao: 'Salvando pedidos no banco',
     rastreios: 'Sincronizando rastreios',
     pagamentos: 'Sincronizando pagamentos'
   }

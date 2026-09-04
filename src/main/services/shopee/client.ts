@@ -388,6 +388,7 @@ async function fetchOrderCards(
   // A Shopee limita o lote deste endpoint (erro 120410353 "too big").
   const batchSize = 5
   for (let i = 0; i < refs.length; i += batchSize) {
+    if (options.shouldCancel?.()) break
     const batch = refs.slice(i, i + batchSize)
     // Pausa entre lotes: são APIs internas, sem cota publicada — 200 pedidos já
     // seriam 40 chamadas seguidas.
@@ -547,6 +548,8 @@ export interface FetchOrdersOptions {
   onProgress?: (done: number, total: number | null) => void
   /** Guarda o JSON cru de cada card (dump local para análise sem rede). */
   onCard?: (orderId: string, card: unknown) => Promise<void>
+  /** Permite interromper uma carga completa entre os pequenos lotes da Shopee. */
+  shouldCancel?: () => boolean
 }
 
 export async function fetchOrders(
