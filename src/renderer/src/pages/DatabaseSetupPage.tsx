@@ -2,7 +2,6 @@ import { useState } from 'react'
 
 interface Props {
   databaseConfigured: boolean
-  initialUrl?: string | null
   initialError?: string
   onConfigured: (url: string) => void
   onBound: (shopId: string) => void
@@ -10,13 +9,11 @@ interface Props {
 
 export default function DatabaseSetupPage({
   databaseConfigured,
-  initialUrl,
   initialError,
   onConfigured,
   onBound
 }: Props): React.JSX.Element {
-  const [url, setUrl] = useState(initialUrl ?? '')
-  const [authToken, setAuthToken] = useState('')
+  const [platformToken, setPlatformToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(initialError ?? null)
   const [binding, setBinding] = useState(false)
@@ -26,7 +23,7 @@ export default function DatabaseSetupPage({
     setSaving(true)
     setError(null)
     try {
-      const result = await window.api.database.configure({ url, authToken })
+      const result = await window.api.database.configure({ platformToken })
       onConfigured(result.url)
     } catch (reason) {
       setError(String(reason instanceof Error ? reason.message : reason).replace(/^Error invoking remote method '[^']+': Error: /, ''))
@@ -75,46 +72,36 @@ export default function DatabaseSetupPage({
         <div className="database-setup-icon">☁</div>
         <h1>Conecte seu banco Turso</h1>
         <p className="muted">
-          O CRM Seller guarda seus dados no seu próprio banco. Crie um banco no Turso e cole
-          abaixo a URL e um token de acesso.
+          O CRM Seller cria e configura o banco na sua própria conta Turso. Você só precisa
+          informar um token da conta; o endereço e a credencial do banco são gerados pelo app.
         </p>
 
-        <label htmlFor="turso-url">URL do banco</label>
-        <input
-          id="turso-url"
-          type="url"
-          required
-          autoFocus
-          spellCheck={false}
-          placeholder="libsql://meu-banco-minha-conta.turso.io"
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-        />
-
-        <label htmlFor="turso-token">Token de autenticação</label>
+        <label htmlFor="turso-token">Token da conta Turso</label>
         <input
           id="turso-token"
           type="password"
           required
+          autoFocus
           autoComplete="off"
-          placeholder="Cole o token gerado pelo Turso"
-          value={authToken}
-          onChange={(event) => setAuthToken(event.target.value)}
+          placeholder="Cole seu Platform API Token"
+          value={platformToken}
+          onChange={(event) => setPlatformToken(event.target.value)}
         />
         <small className="muted">
-          O token fica criptografado neste computador e nunca é salvo no banco ou no projeto.
+          Esse token é usado uma vez para preparar o banco e não fica salvo. O app armazena
+          somente uma credencial restrita ao banco, protegida neste computador.
         </small>
 
         {error && <div className="database-setup-error">⚠ {error}</div>}
         <button type="submit" disabled={saving}>
-          {saving ? 'Testando conexão…' : 'Testar e conectar'}
+          {saving ? 'Preparando banco…' : 'Criar banco e continuar'}
         </button>
         <button
           className="link-button"
           type="button"
           onClick={() => void window.api.shell.openExternal('https://turso.tech')}
         >
-          Ainda não tenho um banco Turso
+          Ainda não tenho uma conta Turso
         </button>
       </form>
     </main>

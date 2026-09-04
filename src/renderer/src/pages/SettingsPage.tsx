@@ -39,7 +39,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [dumpInfo, setDumpInfo] = useState<{ path: string; count: number } | null>(null)
   const [probeResult, setProbeResult] = useState<ActionResult | null>(null)
   const [tursoUrl, setTursoUrl] = useState('')
-  const [tursoToken, setTursoToken] = useState('')
+  const [tursoPlatformToken, setTursoPlatformToken] = useState('')
   const [savingTurso, setSavingTurso] = useState(false)
   const [tursoResult, setTursoResult] = useState<string | null>(null)
   const [boundShopId, setBoundShopId] = useState<string | null>(null)
@@ -84,41 +84,35 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
       <section className="settings-card">
         <h3>Banco de dados Turso</h3>
         <p className="muted">
-          Os dados são sincronizados com seu banco Turso. Para trocar a conexão, informe a URL
-          e um novo token; o token atual nunca é exibido.
+          Os dados são sincronizados com o banco criado pelo CRM Seller na sua conta Turso.
         </p>
         <div className="setting-row">
           <label>URL do banco</label>
-          <input
-            value={tursoUrl}
-            spellCheck={false}
-            onChange={(event) => setTursoUrl(event.target.value)}
-            placeholder="libsql://meu-banco-minha-conta.turso.io"
-          />
+          <input readOnly value={tursoUrl} />
         </div>
         <div className="setting-row">
-          <label>Novo token</label>
+          <label>Token de outra conta Turso</label>
           <input
             type="password"
-            value={tursoToken}
+            value={tursoPlatformToken}
             autoComplete="off"
-            onChange={(event) => setTursoToken(event.target.value)}
-            placeholder="Obrigatório somente ao salvar"
+            onChange={(event) => setTursoPlatformToken(event.target.value)}
+            placeholder="Platform API Token"
           />
+          <small className="muted">Use somente se quiser criar ou conectar o banco em outra conta.</small>
         </div>
         <div className="action-buttons">
           <button
-            disabled={savingTurso || !tursoUrl.trim() || !tursoToken.trim()}
+            disabled={savingTurso || !tursoPlatformToken.trim()}
             onClick={async () => {
               setSavingTurso(true)
               setTursoResult(null)
               try {
                 const result = await window.api.database.configure({
-                  url: tursoUrl,
-                  authToken: tursoToken
+                  platformToken: tursoPlatformToken
                 })
                 setTursoUrl(result.url)
-                setTursoToken('')
+                setTursoPlatformToken('')
                 const status = await window.api.database.status()
                 setBoundShopId(status.shopeeShopId ?? null)
                 setTursoResult('✓ conexão testada e salva')
@@ -129,7 +123,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
               }
             }}
           >
-            {savingTurso ? 'Testando…' : 'Testar e salvar conexão'}
+            {savingTurso ? 'Preparando…' : 'Configurar outra conta Turso'}
           </button>
         </div>
         {tursoResult && <small className="muted">{tursoResult}</small>}

@@ -179,8 +179,9 @@ morderam:
 
 ### Banco
 
-Réplica libSQL em `app.getPath('userData')`, sincronizada com o Turso. URL e
-token vêm de `db/config.ts`; o token persistido usa `safeStorage`. Migrações são
+Réplica libSQL em `app.getPath('userData')`, sincronizada com o Turso. O
+Platform API Token provisiona o banco em `db/tursoPlatform.ts` e é descartado;
+URL e token restrito vêm de `db/config.ts`, persistidos com `safeStorage`. Migrações são
 um array de strings em `db/migrations.ts` versionado por `PRAGMA user_version`:
 **só acrescente ao final**, nunca edite ou reordene as existentes. As variáveis
 `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` substituem a configuração local.

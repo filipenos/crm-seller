@@ -64,7 +64,6 @@ export default function App(): React.JSX.Element {
     return (
       <DatabaseSetupPage
         databaseConfigured={database.configured}
-        initialUrl={database.url}
         initialError={database.error}
         onConfigured={(url) => setDatabase({ configured: true, url, shopeeShopId: null })}
         onBound={(shopeeShopId) =>

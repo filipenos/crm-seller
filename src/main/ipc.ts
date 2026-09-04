@@ -8,8 +8,9 @@ import type {
   StageActionKind
 } from '@shared/types'
 import { getSettings, updateSettings } from './services/settings'
-import { closeDb, testTursoConnection } from './db'
+import { closeDb, waitForTursoConnection } from './db'
 import { publicTursoConfig, writeTursoConfig } from './db/config'
+import { provisionTursoDatabase } from './db/tursoPlatform'
 import {
   assertCurrentShopeeAccount,
   bindCurrentShopeeAccount,
@@ -114,12 +115,13 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   })
   ipcMain.handle(
     'database:configure',
-    (_e, input: { url: string; authToken: string }): { ok: true; url: string } => {
-      testTursoConnection(input)
+    async (_e, input: { platformToken: string }): Promise<{ ok: true; url: string }> => {
+      const credentials = await provisionTursoDatabase(input.platformToken)
+      await waitForTursoConnection(credentials)
       closeDb()
-      writeTursoConfig(input)
+      writeTursoConfig(credentials)
       onDatabaseReady()
-      return { ok: true, url: input.url.trim().replace(/\/$/, '') }
+      return { ok: true, url: credentials.url }
     }
   )
 

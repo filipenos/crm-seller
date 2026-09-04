@@ -37,7 +37,7 @@ const api = {
       shopeeShopId?: string | null
     }> =>
       ipcRenderer.invoke('database:status'),
-    configure: (input: { url: string; authToken: string }): Promise<{ ok: true; url: string }> =>
+    configure: (input: { platformToken: string }): Promise<{ ok: true; url: string }> =>
       ipcRenderer.invoke('database:configure', input)
   },
   settings: {

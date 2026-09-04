@@ -166,14 +166,16 @@ padrão do usuário — `app.getPath('userData')`:
 | macOS | `~/Library/Application Support/crm-seller/` |
 | Linux | `~/.config/crm-seller/` |
 
-A URL fica em `turso.json`; o token é criptografado pelo armazenamento seguro
-do sistema operacional. A sessão da Shopee fica em `Partitions/shopee`. O token
-nunca é salvo no banco ou no repositório.
+A URL e uma credencial restrita ao banco ficam em `turso.json`; a credencial é
+criptografada pelo armazenamento seguro do sistema operacional. O Platform API
+Token informado na configuração é usado uma vez e descartado. A sessão da
+Shopee fica em `Partitions/shopee`. Nenhum token vai para o banco ou repositório.
 
 ## Primeiro uso
 
-1. Crie seu banco no [Turso](https://turso.tech), gere um token e informe ambos
-   na tela inicial. A conexão é testada antes de salvar.
+1. Crie sua conta no [Turso](https://turso.tech), gere um Platform API Token e
+   cole-o na tela inicial. O app cria/localiza `crm-seller`, gera sua credencial
+   e testa a conexão automaticamente.
 2. Na etapa seguinte, entre no Seller Center e vincule a loja ao banco. Cada
    banco aceita uma única loja; se a sessão mudar, a sincronização é bloqueada
    antes de gravar qualquer dado.

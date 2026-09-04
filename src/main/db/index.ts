@@ -29,6 +29,20 @@ export function testTursoConnection(credentials: TursoCredentials): void {
   }
 }
 
+export async function waitForTursoConnection(credentials: TursoCredentials): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 7; attempt++) {
+    try {
+      testTursoConnection(credentials)
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < 6) await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+  }
+  throw lastError
+}
+
 export function getDb(): Database.Database {
   if (!db) {
     const config = readTursoConfig()
