@@ -4,6 +4,7 @@ import { MIGRATION_COUNT, migrationStatements, runMigrations } from './migration
 import { readTursoConfig, type TursoCredentials } from './config'
 
 let db: Database.Database | null = null
+let asyncDb: PromiseDatabase | null = null
 
 function openRemote(url: string, authToken: string): Database.Database {
   // As definições do pacote ainda não expõem authToken, embora a API oficial exponha.
@@ -124,9 +125,23 @@ export function getDb(): Database.Database {
   return db
 }
 
+/** Conexão não bloqueante para operações longas executadas no processo principal. */
+export function getAsyncDb(): PromiseDatabase {
+  if (!asyncDb) {
+    const config = readTursoConfig()
+    if (!config) throw new Error('Configure a conexão com o Turso antes de usar o aplicativo.')
+    asyncDb = new PromiseDatabase(config.url, { authToken: config.authToken })
+  }
+  return asyncDb
+}
+
 export function closeDb(): void {
   if (db) {
     db.close()
     db = null
+  }
+  if (asyncDb) {
+    asyncDb.close()
+    asyncDb = null
   }
 }

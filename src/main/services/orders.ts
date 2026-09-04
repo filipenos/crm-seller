@@ -1,4 +1,4 @@
-import { getDb } from '../db'
+import { getAsyncDb, getDb } from '../db'
 import type {
   InternalStatus,
   Order,
@@ -673,5 +673,100 @@ export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
   tx()
   // O card acabou de mudar: aba e "pronto para postar" saem daqui, não da leitura.
   recomputeDerived(input.orderSn)
+  return !existing
+}
+
+/**
+ * Versão não bloqueante usada por importações longas.
+ * O cliente síncrono espera a rede na thread do Electron e congela a janela.
+ */
+export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<boolean> {
+  const db = getAsyncDb()
+  const get = async <T>(sql: string, params: unknown[]): Promise<T | undefined> => {
+    const statement = await db.prepare(sql)
+    return (await statement.get(params)) as T | undefined
+  }
+  const run = async (sql: string, params: unknown[]): Promise<void> => {
+    const statement = await db.prepare(sql)
+    await statement.run(params)
+  }
+
+  const existing = await get<{
+    order_sn: string
+    shopee_status: string | null
+    escrow_released_at: number | null
+    logistics_code: number | null
+  }>(
+    'SELECT order_sn, shopee_status, escrow_released_at, logistics_code FROM orders WHERE order_sn = ?',
+    [input.orderSn]
+  )
+  const now = Date.now()
+  if (!existing) {
+    await run(
+      `INSERT INTO orders (
+        order_sn, shopee_order_id, shopee_status, internal_status, buyer_username, buyer_name,
+        total_amount, currency, tracking_number, ship_by_date, logistics_code,
+        status_description, payment_method, carrier, shipping_city, shopee_url_path,
+        package_number, created_at_shopee, updated_at_shopee, synced_at, raw_json
+      ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        input.orderSn, input.shopeeOrderId ?? null, input.shopeeStatus ?? null,
+        input.buyerUsername ?? null, input.buyerName ?? null, input.totalAmount ?? null,
+        input.currency ?? null, input.trackingNumber ?? null, input.shipByDate ?? null,
+        input.logisticsCode ?? null, input.statusDescription ?? null, input.paymentMethod ?? null,
+        input.carrier ?? null, input.shippingCity ?? null, input.shopeeUrlPath ?? null,
+        input.packageNumber ?? null, input.createdAtShopee ?? null, input.updatedAtShopee ?? null,
+        now, input.rawJson ?? null
+      ]
+    )
+    await run(
+      'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, NULL, ?, ?)',
+      [input.orderSn, 'NOVO', now]
+    )
+  } else {
+    await run(
+      `UPDATE orders SET
+        shopee_order_id = COALESCE(?, shopee_order_id), shopee_status = COALESCE(?, shopee_status),
+        buyer_username = COALESCE(?, buyer_username), buyer_name = COALESCE(?, buyer_name),
+        total_amount = COALESCE(?, total_amount), currency = COALESCE(?, currency),
+        tracking_number = COALESCE(?, tracking_number), ship_by_date = COALESCE(?, ship_by_date),
+        logistics_code = COALESCE(?, logistics_code), status_description = COALESCE(?, status_description),
+        payment_method = COALESCE(?, payment_method), carrier = COALESCE(?, carrier),
+        shipping_city = COALESCE(?, shipping_city), shopee_url_path = COALESCE(?, shopee_url_path),
+        package_number = COALESCE(?, package_number), created_at_shopee = COALESCE(?, created_at_shopee),
+        updated_at_shopee = COALESCE(?, updated_at_shopee), synced_at = ?,
+        raw_json = COALESCE(?, raw_json) WHERE order_sn = ?`,
+      [
+        input.shopeeOrderId ?? null, input.shopeeStatus ?? null, input.buyerUsername ?? null,
+        input.buyerName ?? null, input.totalAmount ?? null, input.currency ?? null,
+        input.trackingNumber ?? null, input.shipByDate ?? null, input.logisticsCode ?? null,
+        input.statusDescription ?? null, input.paymentMethod ?? null, input.carrier ?? null,
+        input.shippingCity ?? null, input.shopeeUrlPath ?? null, input.packageNumber ?? null,
+        input.createdAtShopee ?? null, input.updatedAtShopee ?? null, now,
+        input.rawJson ?? null, input.orderSn
+      ]
+    )
+  }
+
+  if (input.items && input.items.length > 0) {
+    await run('DELETE FROM order_items WHERE order_sn = ?', [input.orderSn])
+    for (const item of input.items) {
+      await run(
+        `INSERT INTO order_items
+          (order_sn, item_name, model_name, quantity, image_url, item_sku, pecas, item_id, model_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [input.orderSn, item.itemName, item.modelName, item.quantity, item.imageUrl, item.itemSku,
+          item.pecas ?? null, item.itemId ?? null, item.modelId ?? null]
+      )
+    }
+  }
+
+  const tab = deriveTab({
+    shopeeStatus: input.shopeeStatus ?? existing?.shopee_status ?? null,
+    escrowReleasedAt: existing?.escrow_released_at ?? null
+  })
+  await run('UPDATE orders SET tab = ?, ready_to_post = ? WHERE order_sn = ?', [
+    tab, isReadyToPost(input.logisticsCode ?? existing?.logistics_code ?? null) ? 1 : 0, input.orderSn
+  ])
   return !existing
 }

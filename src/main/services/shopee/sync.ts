@@ -18,7 +18,7 @@ import {
   listOrders,
   setLogisticsStatus,
   setRating,
-  upsertShopeeOrder
+  upsertShopeeOrderAsync
 } from '../orders'
 import { recordEvent } from '../events'
 import { pedidosParaAtualizarPagamento, salvarRecebimento } from '../recebimentos'
@@ -94,7 +94,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
         onCard: (orderId, card) => saveOrderDump(orderId, card),
         onOrder: async (order) => {
           if (lote.cancelar) return
-          const isNew = upsertShopeeOrder(order)
+          const isNew = await upsertShopeeOrderAsync(order)
           result.ordersUpserted++
           if (isNew) result.newOrders++
           await yieldToEventLoop()
