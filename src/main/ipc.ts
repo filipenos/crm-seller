@@ -7,7 +7,7 @@ import type {
   OrderFilters,
   StageActionKind
 } from '@shared/types'
-import { getSettings, updateSettings } from './services/settings'
+import { getSettingsAsync, updateSettings } from './services/settings'
 import { closeDb, prepareTursoDatabaseAsync } from './db'
 import { publicTursoConfig, writeTursoConfig } from './db/config'
 import { provisionTursoDatabase } from './db/tursoPlatform'
@@ -32,7 +32,7 @@ import {
   addAction,
   createStage,
   deleteStage,
-  listStages,
+  listStagesAsync,
   nextStageId,
   removeAction,
   reorderStages,
@@ -58,7 +58,7 @@ import { montarPainel, serieMensal } from './services/dashboard'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   definirLinhaDoProduto,
-  listarProdutos,
+  listarProdutosAsync,
   recomporCatalogoDosPedidos
 } from './services/produtos'
 import {
@@ -66,8 +66,8 @@ import {
   atualizarInsumo,
   criarInsumo,
   criarVariante,
-  listarCompras,
-  listarInsumos,
+  listarComprasAsync,
+  listarInsumosAsync,
   listarMovimentos,
   registrarCompra,
   removerCompra,
@@ -82,10 +82,10 @@ import {
   baixarEstoqueDosDespachados,
   consumoDoPedido,
   criarLinha,
-  estoqueDesde,
+  estoqueDesdeAsync,
   criarReceita,
-  listarComponentes,
-  listarLinhas,
+  listarComponentesAsync,
+  listarLinhasAsync,
   removerItem,
   removerLinha,
   removerReceita,
@@ -128,7 +128,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   )
 
   // Settings
-  ipcMain.handle('settings:get', () => getSettings())
+  ipcMain.handle('settings:get', () => getSettingsAsync())
   ipcMain.handle('settings:update', (_e, partial: Partial<AppSettings>) => {
     const settings = updateSettings(partial)
     startSyncScheduler() // re-aplica intervalo
@@ -199,7 +199,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('orders:setNote', (_e, orderSn: string, note: string) => setNote(orderSn, note))
 
   // Etapas de produção cadastráveis
-  ipcMain.handle('stages:list', () => listStages())
+  ipcMain.handle('stages:list', () => listStagesAsync())
   ipcMain.handle('stages:create', (_e, name: string, color: string | null) =>
     createStage(name, color)
   )
@@ -237,7 +237,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('events:markAllSeen', () => markAllEventsSeen())
 
   // Produtos
-  ipcMain.handle('produtos:list', () => listarProdutos())
+  ipcMain.handle('produtos:list', () => listarProdutosAsync())
   ipcMain.handle('produtos:sync', () => sincronizarProdutos())
   // Reconstrói o catálogo a partir dos pedidos — sem rede.
   ipcMain.handle('produtos:recompor', () => recomporCatalogoDosPedidos())
@@ -246,7 +246,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   )
 
   // Insumos, compras e estoque
-  ipcMain.handle('insumos:list', () => listarInsumos())
+  ipcMain.handle('insumos:list', () => listarInsumosAsync())
   ipcMain.handle('insumos:criar', (_e, input: Parameters<typeof criarInsumo>[0]) => criarInsumo(input))
   ipcMain.handle('insumos:atualizar', (_e, id: number, input: Parameters<typeof atualizarInsumo>[1]) =>
     atualizarInsumo(id, input)
@@ -257,7 +257,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   )
   ipcMain.handle('insumos:renomearVariante', (_e, id: number, nome: string) => renomearVariante(id, nome))
   ipcMain.handle('insumos:removerVariante', (_e, id: number) => removerVariante(id))
-  ipcMain.handle('compras:list', (_e, limite?: number) => listarCompras(limite))
+  ipcMain.handle('compras:list', (_e, limite?: number) => listarComprasAsync(limite))
   ipcMain.handle('compras:registrar', (_e, input: Parameters<typeof registrarCompra>[0]) =>
     registrarCompra(input)
   )
@@ -267,11 +267,11 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   )
   ipcMain.handle('estoque:movimentos', (_e, limite?: number) => listarMovimentos(limite))
   ipcMain.handle('estoque:baixarDespachados', () => baixarEstoqueDosDespachados())
-  ipcMain.handle('estoque:desde', () => estoqueDesde())
+  ipcMain.handle('estoque:desde', () => estoqueDesdeAsync())
 
   // Receitas e linhas de fabricação
-  ipcMain.handle('fabricacao:linhas', () => listarLinhas())
-  ipcMain.handle('fabricacao:componentes', () => listarComponentes())
+  ipcMain.handle('fabricacao:linhas', () => listarLinhasAsync())
+  ipcMain.handle('fabricacao:componentes', () => listarComponentesAsync())
   ipcMain.handle('fabricacao:criarLinha', (_e, nome: string) => criarLinha(nome))
   ipcMain.handle('fabricacao:renomearLinha', (_e, id: number, nome: string) => renomearLinha(id, nome))
   ipcMain.handle('fabricacao:removerLinha', (_e, id: number) => removerLinha(id))

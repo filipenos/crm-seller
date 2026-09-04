@@ -1,4 +1,4 @@
-import { getDb } from '../db'
+import { getAsyncDb, getDb } from '../db'
 import type {
   ConsumoInsumo,
   CustoPedido,
@@ -183,6 +183,115 @@ export function listarLinhas(): LinhaFabricacao[] {
         : 0
     }
   })
+}
+
+let productionSnapshotInFlight: Promise<{
+  linhas: LinhaFabricacao[]
+  componentes: Receita[]
+}> | null = null
+
+async function productionSnapshot(): Promise<{ linhas: LinhaFabricacao[]; componentes: Receita[] }> {
+  if (productionSnapshotInFlight) return productionSnapshotInFlight
+  productionSnapshotInFlight = (async () => {
+    const db = getAsyncDb()
+    const [linesStmt, recipesStmt, itemsStmt, costsStmt, productsStmt] = await Promise.all([
+      db.prepare('SELECT id, name, is_default FROM production_lines ORDER BY is_default DESC, name'),
+      db.prepare('SELECT id, line_id, name, kind, yields, position FROM recipes ORDER BY position, id'),
+      db.prepare(`SELECT i.id, i.recipe_id, i.supply_id, i.child_recipe_id, i.quantity, i.position,
+        s.name AS supply_name, s.unit AS supply_unit
+        FROM recipe_items i LEFT JOIN supplies s ON s.id = i.supply_id ORDER BY i.position, i.id`),
+      db.prepare(`SELECT v.supply_id,
+        CASE WHEN SUM(p.quantity) > 0 THEN SUM(p.total + p.shipping) / SUM(p.quantity) END AS custo
+        FROM supply_variants v LEFT JOIN purchases p ON p.variant_id = v.id GROUP BY v.supply_id`),
+      db.prepare('SELECT line_id, COUNT(*) AS n FROM products GROUP BY line_id')
+    ])
+    const [lines, recipes, items, costs, productCounts] = await Promise.all([
+      linesStmt.all([]) as Promise<{ id: number; name: string; is_default: number }[]>,
+      recipesStmt.all([]) as Promise<ReceitaRow[]>,
+      itemsStmt.all([]) as Promise<(ItemRow & { supply_name: string | null; supply_unit: string | null })[]>,
+      costsStmt.all([]) as Promise<{ supply_id: number; custo: number | null }[]>,
+      productsStmt.all([]) as Promise<{ line_id: number | null; n: number }[]>
+    ])
+    const recipeById = new Map(recipes.map((recipe) => [recipe.id, recipe]))
+    const itemsByRecipe = new Map<number, typeof items>()
+    for (const item of items) {
+      const list = itemsByRecipe.get(item.recipe_id) ?? []
+      list.push(item)
+      itemsByRecipe.set(item.recipe_id, list)
+    }
+    const costBySupply = new Map(costs.map((cost) => [cost.supply_id, cost.custo]))
+    const cost = (id: number, path: number[] = []): { value: number; uncertain: number } => {
+      if (path.includes(id)) return { value: 0, uncertain: 1 }
+      let value = 0
+      let uncertain = 0
+      for (const item of itemsByRecipe.get(id) ?? []) {
+        if (item.quantity === null) { uncertain++; continue }
+        if (item.supply_id !== null) {
+          const unit = costBySupply.get(item.supply_id)
+          if (unit === null || unit === undefined) uncertain++
+          else value += unit * item.quantity
+        } else if (item.child_recipe_id !== null) {
+          const child = recipeById.get(item.child_recipe_id)
+          const nested = cost(item.child_recipe_id, [...path, id])
+          value += nested.value / Math.max(1, child?.yields ?? 1) * item.quantity
+          uncertain += nested.uncertain
+        }
+      }
+      return { value, uncertain }
+    }
+    const build = (row: ReceitaRow): Receita => {
+      const calculated = cost(row.id)
+      return {
+        id: row.id, linhaId: row.line_id, nome: row.name, tipo: row.kind as TipoReceita,
+        rende: row.yields, custo: arredonda(calculated.value, 4), incertos: calculated.uncertain,
+        itens: (itemsByRecipe.get(row.id) ?? []).map((item) => {
+          const child = item.child_recipe_id === null ? undefined : recipeById.get(item.child_recipe_id)
+          let itemCost: number | null = null
+          if (item.quantity !== null && item.supply_id !== null) {
+            const unit = costBySupply.get(item.supply_id)
+            itemCost = unit === null || unit === undefined ? null : arredonda(unit * item.quantity, 4)
+          } else if (item.quantity !== null && child) {
+            itemCost = arredonda(cost(child.id, [row.id]).value / Math.max(1, child.yields) * item.quantity, 4)
+          }
+          return {
+            id: item.id, insumoId: item.supply_id, insumoNome: item.supply_name,
+            unidade: item.supply_unit, receitaFilhaId: item.child_recipe_id,
+            receitaFilhaNome: child?.name ?? null, quantidade: item.quantity, custo: itemCost
+          }
+        })
+      }
+    }
+    const builtById = new Map(recipes.map((recipe) => [recipe.id, build(recipe)]))
+    const nullProducts = productCounts.find((entry) => entry.line_id === null)?.n ?? 0
+    return {
+      componentes: recipes.filter((recipe) => recipe.line_id === null).map((recipe) => builtById.get(recipe.id)!),
+      linhas: lines.map((line) => {
+        const lineRecipes = recipes.filter((recipe) => recipe.line_id === line.id).map((recipe) => builtById.get(recipe.id)!)
+        const boxes = lineRecipes.filter((recipe) => recipe.tipo === 'CAIXA')
+        const assigned = productCounts.find((entry) => entry.line_id === line.id)?.n ?? 0
+        return {
+          id: line.id, nome: line.name, padrao: line.is_default === 1, receitas: lineRecipes,
+          produtos: assigned + (line.is_default === 1 ? nullProducts : 0),
+          custoPorCaixa: boxes.length
+            ? arredonda(boxes.reduce((sum, recipe) => sum + recipe.custo, 0) / boxes.length, 4)
+            : 0
+        }
+      })
+    }
+  })()
+  try {
+    return await productionSnapshotInFlight
+  } finally {
+    productionSnapshotInFlight = null
+  }
+}
+
+export async function listarLinhasAsync(): Promise<LinhaFabricacao[]> {
+  return (await productionSnapshot()).linhas
+}
+
+export async function listarComponentesAsync(): Promise<Receita[]> {
+  return (await productionSnapshot()).componentes
 }
 
 export function linhaPadrao(): number | null {
@@ -397,6 +506,19 @@ export function estoqueDesde(): number {
   const agora = Date.now()
   db.prepare("INSERT INTO settings (key, value) VALUES ('estoqueDesde', ?)").run(JSON.stringify(agora))
   return agora
+}
+
+export async function estoqueDesdeAsync(): Promise<number> {
+  const db = getAsyncDb()
+  const select = await db.prepare("SELECT value FROM settings WHERE key = 'estoqueDesde'")
+  const row = (await select.get([])) as { value: string } | undefined
+  if (row) return Number(JSON.parse(row.value))
+  const now = Date.now()
+  const insert = await db.prepare(
+    "INSERT INTO settings (key, value) VALUES ('estoqueDesde', ?) ON CONFLICT(key) DO NOTHING"
+  )
+  await insert.run([JSON.stringify(now)])
+  return now
 }
 
 /**

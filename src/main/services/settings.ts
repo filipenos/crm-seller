@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { getDb } from '../db'
+import { getAsyncDb, getDb } from '../db'
 import type { AppSettings } from '@shared/types'
 
 function defaults(): AppSettings {
@@ -22,6 +22,13 @@ export function getSettings(): AppSettings {
     value: string
   }[]
   const stored = Object.fromEntries(rows.map((r) => [r.key, JSON.parse(r.value)]))
+  return { ...defaults(), ...stored }
+}
+
+export async function getSettingsAsync(): Promise<AppSettings> {
+  const statement = await getAsyncDb().prepare('SELECT key, value FROM settings')
+  const rows = (await statement.all([])) as { key: string; value: string }[]
+  const stored = Object.fromEntries(rows.map((row) => [row.key, JSON.parse(row.value)]))
   return { ...defaults(), ...stored }
 }
 

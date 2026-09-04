@@ -35,21 +35,27 @@ export default function ProducaoPage({ dataVersion }: Props): React.JSX.Element 
   const [linhas, setLinhas] = useState<LinhaFabricacao[]>([])
   const [componentes, setComponentes] = useState<Receita[]>([])
   const [desde, setDesde] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const carregar = async (): Promise<void> => {
-    const [novosInsumos, novasCompras, novasLinhas, novosComponentes, novoDesde] =
-      await Promise.all([
-        window.api.insumos.list(),
-        window.api.compras.list(),
-        window.api.fabricacao.linhas(),
-        window.api.fabricacao.componentes(),
-        window.api.estoque.desde()
-      ])
-    setInsumos(novosInsumos)
-    setCompras(novasCompras)
-    setLinhas(novasLinhas)
-    setComponentes(novosComponentes)
-    setDesde(novoDesde)
+    setLoading(true)
+    try {
+      const [novosInsumos, novasCompras, novasLinhas, novosComponentes, novoDesde] =
+        await Promise.all([
+          window.api.insumos.list(),
+          window.api.compras.list(),
+          window.api.fabricacao.linhas(),
+          window.api.fabricacao.componentes(),
+          window.api.estoque.desde()
+        ])
+      setInsumos(novosInsumos)
+      setCompras(novasCompras)
+      setLinhas(novasLinhas)
+      setComponentes(novosComponentes)
+      setDesde(novoDesde)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -84,11 +90,13 @@ export default function ProducaoPage({ dataVersion }: Props): React.JSX.Element 
         </button>
       </div>
 
-      {aba === 'insumos' && <AbaInsumos insumos={insumos} desde={desde} recarregar={carregar} />}
-      {aba === 'compras' && (
+      {loading && <div className="empty loading-indicator">Carregando produção…</div>}
+
+      {!loading && aba === 'insumos' && <AbaInsumos insumos={insumos} desde={desde} recarregar={carregar} />}
+      {!loading && aba === 'compras' && (
         <AbaCompras insumos={insumos} compras={compras} recarregar={carregar} />
       )}
-      {aba === 'fabricacao' && (
+      {!loading && aba === 'fabricacao' && (
         <AbaFabricacao
           linhas={linhas}
           componentes={componentes}

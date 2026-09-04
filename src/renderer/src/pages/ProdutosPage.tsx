@@ -12,14 +12,20 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
   const [linhas, setLinhas] = useState<LinhaFabricacao[]>([])
   const [sincronizando, setSincronizando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const carregar = async (): Promise<void> => {
-    const [novosProdutos, novasLinhas] = await Promise.all([
-      window.api.produtos.list(),
-      window.api.fabricacao.linhas()
-    ])
-    setProdutos(novosProdutos)
-    setLinhas(novasLinhas)
+    setLoading(true)
+    try {
+      const [novosProdutos, novasLinhas] = await Promise.all([
+        window.api.produtos.list(),
+        window.api.fabricacao.linhas()
+      ])
+      setProdutos(novosProdutos)
+      setLinhas(novasLinhas)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -62,7 +68,9 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
 
       {aviso && <div className="aviso">{aviso}</div>}
 
-      <table className="tabela">
+      {loading && <div className="empty loading-indicator">Carregando produtos…</div>}
+
+      {!loading && <table className="tabela">
         <thead>
           <tr>
             <th></th>
@@ -120,7 +128,7 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
             </tr>
           ))}
         </tbody>
-      </table>
+      </table>}
 
       <p className="muted small">
         A lista sai dos próprios pedidos — cada item vendido carrega o produto e a variação, então

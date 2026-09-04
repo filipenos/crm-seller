@@ -1,4 +1,4 @@
-import { getDb } from '../db'
+import { getAsyncDb, getDb } from '../db'
 import type { StageAction, StageActionKind, WorkflowStage } from '@shared/types'
 import { STAGE_ACTION_KINDS } from '@shared/types'
 
@@ -50,6 +50,22 @@ export function listStages(): WorkflowStage[] {
     position: s.position,
     color: s.color,
     actions: actions.filter((a) => a.stage_id === s.id).map(rowToAction)
+  }))
+}
+
+export async function listStagesAsync(): Promise<WorkflowStage[]> {
+  const db = getAsyncDb()
+  const [stagesStatement, actionsStatement] = await Promise.all([
+    db.prepare('SELECT id, name, position, color FROM workflow_stages ORDER BY position ASC, id ASC'),
+    db.prepare('SELECT id, stage_id, label, kind, position FROM stage_actions ORDER BY position ASC, id ASC')
+  ])
+  const [stages, actions] = await Promise.all([
+    stagesStatement.all([]) as Promise<StageRow[]>,
+    actionsStatement.all([]) as Promise<ActionRow[]>
+  ])
+  return stages.map((stage) => ({
+    id: stage.id, name: stage.name, position: stage.position, color: stage.color,
+    actions: actions.filter((action) => action.stage_id === stage.id).map(rowToAction)
   }))
 }
 

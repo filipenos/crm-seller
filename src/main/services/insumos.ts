@@ -1,4 +1,4 @@
-import { getDb } from '../db'
+import { getAsyncDb, getDb } from '../db'
 import type { Compra, Insumo, MovimentoEstoque, Unidade, VarianteInsumo } from '@shared/types'
 
 /**
@@ -84,6 +84,48 @@ export function listarInsumos(): Insumo[] {
       estoque,
       custoMedio: custoMedioDoInsumo(s.id),
       acabando: acompanhado && s.min_stock !== null && estoque <= s.min_stock
+    }
+  })
+}
+
+export async function listarInsumosAsync(): Promise<Insumo[]> {
+  const db = getAsyncDb()
+  const [suppliesStmt, variantsStmt, totalsStmt] = await Promise.all([
+    db.prepare('SELECT id, name, unit, min_stock, notes FROM supplies ORDER BY name COLLATE NOCASE'),
+    db.prepare(`SELECT v.id, v.supply_id, v.name, ${ESTOQUE_SQL} AS estoque,
+      ${CUSTO_MEDIO_SQL} AS custo_medio,
+      (SELECT COUNT(*) FROM purchases p WHERE p.variant_id = v.id) AS compras
+      FROM supply_variants v ORDER BY v.name COLLATE NOCASE`),
+    db.prepare(`SELECT v.supply_id, SUM(p.total + p.shipping) AS pago, SUM(p.quantity) AS qtd
+      FROM supply_variants v LEFT JOIN purchases p ON p.variant_id = v.id GROUP BY v.supply_id`)
+  ])
+  const [supplies, variants, totals] = await Promise.all([
+    suppliesStmt.all([]) as Promise<{ id: number; name: string; unit: string; min_stock: number | null; notes: string | null }[]>,
+    variantsStmt.all([]) as Promise<VarianteRow[]>,
+    totalsStmt.all([]) as Promise<{ supply_id: number; pago: number | null; qtd: number | null }[]>
+  ])
+  const bySupply = new Map<number, VarianteInsumo[]>()
+  for (const variant of variants) {
+    const list = bySupply.get(variant.supply_id) ?? []
+    list.push({
+      id: variant.id, nome: variant.name, estoque: arredonda(variant.estoque),
+      custoMedio: variant.custo_medio === null ? null : arredonda(variant.custo_medio, 4),
+      compras: variant.compras
+    })
+    bySupply.set(variant.supply_id, list)
+  }
+  const totalBySupply = new Map(totals.map((total) => [total.supply_id, total]))
+  return supplies.map((supply) => {
+    const variantsForSupply = bySupply.get(supply.id) ?? []
+    const stock = arredonda(variantsForSupply.reduce((sum, variant) => sum + variant.estoque, 0))
+    const total = totalBySupply.get(supply.id)
+    const average = total?.pago && total.qtd ? arredonda(total.pago / total.qtd, 4) : null
+    return {
+      id: supply.id, nome: supply.name, unidade: supply.unit as Unidade,
+      estoqueMinimo: supply.min_stock, observacao: supply.notes, variantes: variantsForSupply,
+      estoque: stock, custoMedio: average,
+      acabando: variantsForSupply.some((variant) => variant.compras > 0) &&
+        supply.min_stock !== null && stock <= supply.min_stock
     }
   })
 }
@@ -252,6 +294,29 @@ export function listarCompras(limite = 200): Compra[] {
     compradoEm: r.bought_at,
     fornecedor: r.supplier,
     observacao: r.notes
+  }))
+}
+
+export async function listarComprasAsync(limite = 200): Promise<Compra[]> {
+  const safeLimit = Math.min(1000, Math.max(1, limite))
+  const statement = await getAsyncDb().prepare(
+    `SELECT p.id, p.variant_id, p.quantity, p.total, p.shipping, p.bought_at, p.supplier, p.notes,
+            v.name AS variante, s.id AS insumo_id, s.name AS insumo, s.unit
+       FROM purchases p JOIN supply_variants v ON v.id = p.variant_id
+       JOIN supplies s ON s.id = v.supply_id
+      ORDER BY p.bought_at DESC, p.id DESC LIMIT ?`
+  )
+  const rows = (await statement.all([safeLimit])) as {
+    id: number; variant_id: number; variante: string; insumo_id: number; insumo: string;
+    unit: string; quantity: number; total: number; shipping: number; bought_at: number;
+    supplier: string | null; notes: string | null
+  }[]
+  return rows.map((row) => ({
+    id: row.id, varianteId: row.variant_id, varianteNome: row.variante,
+    insumoId: row.insumo_id, insumoNome: row.insumo, unidade: row.unit,
+    quantidade: row.quantity, valor: row.total, frete: row.shipping,
+    custoUnitario: row.quantity > 0 ? arredonda((row.total + row.shipping) / row.quantity, 4) : 0,
+    compradoEm: row.bought_at, fornecedor: row.supplier, observacao: row.notes
   }))
 }
 
