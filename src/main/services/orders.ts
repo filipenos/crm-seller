@@ -199,6 +199,23 @@ export function recomputeDerived(orderSn: string): void {
   )
 }
 
+export async function recomputeDerivedAsync(orderSn: string): Promise<void> {
+  const db = getAsyncDb()
+  const select = await db.prepare(
+    'SELECT shopee_status, escrow_released_at, logistics_code FROM orders WHERE order_sn = ?'
+  )
+  const row = (await select.get([orderSn])) as
+    | { shopee_status: string | null; escrow_released_at: number | null; logistics_code: number | null }
+    | undefined
+  if (!row) return
+  const update = await db.prepare('UPDATE orders SET tab = ?, ready_to_post = ? WHERE order_sn = ?')
+  await update.run([
+    deriveTab({ shopeeStatus: row.shopee_status, escrowReleasedAt: row.escrow_released_at }),
+    isReadyToPost(row.logistics_code) ? 1 : 0,
+    orderSn
+  ])
+}
+
 /**
  * Campos pesquisáveis, e o prefixo que restringe a busca a cada um.
  *
@@ -554,6 +571,18 @@ export function setLogisticsStatus(
         WHERE order_sn = ?`
     )
     .run(status, deliveredAt, orderSn)
+}
+
+export async function setLogisticsStatusAsync(
+  orderSn: string,
+  status: string,
+  deliveredAt: number | null
+): Promise<void> {
+  const statement = await getAsyncDb().prepare(
+    `UPDATE orders SET logistics_status = ?, delivered_at = COALESCE(?, delivered_at)
+      WHERE order_sn = ?`
+  )
+  await statement.run([status, deliveredAt, orderSn])
 }
 
 export function setRating(

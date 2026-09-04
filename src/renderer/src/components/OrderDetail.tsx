@@ -39,6 +39,8 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
   const [childName, setChildName] = useState('')
   const [note, setNote] = useState('')
   const [stages, setStages] = useState<WorkflowStage[]>([])
+  const [refreshingIncome, setRefreshingIncome] = useState(false)
+  const [refreshingTracking, setRefreshingTracking] = useState(false)
 
   const load = async (): Promise<void> => {
     const [o, novoHistorico, novosEventos, novasEtapas] = await Promise.all([
@@ -193,14 +195,19 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
             <button
               className="small-btn"
               title="Consulta o extrato deste pedido na Shopee agora"
+              disabled={refreshingIncome}
               onClick={async () => {
-                onToast('Buscando extrato…')
-                const r = await window.api.orders.refreshIncome(orderSn)
-                onToast(r.ok ? 'Extrato atualizado' : `Erro: ${r.error}`)
-                void load()
+                setRefreshingIncome(true)
+                try {
+                  const r = await window.api.orders.refreshIncome(orderSn)
+                  onToast(r.ok ? 'Extrato atualizado' : `Erro: ${r.error}`)
+                  if (r.ok) await load()
+                } finally {
+                  setRefreshingIncome(false)
+                }
               }}
             >
-              💰 Sincronizar pagamento
+              {refreshingIncome ? '⏳ Atualizando pagamento…' : '💰 Sincronizar pagamento'}
             </button>
           </div>
           {!order.recebimento && (
@@ -285,20 +292,25 @@ export default function OrderDetail({ orderSn, onClose, onToast }: Props): React
             <h3>Linha do tempo Shopee</h3>
             <button
               className="small-btn"
+              disabled={refreshingTracking}
               onClick={async () => {
-                onToast('Atualizando rastreio…')
-                const r = await window.api.orders.refreshTracking(orderSn)
-                if (!r.ok) onToast(`Erro no rastreio: ${r.error}`)
-                else
-                  onToast(
-                    r.newEvents > 0
-                      ? `${r.newEvents} novo(s) evento(s): ${r.latestStatus}`
-                      : 'Rastreio sem novidades'
-                  )
-                void load()
+                setRefreshingTracking(true)
+                try {
+                  const r = await window.api.orders.refreshTracking(orderSn)
+                  if (!r.ok) onToast(`Erro no rastreio: ${r.error}`)
+                  else
+                    onToast(
+                      r.newEvents > 0
+                        ? `${r.newEvents} novo(s) evento(s): ${r.latestStatus}`
+                        : 'Rastreio sem novidades'
+                    )
+                  if (r.ok) await load()
+                } finally {
+                  setRefreshingTracking(false)
+                }
               }}
             >
-              🔄 Atualizar rastreio
+              {refreshingTracking ? '⏳ Atualizando rastreio…' : '🔄 Atualizar rastreio'}
             </button>
           </div>
           {events.length === 0 ? (

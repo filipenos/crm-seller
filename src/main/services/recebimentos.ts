@@ -1,8 +1,8 @@
-import { getDb } from '../db'
+import { getAsyncDb, getDb } from '../db'
 import type { OrderIncome as ExtratoShopee } from './shopee/client'
 import { parseOrderIncome } from './shopee/client'
 import type { Recebimento } from '@shared/types'
-import { recomputeDerived } from './orders'
+import { recomputeDerived, recomputeDerivedAsync } from './orders'
 
 /**
  * Recebimentos: quanto entrou por pedido e o que a Shopee descontou.
@@ -96,6 +96,38 @@ export function salvarRecebimento(extrato: ExtratoShopee): void {
     .run(extrato.valorRecebido, extrato.recebidoEm, extrato.orderSn)
   // É a liberação que move a aba Enviado → Concluído.
   recomputeDerived(extrato.orderSn)
+}
+
+export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<void> {
+  const db = getAsyncDb()
+  const income = await db.prepare(
+    `INSERT INTO order_income (
+       order_sn, valor_produtos, valor_frete, desconto_cupons, taxa_comissao,
+       taxa_servico, outras_taxas, valor_recebido, recebido_em, previsto_para,
+       atualizado_em, raw_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(order_sn) DO UPDATE SET
+       valor_produtos = excluded.valor_produtos, valor_frete = excluded.valor_frete,
+       desconto_cupons = excluded.desconto_cupons, taxa_comissao = excluded.taxa_comissao,
+       taxa_servico = excluded.taxa_servico, outras_taxas = excluded.outras_taxas,
+       valor_recebido = excluded.valor_recebido, recebido_em = excluded.recebido_em,
+       previsto_para = excluded.previsto_para, atualizado_em = excluded.atualizado_em,
+       raw_json = excluded.raw_json`
+  )
+  await income.run([
+    extrato.orderSn, extrato.valorProdutos, extrato.valorFrete, extrato.descontoCupons,
+    extrato.taxaComissao, extrato.taxaServico, extrato.outrasTaxas, extrato.valorRecebido,
+    extrato.recebidoEm, extrato.previstoPara, Date.now(), extrato.rawJson
+  ])
+  if (extrato.criadoEm) {
+    const created = await db.prepare('UPDATE orders SET created_at_shopee = ? WHERE order_sn = ?')
+    await created.run([extrato.criadoEm, extrato.orderSn])
+  }
+  const escrow = await db.prepare(
+    'UPDATE orders SET escrow_amount = ?, escrow_released_at = ? WHERE order_sn = ?'
+  )
+  await escrow.run([extrato.valorRecebido, extrato.recebidoEm, extrato.orderSn])
+  await recomputeDerivedAsync(extrato.orderSn)
 }
 
 export function getRecebimento(orderSn: string): Recebimento | null {

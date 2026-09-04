@@ -1,4 +1,4 @@
-import { getDb } from '../../db'
+import { getAsyncDb, getDb } from '../../db'
 import { fetchShopeeIdentity, fetchShopeeShopId } from './client'
 
 const SETTING_KEY = 'shopeeShopId'
@@ -7,6 +7,18 @@ export function getBoundShopeeShopId(): string | null {
   const row = getDb()
     .prepare('SELECT value FROM settings WHERE key = ?')
     .get(SETTING_KEY) as { value: string } | undefined
+  if (!row) return null
+  try {
+    const value = JSON.parse(row.value)
+    return typeof value === 'string' && value ? value : null
+  } catch {
+    return null
+  }
+}
+
+async function getBoundShopeeShopIdAsync(): Promise<string | null> {
+  const statement = await getAsyncDb().prepare('SELECT value FROM settings WHERE key = ?')
+  const row = (await statement.get([SETTING_KEY])) as { value: string } | undefined
   if (!row) return null
   try {
     const value = JSON.parse(row.value)
@@ -53,7 +65,7 @@ export async function bindCurrentShopeeAccount(): Promise<string> {
 }
 
 export async function assertCurrentShopeeAccount(): Promise<string> {
-  const boundShopId = getBoundShopeeShopId()
+  const boundShopId = await getBoundShopeeShopIdAsync()
   if (!boundShopId) {
     throw new Error('Vincule esta conta Shopee ao banco Turso antes de sincronizar.')
   }

@@ -15,13 +15,15 @@ import {
 import { isConnected } from './session'
 import {
   getOrder,
+  getOrderAsync,
   listOrders,
   setLogisticsStatus,
+  setLogisticsStatusAsync,
   setRating,
   upsertShopeeOrderAsync
 } from '../orders'
-import { recordEvent } from '../events'
-import { pedidosParaAtualizarPagamento, salvarRecebimento } from '../recebimentos'
+import { recordEvent, recordEventAsync } from '../events'
+import { pedidosParaAtualizarPagamento, salvarRecebimento, salvarRecebimentoAsync } from '../recebimentos'
 import { getSettings } from '../settings'
 import { saveOrderDump } from '../orderDump'
 import { recomporCatalogoDosPedidos, salvarProdutoShopee } from '../produtos'
@@ -279,11 +281,11 @@ export async function refreshIncome(orderSn: string): Promise<{ ok: boolean; err
       throw new Error('Não conectado à Shopee. Faça login em Configurações.')
     }
     await assertCurrentShopeeAccount()
-    const order = getOrder(orderSn)
+    const order = await getOrderAsync(orderSn)
     if (!order?.shopeeOrderId) throw new Error(`Pedido ${orderSn} sem id da Shopee`)
     const income = await fetchOrderIncome(orderSn, order.shopeeOrderId)
     if (!income) throw new Error('A Shopee não devolveu extrato para este pedido.')
-    salvarRecebimento(income)
+    await salvarRecebimentoAsync(income)
     broadcast('data:changed', null)
     return { ok: true }
   } catch (err) {
@@ -301,7 +303,7 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
       throw new Error('Não conectado à Shopee. Faça login em Configurações.')
     }
     await assertCurrentShopeeAccount()
-    const order = getOrder(orderSn)
+    const order = await getOrderAsync(orderSn)
     if (!order) throw new Error(`Pedido ${orderSn} não encontrado`)
 
     const checkpoints = await fetchTrackingInfo(order.orderSn, order.shopeeOrderId)
@@ -310,12 +312,12 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
     }
     const latest = checkpoints.reduce((a, b) => (a.happenedAt > b.happenedAt ? a : b))
     const delivered = checkpoints.find((c) => DELIVERED_PATTERN.test(c.description))
-    setLogisticsStatus(orderSn, latest.description, delivered?.happenedAt ?? null)
+    await setLogisticsStatusAsync(orderSn, latest.description, delivered?.happenedAt ?? null)
 
     let newEvents = 0
     for (const c of checkpoints) {
       if (
-        recordEvent({
+        await recordEventAsync({
           orderSn,
           source: 'logistics',
           description: c.description,

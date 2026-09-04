@@ -58,6 +58,21 @@ export function recordEvent(input: RecordEventInput): boolean {
   return result.changes > 0
 }
 
+export async function recordEventAsync(input: RecordEventInput): Promise<boolean> {
+  const eventKey = createHash('sha1')
+    .update(`${input.orderSn}|${input.source}|${input.happenedAt}|${input.description}`)
+    .digest('hex')
+  const statement = await getAsyncDb().prepare(
+    `INSERT INTO order_events (event_key, order_sn, source, description, happened_at, created_at, seen, raw_json)
+     VALUES (?, ?, ?, ?, ?, ?, 0, ?) ON CONFLICT(event_key) DO NOTHING`
+  )
+  const result = await statement.run([
+    eventKey, input.orderSn, input.source, input.description, input.happenedAt,
+    Date.now(), input.rawJson ?? null
+  ])
+  return result.changes > 0
+}
+
 export function listEvents(opts: { onlyUnseen?: boolean; limit?: number } = {}): OrderEvent[] {
   const where = opts.onlyUnseen ? 'WHERE seen = 0' : ''
   const rows = getDb()
