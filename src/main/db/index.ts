@@ -13,18 +13,10 @@ function openRemote(url: string, authToken: string): Database.Database {
 
 function installRemoteTransactionAdapter(remote: Database.Database): void {
   remote.transaction = ((fn: (...args: unknown[]) => unknown) => {
-    const wrap = (mode = '') =>
-      (...args: unknown[]): unknown => {
-        remote.prepare(`BEGIN${mode ? ` ${mode}` : ''}`).run()
-        try {
-          const result = fn(...args)
-          remote.prepare('COMMIT').run()
-          return result
-        } catch (error) {
-          remote.prepare('ROLLBACK').run()
-          throw error
-        }
-      }
+    // A API síncrona do libsql já transaciona cada statement Hrana e rejeita
+    // BEGIN explícito. Mantemos a interface usada pelos serviços e a ordem das
+    // operações; erros continuam subindo, mas não há rollback entre statements.
+    const wrap = () => (...args: unknown[]): unknown => fn(...args)
     type Wrapped = (...args: unknown[]) => unknown
     const transaction = wrap() as Wrapped & {
       default: Wrapped
@@ -33,9 +25,9 @@ function installRemoteTransactionAdapter(remote: Database.Database): void {
       exclusive: Wrapped
     }
     transaction.default = transaction
-    transaction.deferred = wrap('DEFERRED')
-    transaction.immediate = wrap('IMMEDIATE')
-    transaction.exclusive = wrap('EXCLUSIVE')
+    transaction.deferred = wrap()
+    transaction.immediate = wrap()
+    transaction.exclusive = wrap()
     return transaction
   }) as unknown as typeof remote.transaction
 }
