@@ -375,6 +375,19 @@ select:focus {
   padding: 28px 0;
 }
 
+.load-more {
+  display: flex;
+  justify-content: center;
+  padding: 18px;
+}
+
+.load-more button {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 8px 18px;
+}
+
 .close-btn {
   border: none;
   background: none;

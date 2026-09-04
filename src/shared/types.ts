@@ -475,6 +475,8 @@ export interface OrderFilters {
   /** Etapa de produção (só relevante em A_ENVIAR). */
   stageId?: number
   search?: string
+  /** Limita o volume transferido e renderizado pela listagem. */
+  limit?: number
   /** Só pedidos entregues cujo pagamento ainda não foi liberado. */
   awaitingPayment?: boolean
 }

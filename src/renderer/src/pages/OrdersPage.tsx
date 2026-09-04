@@ -3,6 +3,8 @@ import type { Order, OrderCounts, OrderTab } from '@shared/types'
 import { MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
 
+const PAGE_SIZE = 50
+
 /** Menos de 24h para postar: o prazo da Shopee vira multa se estourar. */
 function prazoApertado(shipByDate: number): boolean {
   return shipByDate - Date.now() < 24 * 60 * 60 * 1000
@@ -21,6 +23,8 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const [counts, setCounts] = useState<OrderCounts | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [limit, setLimit] = useState(PAGE_SIZE)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 250)
@@ -29,27 +33,41 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
 
   useEffect(() => {
     let current = true
-    void Promise.all([
-      window.api.orders.list({ tab: tabFilter, search: debouncedSearch }),
-      window.api.orders.tabCounts()
-    ]).then(([nextOrders, nextCounts]) => {
-      if (!current) return
-      setOrders(nextOrders)
-      setCounts(nextCounts)
-    })
+    setOrders([])
+    setLoading(true)
+    void window.api.orders
+      .list({ tab: tabFilter, search: debouncedSearch, limit })
+      .then((nextOrders) => {
+        if (current) setOrders(nextOrders)
+      })
+      .finally(() => {
+        if (current) setLoading(false)
+      })
     return () => {
       current = false
     }
-  }, [tabFilter, debouncedSearch, dataVersion])
+  }, [tabFilter, debouncedSearch, limit, dataVersion])
+
+  useEffect(() => {
+    void window.api.orders.tabCounts().then(setCounts)
+  }, [dataVersion])
 
   const refresh = (): void => {
-    void Promise.all([
-      window.api.orders.list({ tab: tabFilter, search: debouncedSearch }),
-      window.api.orders.tabCounts()
-    ]).then(([nextOrders, nextCounts]) => {
-      setOrders(nextOrders)
-      setCounts(nextCounts)
-    })
+    setLoading(true)
+    void window.api.orders
+      .list({ tab: tabFilter, search: debouncedSearch, limit })
+      .then(setOrders)
+      .finally(() => setLoading(false))
+    void window.api.orders.tabCounts().then(setCounts)
+  }
+
+  const changeTab = (tab: OrderTab | 'TODOS'): void => {
+    if (tab === tabFilter) return
+    setSelected(null)
+    setOrders([])
+    setLoading(true)
+    setLimit(PAGE_SIZE)
+    setTabFilter(tab)
   }
 
   const showToast = (msg: string): void => {
@@ -77,14 +95,19 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
           placeholder="Buscar em tudo, ou use tema: produto: nick: nome: id: url: rastreio:"
           title="Sem prefixo procura em todos os campos. Com prefixo restringe a um: tema:kpop, nick:comprador, rastreio:BR123, url:2390000000000"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setLimit(PAGE_SIZE)
+            setOrders([])
+            setLoading(true)
+          }}
         />
       </header>
 
       <div className="status-tabs">
         <button
           className={tabFilter === 'TODOS' ? 'active' : ''}
-          onClick={() => setTabFilter('TODOS')}
+          onClick={() => changeTab('TODOS')}
         >
           Todos ({total})
         </button>
@@ -92,25 +115,28 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
           <button
             key={t}
             className={tabFilter === t ? 'active' : ''}
-            onClick={() => setTabFilter(t)}
+            onClick={() => changeTab(t)}
           >
             {ORDER_TAB_LABELS[t]} ({counts?.tabs[t] ?? 0})
           </button>
         ))}
         <button
           className={tabFilter === 'CANCELADO' ? 'active' : ''}
-          onClick={() => setTabFilter('CANCELADO')}
+          onClick={() => changeTab('CANCELADO')}
         >
           {ORDER_TAB_LABELS.CANCELADO} ({counts?.tabs.CANCELADO ?? 0})
         </button>
       </div>
 
-      {orders.length === 0 ? (
+      {loading ? (
+        <div className="empty loading-indicator">Carregando pedidos…</div>
+      ) : orders.length === 0 ? (
         <div className="empty">
           Nenhum pedido ainda. Conecte a Shopee em <b>Configurações</b> e clique em{' '}
           <b>Sincronizar</b>.
         </div>
       ) : (
+        <>
         <table className="orders-table">
           <thead>
             <tr>
@@ -238,6 +264,14 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
             ))}
           </tbody>
         </table>
+        {orders.length === limit && (
+          <div className="load-more">
+            <button onClick={() => setLimit((current) => current + PAGE_SIZE)}>
+              Carregar mais pedidos
+            </button>
+          </div>
+        )}
+        </>
       )}
 
       {selected && (

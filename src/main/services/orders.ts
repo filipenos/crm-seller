@@ -333,13 +333,17 @@ export function listOrders(filters: OrderFilters = {}): Order[] {
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const limit = filters.limit === undefined ? null : Math.min(5000, Math.max(1, filters.limit))
+  const limitSql = limit === null ? '' : 'LIMIT ?'
+  if (limit !== null) params.push(limit)
   const rows = db
     .prepare(
       `SELECT ${ORDER_VIEW_COLUMNS}
          FROM orders o
          LEFT JOIN workflow_stages s ON s.id = o.stage_id
          ${where}
-        ORDER BY o.created_at_shopee DESC, o.order_sn DESC`
+        ORDER BY o.created_at_shopee DESC, o.order_sn DESC
+        ${limitSql}`
     )
     .all(...params) as OrderRow[]
 
@@ -377,11 +381,15 @@ export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order
     conditions.push("o.tab != 'CANCELADO'")
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const limit = filters.limit === undefined ? null : Math.min(5000, Math.max(1, filters.limit))
+  const limitSql = limit === null ? '' : 'LIMIT ?'
+  if (limit !== null) params.push(limit)
   const statement = await getAsyncDb().prepare(
     `SELECT ${ORDER_VIEW_COLUMNS}
        FROM orders o LEFT JOIN workflow_stages s ON s.id = o.stage_id
        ${where}
-      ORDER BY o.created_at_shopee DESC, o.order_sn DESC`
+      ORDER BY o.created_at_shopee DESC, o.order_sn DESC
+      ${limitSql}`
   )
   const rows = (await statement.all(params)) as OrderRow[]
   const sns = rows.map((r) => r.order_sn)
