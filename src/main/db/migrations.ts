@@ -362,10 +362,9 @@ export function runMigrations(db: Database.Database): void {
   }
   const currentVersion = Number(row.version)
   for (let i = currentVersion; i < migrations.length; i++) {
-    const apply = db.transaction(() => {
-      db.exec(migrations[i])
-      db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(i + 1)
-    })
-    apply()
+    // No Turso remoto, exec() já trata o bloco de múltiplos comandos como uma
+    // transação. Envolver em db.transaction() criaria uma transação aninhada.
+    db.exec(`${migrations[i]}
+      INSERT INTO schema_migrations (version) VALUES (${i + 1});`)
   }
 }
