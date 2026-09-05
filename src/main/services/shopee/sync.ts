@@ -14,23 +14,21 @@ import {
 } from './client'
 import { isConnected } from './session'
 import {
-  getOrder,
   getOrderAsync,
-  listOrders,
-  setLogisticsStatus,
+  listOrdersAsync,
   setLogisticsStatusAsync,
-  setRating,
+  setRatingAsync,
   upsertShopeeOrderAsync
 } from '../orders'
-import { recordEvent, recordEventAsync } from '../events'
-import { pedidosParaAtualizarPagamento, salvarRecebimento, salvarRecebimentoAsync } from '../recebimentos'
-import { getSettings } from '../settings'
+import { recordEventAsync } from '../events'
+import { pedidosParaAtualizarPagamentoAsync, salvarRecebimentoAsync } from '../recebimentos'
+import { getSettings, getSettingsAsync } from '../settings'
 import { saveOrderDump } from '../orderDump'
 import {
   recomporCatalogoDosPedidosAsync,
   salvarProdutoShopeeAsync
 } from '../produtos'
-import { baixarEstoqueDosDespachados } from '../receitas'
+import { baixarEstoqueDosDespachadosAsync } from '../receitas'
 import { assertCurrentShopeeAccount } from './accountBinding'
 
 /** Palavras que indicam entrega concluída num checkpoint de rastreio. */
@@ -92,7 +90,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
 
     // Pedidos
     try {
-      const paginas = opts.todasAsPaginas ? null : Math.max(1, getSettings().syncPageCount)
+      const paginas = opts.todasAsPaginas ? null : Math.max(1, (await getSettingsAsync()).syncPageCount)
       console.log(`[sync] pedidos: ${paginas === null ? 'todas as páginas' : paginas + ' página(s)'}`)
       await fetchOrders({
         maxPages: paginas,
@@ -120,11 +118,11 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     try {
       const ratings = await fetchRatings()
       for (const r of ratings) {
-        if (!getOrder(r.orderSn)) continue
-        setRating(r.orderSn, r.star, r.comment, r.ratedAt)
+        if (!(await getOrderAsync(r.orderSn))) continue
+        await setRatingAsync(r.orderSn, r.star, r.comment, r.ratedAt)
         const stars = '★'.repeat(Math.max(1, Math.min(5, Math.round(r.star))))
         if (
-          recordEvent({
+          await recordEventAsync({
             orderSn: r.orderSn,
             source: 'rating',
             description: `Pedido avaliado com ${stars} (${r.star})${r.comment ? `: “${r.comment}”` : ''}`,
@@ -139,13 +137,13 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
       errors.push(`avaliações: ${String(err instanceof Error ? err.message : err)}`)
     }
 
-    const config = getSettings()
+    const config = await getSettingsAsync()
 
     // Rastreio dos enviados: é o único grupo em movimento — "a enviar" nem saiu
     // e "concluído" já chegou.
     if (config.syncTracking && !lote.cancelar) {
       try {
-        const enviados = listOrders({ tab: 'ENVIADO' }).filter((o) => o.shopeeOrderId)
+        const enviados = (await listOrdersAsync({ tab: 'ENVIADO' })).filter((o) => o.shopeeOrderId)
         iniciaEtapa('rastreios', enviados.length)
         for (const order of enviados) {
           if (lote.cancelar) break
@@ -167,19 +165,19 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     // caiu — esses mudam sozinhos quando a Shopee libera.
     if (config.syncPayments && !lote.cancelar) {
       try {
-        const pendentes = pedidosParaAtualizarPagamento()
+        const pendentes = await pedidosParaAtualizarPagamentoAsync()
         iniciaEtapa('pagamentos', pendentes.length)
         for (const { orderSn, orderId } of pendentes) {
           if (lote.cancelar) break
           try {
             const income = await fetchOrderIncome(orderSn, orderId)
             if (income) {
-              salvarRecebimento(income)
+              await salvarRecebimentoAsync(income)
               if (income.recebidoEm !== null) {
                 const valor =
                   income.valorRecebido !== null ? ` (${BRL.format(income.valorRecebido)})` : ''
                 if (
-                  recordEvent({
+                  await recordEventAsync({
                     orderSn,
                     source: 'finance',
                     description: `Pagamento liberado${valor}`,
@@ -207,7 +205,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     // requisição, então rodam sempre, mesmo que as etapas acima falhem.
     try {
       await recomporCatalogoDosPedidosAsync()
-      baixarEstoqueDosDespachados()
+      await baixarEstoqueDosDespachadosAsync()
     } catch (err) {
       console.warn('[sync] catálogo/estoque:', err)
     }

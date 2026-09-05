@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
-import { getDb } from '../../db'
+import { getAsyncDb } from '../../db'
 import {
   capturePageRequests,
   collectPortalLinks,
@@ -46,16 +46,15 @@ const MUTATING = /update|create|delete|cancel|arrange|confirm|submit|set_|add_|r
 /** Só requisições de API (o resto é html/asset e não ajuda). */
 const API_URL = /\/(api|webchat)\//
 
-function sampleOrder(): { orderSn: string; orderId: string } | null {
+async function sampleOrder(): Promise<{ orderSn: string; orderId: string } | null> {
   try {
-    const row = getDb()
-      .prepare(
+    const statement = await getAsyncDb().prepare(
         `SELECT order_sn, shopee_order_id FROM orders
           WHERE shopee_order_id IS NOT NULL
           ORDER BY (tracking_number IS NOT NULL) DESC, created_at_shopee DESC
           LIMIT 1`
       )
-      .get() as { order_sn: string; shopee_order_id: string } | undefined
+    const row = (await statement.get([])) as { order_sn: string; shopee_order_id: string } | undefined
     if (!row) return null
     return { orderSn: row.order_sn, orderId: row.shopee_order_id }
   } catch {
@@ -63,8 +62,8 @@ function sampleOrder(): { orderSn: string; orderId: string } | null {
   }
 }
 
-export function buildTargets(): ProbeTarget[] {
-  const order = sampleOrder()
+export async function buildTargets(): Promise<ProbeTarget[]> {
+  const order = await sampleOrder()
   return [
     {
       key: 'financeiro',
@@ -169,7 +168,7 @@ export async function probeShopeeApis(): Promise<string> {
     if (!(await isConnected())) {
       throw new Error('Não conectado à Shopee. Faça login em Configurações antes de diagnosticar.')
     }
-    const targets = buildTargets()
+    const targets = await buildTargets()
     const debugDir = join(app.getPath('userData'), 'debug', `probe-${stamp()}`)
     await mkdir(debugDir, { recursive: true })
 

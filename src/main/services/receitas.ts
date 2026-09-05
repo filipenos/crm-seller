@@ -651,3 +651,122 @@ export function baixarEstoqueDosDespachados(): { pedidos: number; movimentos: nu
   }
   return { pedidos, movimentos }
 }
+
+export async function consumoDoPedidoAsync(orderSn: string): Promise<CustoPedido> {
+  const db = getAsyncDb()
+  const [orderItemsStmt, defaultLineStmt, productsStmt, recipesStmt, itemsStmt, suppliesStmt] =
+    await Promise.all([
+      db.prepare('SELECT item_id, quantity, pecas FROM order_items WHERE order_sn = ?'),
+      db.prepare('SELECT id FROM production_lines ORDER BY is_default DESC, id LIMIT 1'),
+      db.prepare('SELECT item_id, line_id FROM products'),
+      db.prepare('SELECT id, line_id, kind, yields FROM recipes'),
+      db.prepare('SELECT recipe_id, supply_id, child_recipe_id, quantity FROM recipe_items'),
+      db.prepare(`SELECT s.id, s.name, s.unit,
+        CASE WHEN SUM(p.quantity) > 0 THEN SUM(p.total + p.shipping) / SUM(p.quantity) END AS custo,
+        (SELECT COALESCE(SUM(m.quantity), 0) FROM stock_moves m
+          JOIN supply_variants sv ON sv.id = m.variant_id WHERE sv.supply_id = s.id) AS estoque
+        FROM supplies s LEFT JOIN supply_variants v ON v.supply_id = s.id
+        LEFT JOIN purchases p ON p.variant_id = v.id GROUP BY s.id`)
+    ])
+  const [orderItems, defaultLine, products, recipes, items, supplies] = await Promise.all([
+    orderItemsStmt.all([orderSn]) as Promise<{ item_id: string | null; quantity: number; pecas: number | null }[]>,
+    defaultLineStmt.get([]) as Promise<{ id: number } | undefined>,
+    productsStmt.all([]) as Promise<{ item_id: string; line_id: number | null }[]>,
+    recipesStmt.all([]) as Promise<{ id: number; line_id: number | null; kind: string; yields: number }[]>,
+    itemsStmt.all([]) as Promise<{ recipe_id: number; supply_id: number | null; child_recipe_id: number | null; quantity: number | null }[]>,
+    suppliesStmt.all([]) as Promise<{ id: number; name: string; unit: string; custo: number | null; estoque: number }[]>
+  ])
+  const lineByProduct = new Map(products.map((product) => [product.item_id, product.line_id]))
+  const recipeById = new Map(recipes.map((recipe) => [recipe.id, recipe]))
+  const itemsByRecipe = new Map<number, typeof items>()
+  for (const item of items) {
+    const list = itemsByRecipe.get(item.recipe_id) ?? []
+    list.push(item)
+    itemsByRecipe.set(item.recipe_id, list)
+  }
+  const consumed = new Map<number, number>()
+  const explode = (recipeId: number, times: number, path: number[] = []): void => {
+    if (path.includes(recipeId) || times <= 0) return
+    for (const item of itemsByRecipe.get(recipeId) ?? []) {
+      if (item.quantity === null) continue
+      if (item.supply_id !== null) {
+        consumed.set(item.supply_id, (consumed.get(item.supply_id) ?? 0) + item.quantity * times)
+      } else if (item.child_recipe_id !== null) {
+        const child = recipeById.get(item.child_recipe_id)
+        explode(item.child_recipe_id, item.quantity * times / Math.max(1, child?.yields ?? 1), [...path, recipeId])
+      }
+    }
+  }
+  let incomplete = false
+  let orderLine: number | null = null
+  for (const item of orderItems) {
+    const lineId = (item.item_id ? lineByProduct.get(item.item_id) : null) ?? defaultLine?.id ?? null
+    if (lineId === null) { incomplete = true; continue }
+    orderLine ??= lineId
+    const boxes = recipes.filter((recipe) => recipe.line_id === lineId && recipe.kind === 'CAIXA')
+    if (boxes.length === 0 || !item.pecas) { incomplete = true; continue }
+    for (const box of boxes) explode(box.id, item.pecas * item.quantity / boxes.length)
+  }
+  if (orderLine !== null) {
+    for (const packaging of recipes.filter(
+      (recipe) => recipe.line_id === orderLine && recipe.kind === 'EMBALAGEM'
+    )) explode(packaging.id, 1)
+  }
+  const supplyById = new Map(supplies.map((supply) => [supply.id, supply]))
+  let total = 0
+  const result: ConsumoInsumo[] = []
+  for (const [supplyId, quantity] of consumed) {
+    const supply = supplyById.get(supplyId)
+    if (!supply) continue
+    if (supply.custo === null) incomplete = true
+    else total += supply.custo * quantity
+    result.push({
+      insumoId: supplyId, insumoNome: supply.name, unidade: supply.unit,
+      quantidade: arredonda(quantity, 3),
+      custo: supply.custo === null ? null : arredonda(supply.custo * quantity, 4),
+      estoque: arredonda(supply.estoque)
+    })
+  }
+  result.sort((a, b) => a.insumoNome.localeCompare(b.insumoNome))
+  return { orderSn, custo: arredonda(total), incompleto: incomplete, insumos: result }
+}
+
+export async function baixarEstoqueDosDespachadosAsync(): Promise<{
+  pedidos: number; movimentos: number
+}> {
+  const db = getAsyncDb()
+  const since = await estoqueDesdeAsync()
+  const select = await db.prepare(
+    `SELECT DISTINCT e.order_sn FROM order_events e
+      WHERE e.source = 'logistics' AND LOWER(e.description) LIKE '%postado%'
+        AND e.happened_at >= ? AND NOT EXISTS (
+          SELECT 1 FROM stock_moves m WHERE m.order_sn = e.order_sn AND m.reason = 'pedido')`
+  )
+  const dispatched = (await select.all([since])) as { order_sn: string }[]
+  let orders = 0
+  let moves = 0
+  for (const { order_sn: orderSn } of dispatched) {
+    const consumption = await consumoDoPedidoAsync(orderSn)
+    if (consumption.insumos.length === 0) continue
+    for (const supply of consumption.insumos) {
+      const variantStatement = await db.prepare(
+        `SELECT v.id, (SELECT COALESCE(SUM(m.quantity), 0) FROM stock_moves m
+          WHERE m.variant_id = v.id) AS estoque FROM supply_variants v
+          WHERE v.supply_id = ? ORDER BY estoque DESC, v.id ASC LIMIT 1`
+      )
+      const variant = (await variantStatement.get([supply.insumoId])) as { id: number } | undefined
+      if (!variant) continue
+      const insert = await db.prepare(
+        `INSERT OR IGNORE INTO stock_moves
+          (variant_id, quantity, reason, ref, order_sn, happened_at)
+         VALUES (?, ?, 'pedido', ?, ?, ?)`
+      )
+      const result = await insert.run([
+        variant.id, -supply.quantidade, `pedido:${orderSn}:${variant.id}`, orderSn, Date.now()
+      ])
+      moves += result.changes
+    }
+    orders++
+  }
+  return { pedidos: orders, movimentos: moves }
+}

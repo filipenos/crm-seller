@@ -16,7 +16,7 @@ export function getBoundShopeeShopId(): string | null {
   }
 }
 
-async function getBoundShopeeShopIdAsync(): Promise<string | null> {
+export async function getBoundShopeeShopIdAsync(): Promise<string | null> {
   const statement = await getAsyncDb().prepare('SELECT value FROM settings WHERE key = ?')
   const row = (await statement.get([SETTING_KEY])) as { value: string } | undefined
   if (!row) return null
@@ -60,6 +60,36 @@ export async function bindCurrentShopeeAccount(): Promise<string> {
     getDb()
       .prepare('INSERT INTO settings (key, value) VALUES (?, ?)')
       .run(SETTING_KEY, JSON.stringify(currentShopId))
+  }
+  return currentShopId
+}
+
+export async function bindCurrentShopeeAccountAsync(): Promise<string> {
+  const identity = await fetchShopeeIdentity()
+  const currentShopId = identity.shopId
+  const boundShopId = await getBoundShopeeShopIdAsync()
+  if (boundShopId && boundShopId !== currentShopId) {
+    throw new Error(
+      `Este banco pertence à loja Shopee ${boundShopId}, mas a sessão aberta é da loja ${currentShopId}. ` +
+        'Reconecte a conta correta ou configure outro banco Turso.'
+    )
+  }
+  if (!boundShopId) {
+    const db = getAsyncDb()
+    const select = await db.prepare(
+      `SELECT shopee_order_id FROM orders WHERE shopee_order_id IS NOT NULL
+       ORDER BY created_at_shopee DESC LIMIT 10`
+    )
+    const existing = (await select.all([])) as { shopee_order_id: string }[]
+    if (existing.length > 0 &&
+      !existing.some((order) => identity.orderIds.includes(String(order.shopee_order_id)))) {
+      throw new Error(
+        'Este banco já contém pedidos e eles não correspondem aos pedidos recentes da conta aberta. ' +
+          'O vínculo foi bloqueado para não misturar dados.'
+      )
+    }
+    const insert = await db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)')
+    await insert.run([SETTING_KEY, JSON.stringify(currentShopId)])
   }
   return currentShopId
 }

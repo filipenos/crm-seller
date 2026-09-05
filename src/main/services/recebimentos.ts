@@ -194,6 +194,27 @@ export function reprocessarExtratos(): { lidos: number; corrigidos: number } {
   return { lidos: rows.length, corrigidos }
 }
 
+export async function reprocessarExtratosAsync(): Promise<{ lidos: number; corrigidos: number }> {
+  const statement = await getAsyncDb().prepare(
+    'SELECT order_sn, raw_json, recebido_em FROM order_income WHERE raw_json IS NOT NULL'
+  )
+  const rows = (await statement.all([])) as {
+    order_sn: string; raw_json: string; recebido_em: number | null
+  }[]
+  let corrigidos = 0
+  for (const row of rows) {
+    try {
+      const income = parseOrderIncome(JSON.parse(row.raw_json), row.order_sn)
+      if (!income) continue
+      if (income.recebidoEm !== row.recebido_em) corrigidos++
+      await salvarRecebimentoAsync(income)
+    } catch (error) {
+      console.warn(`[extratos] ${row.order_sn} ilegível:`, error)
+    }
+  }
+  return { lidos: rows.length, corrigidos }
+}
+
 /**
  * Quem precisa ter o extrato consultado.
  *
@@ -222,6 +243,21 @@ export function pedidosParaAtualizarPagamento(): { orderSn: string; orderId: str
       const row = x as { order_sn: string; shopee_order_id: string }
       return { orderSn: row.order_sn, orderId: row.shopee_order_id }
     })
+}
+
+export async function pedidosParaAtualizarPagamentoAsync(): Promise<{
+  orderSn: string; orderId: string
+}[]> {
+  const statement = await getAsyncDb().prepare(
+    `SELECT o.order_sn, o.shopee_order_id FROM orders o
+      LEFT JOIN order_income i ON i.order_sn = o.order_sn
+     WHERE o.tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
+       AND o.shopee_order_id IS NOT NULL
+       AND (i.order_sn IS NULL OR (o.tab = 'ENVIADO' AND i.recebido_em IS NULL))
+     ORDER BY o.created_at_shopee ASC`
+  )
+  return ((await statement.all([])) as { order_sn: string; shopee_order_id: string }[])
+    .map((row) => ({ orderSn: row.order_sn, orderId: row.shopee_order_id }))
 }
 
 export function contarSemExtrato(tab: string): number {

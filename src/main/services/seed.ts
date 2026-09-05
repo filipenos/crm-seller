@@ -1,6 +1,6 @@
-import { getDb } from '../db'
-import { criarInsumo } from './insumos'
-import { adicionarItem, criarLinha, criarReceita } from './receitas'
+import { getAsyncDb } from '../db'
+import { criarInsumoAsync } from './insumos'
+import { adicionarItemAsync, criarLinhaAsync, criarReceitaAsync } from './receitas'
 
 /**
  * Cadastro inicial de fabricação.
@@ -17,67 +17,51 @@ import { adicionarItem, criarLinha, criarReceita } from './receitas'
 /** Sem quantidade certa: entra na lista do que é preciso ter, não no custo. */
 const UM_POUCO = null
 
-export function garantirCadastroDeFabricacao(): boolean {
-  const db = getDb()
-  const jaTem =
-    (db.prepare('SELECT COUNT(*) AS n FROM supplies').get() as { n: number }).n > 0 ||
-    (db.prepare('SELECT COUNT(*) AS n FROM production_lines').get() as { n: number }).n > 0
-  if (jaTem) return false
+export async function garantirCadastroDeFabricacaoAsync(): Promise<boolean> {
+  const db = getAsyncDb()
+  const supplies = await db.prepare('SELECT COUNT(*) AS n FROM supplies')
+  const lines = await db.prepare('SELECT COUNT(*) AS n FROM production_lines')
+  const [supplyCount, lineCount] = await Promise.all([
+    supplies.get([]) as Promise<{ n: number }>,
+    lines.get([]) as Promise<{ n: number }>
+  ])
+  if (supplyCount.n > 0 || lineCount.n > 0) return false
 
-  const criar = db.transaction(() => {
-    const papel = criarInsumo({ nome: 'Papel', unidade: 'folha', estoqueMinimo: 100 })
-    const cola = criarInsumo({ nome: 'Cola', unidade: 'ml' })
-    const tinta = criarInsumo({ nome: 'Tinta', unidade: 'ml' })
-    // As cores ficam como variantes; estas são as que o usuário citou, e o
-    // resto se cadastra na tela.
-    const cetim9 = criarInsumo({
-      nome: 'Fita cetim nº9',
-      unidade: 'cm',
-      estoqueMinimo: 500,
-      variantes: ['Azul', 'Amarela']
-    })
-    const cetim1 = criarInsumo({
-      nome: 'Fita cetim nº1',
-      unidade: 'cm',
-      estoqueMinimo: 500,
-      variantes: ['Azul', 'Amarela']
-    })
-    const perola = criarInsumo({ nome: 'Meia pérola', unidade: 'un', estoqueMinimo: 100 })
-    const saco = criarInsumo({ nome: 'Saco', unidade: 'un', estoqueMinimo: 20 })
-    const bolha = criarInsumo({ nome: 'Plástico bolha', unidade: 'm', estoqueMinimo: 20 })
-    const saquinho = criarInsumo({ nome: 'Saquinho individual', unidade: 'un', estoqueMinimo: 50 })
-    const etiqueta = criarInsumo({ nome: 'Etiqueta', unidade: 'un', estoqueMinimo: 20 })
-
-    // O laço é receita à parte porque duas caixas o usam: assim o cetim é
-    // cadastrado uma vez só, e encarecer a fita encarece as duas de uma vez.
-    const laco = criarReceita({ linhaId: null, nome: 'Laço', tipo: 'COMPONENTE' })
-    adicionarItem({ receitaId: laco, insumoId: cetim9, quantidade: 26 })
-    adicionarItem({ receitaId: laco, insumoId: cetim1, quantidade: 10 })
-    adicionarItem({ receitaId: laco, insumoId: perola, quantidade: 1 })
-
-    const linha = criarLinha('Fabricação padrão')
-
-    const caixa = (nome: string, comLaco: boolean): void => {
-      const id = criarReceita({ linhaId: linha, nome, tipo: 'CAIXA' })
-      adicionarItem({ receitaId: id, insumoId: papel, quantidade: 1 })
-      adicionarItem({ receitaId: id, insumoId: cola, quantidade: UM_POUCO })
-      adicionarItem({ receitaId: id, insumoId: tinta, quantidade: UM_POUCO })
-      if (comLaco) adicionarItem({ receitaId: id, receitaFilhaId: laco, quantidade: 1 })
-    }
-
-    caixa('Pirâmide', true)
-    caixa('Milk', true)
-    caixa('Coração', false)
-    caixa('Maleta quadrada', false)
-    caixa('Maleta redonda', false)
-
-    const embalagem = criarReceita({ linhaId: linha, nome: 'Embalagem do pedido', tipo: 'EMBALAGEM' })
-    adicionarItem({ receitaId: embalagem, insumoId: saco, quantidade: 1 })
-    adicionarItem({ receitaId: embalagem, insumoId: bolha, quantidade: 1 })
-    adicionarItem({ receitaId: embalagem, insumoId: saquinho, quantidade: 3 })
-    adicionarItem({ receitaId: embalagem, insumoId: etiqueta, quantidade: 1 })
+  const papel = await criarInsumoAsync({ nome: 'Papel', unidade: 'folha', estoqueMinimo: 100 })
+  const cola = await criarInsumoAsync({ nome: 'Cola', unidade: 'ml' })
+  const tinta = await criarInsumoAsync({ nome: 'Tinta', unidade: 'ml' })
+  const cetim9 = await criarInsumoAsync({
+    nome: 'Fita cetim nº9', unidade: 'cm', estoqueMinimo: 500, variantes: ['Azul', 'Amarela']
   })
-
-  criar()
+  const cetim1 = await criarInsumoAsync({
+    nome: 'Fita cetim nº1', unidade: 'cm', estoqueMinimo: 500, variantes: ['Azul', 'Amarela']
+  })
+  const perola = await criarInsumoAsync({ nome: 'Meia pérola', unidade: 'un', estoqueMinimo: 100 })
+  const saco = await criarInsumoAsync({ nome: 'Saco', unidade: 'un', estoqueMinimo: 20 })
+  const bolha = await criarInsumoAsync({ nome: 'Plástico bolha', unidade: 'm', estoqueMinimo: 20 })
+  const saquinho = await criarInsumoAsync({ nome: 'Saquinho individual', unidade: 'un', estoqueMinimo: 50 })
+  const etiqueta = await criarInsumoAsync({ nome: 'Etiqueta', unidade: 'un', estoqueMinimo: 20 })
+  const laco = await criarReceitaAsync({ linhaId: null, nome: 'Laço', tipo: 'COMPONENTE' })
+  await adicionarItemAsync({ receitaId: laco, insumoId: cetim9, quantidade: 26 })
+  await adicionarItemAsync({ receitaId: laco, insumoId: cetim1, quantidade: 10 })
+  await adicionarItemAsync({ receitaId: laco, insumoId: perola, quantidade: 1 })
+  const linha = await criarLinhaAsync('Fabricação padrão')
+  for (const [nome, comLaco] of [
+    ['Pirâmide', true], ['Milk', true], ['Coração', false],
+    ['Maleta quadrada', false], ['Maleta redonda', false]
+  ] as const) {
+    const recipe = await criarReceitaAsync({ linhaId: linha, nome, tipo: 'CAIXA' })
+    await adicionarItemAsync({ receitaId: recipe, insumoId: papel, quantidade: 1 })
+    await adicionarItemAsync({ receitaId: recipe, insumoId: cola, quantidade: UM_POUCO })
+    await adicionarItemAsync({ receitaId: recipe, insumoId: tinta, quantidade: UM_POUCO })
+    if (comLaco) await adicionarItemAsync({ receitaId: recipe, receitaFilhaId: laco, quantidade: 1 })
+  }
+  const embalagem = await criarReceitaAsync({
+    linhaId: linha, nome: 'Embalagem do pedido', tipo: 'EMBALAGEM'
+  })
+  await adicionarItemAsync({ receitaId: embalagem, insumoId: saco, quantidade: 1 })
+  await adicionarItemAsync({ receitaId: embalagem, insumoId: bolha, quantidade: 1 })
+  await adicionarItemAsync({ receitaId: embalagem, insumoId: saquinho, quantidade: 3 })
+  await adicionarItemAsync({ receitaId: embalagem, insumoId: etiqueta, quantidade: 1 })
   return true
 }

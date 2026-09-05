@@ -667,6 +667,18 @@ export function setRating(
     .run(star, comment, ratedAt, orderSn)
 }
 
+export async function setRatingAsync(
+  orderSn: string,
+  star: number,
+  comment: string | null,
+  ratedAt: number | null
+): Promise<void> {
+  const statement = await getAsyncDb().prepare(
+    'UPDATE orders SET rating_star = ?, rating_comment = ?, rated_at = COALESCE(?, rated_at) WHERE order_sn = ?'
+  )
+  await statement.run([star, comment, ratedAt, orderSn])
+}
+
 /**
  * Guarda o valor e a liberação do pedido. `releasedAt` nulo é normal: a Shopee
  * calcula o valor antes de soltar o dinheiro — é o estado "aguardando

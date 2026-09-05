@@ -71,7 +71,7 @@ export async function countDumps(): Promise<number> {
  * se atualiza sem uma requisição sequer.
  */
 export async function reprocessDumps(
-  upsert: (card: Record<string, unknown>) => void
+  upsert: (card: Record<string, unknown>) => void | Promise<void>
 ): Promise<{ lidos: number; aplicados: number }> {
   let lidos = 0
   let aplicados = 0
@@ -85,7 +85,7 @@ export async function reprocessDumps(
     try {
       const card = JSON.parse(await readFile(join(dumpDir(), file), 'utf8'))
       lidos++
-      upsert(card)
+      await upsert(card)
       aplicados++
     } catch (err) {
       console.warn(`[dump] ${file} ilegível:`, err)

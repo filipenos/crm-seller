@@ -1,23 +1,34 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
-import { getDb, closeDb } from './db'
+import { closeDb, prepareTursoDatabaseAsync } from './db'
 import { registerIpcHandlers } from './ipc'
-import { garantirCadastroDeFabricacao } from './services/seed'
-import { recomporCatalogoDosPedidos } from './services/produtos'
+import { garantirCadastroDeFabricacaoAsync } from './services/seed'
+import { recomporCatalogoDosPedidosAsync } from './services/produtos'
 import { startSyncScheduler, stopSyncScheduler } from './services/shopee/sync'
 import { initUpdater, stopUpdater } from './services/updates'
-import { hasTursoConfig } from './db/config'
+import { hasTursoConfig, readTursoConfig } from './db/config'
+import { getSettingsAsync } from './services/settings'
 
-let servicesStarted = false
+let servicesStart: Promise<void> | null = null
 
-function startServices(): void {
-  if (servicesStarted) return
-  getDb()
-  garantirCadastroDeFabricacao()
-  recomporCatalogoDosPedidos()
-  startSyncScheduler()
-  initUpdater()
-  servicesStarted = true
+async function startServices(reset = false): Promise<void> {
+  if (reset) servicesStart = null
+  if (servicesStart) return servicesStart
+  servicesStart = (async () => {
+    const credentials = readTursoConfig()
+    if (!credentials) throw new Error('Configure a conexão com o Turso antes de usar o aplicativo.')
+    await prepareTursoDatabaseAsync(credentials, () => undefined)
+    await garantirCadastroDeFabricacaoAsync()
+    await recomporCatalogoDosPedidosAsync()
+    startSyncScheduler(await getSettingsAsync())
+    initUpdater()
+  })()
+  try {
+    await servicesStart
+  } catch (error) {
+    servicesStart = null
+    throw error
+  }
 }
 
 function createMainWindow(): void {
@@ -46,11 +57,9 @@ function createMainWindow(): void {
 app.whenReady().then(() => {
   registerIpcHandlers(startServices)
   if (hasTursoConfig()) {
-    try {
-      startServices()
-    } catch (error) {
+    void startServices().catch((error) => {
       console.error('Falha ao inicializar o Turso:', error instanceof Error ? error.message : error)
-    }
+    })
   }
   createMainWindow()
 

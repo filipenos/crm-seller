@@ -13,8 +13,8 @@ import { publicTursoConfig, writeTursoConfig } from './db/config'
 import { provisionTursoDatabase } from './db/tursoPlatform'
 import {
   assertCurrentShopeeAccount,
-  bindCurrentShopeeAccount,
-  getBoundShopeeShopId
+  bindCurrentShopeeAccountAsync,
+  getBoundShopeeShopIdAsync
 } from './services/shopee/accountBinding'
 import {
   countAwaitingPaymentAsync,
@@ -26,7 +26,7 @@ import {
   setInternalStatusAsync,
   setNoteAsync,
   setOrderStageAsync,
-  upsertShopeeOrder
+  upsertShopeeOrderAsync
 } from './services/orders'
 import {
   addActionAsync,
@@ -53,7 +53,7 @@ import {
 import { probeShopeeApis } from './services/shopee/probe'
 import { fetchOrderTotal, normalizeCard } from './services/shopee/client'
 import { countDumps, dumpPath, reprocessDumps } from './services/orderDump'
-import { reprocessarExtratos } from './services/recebimentos'
+import { reprocessarExtratosAsync } from './services/recebimentos'
 import { montarPainel, serieMensal } from './services/dashboard'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
@@ -79,8 +79,8 @@ import {
   adicionarItemAsync,
   atualizarItemAsync,
   atualizarReceitaAsync,
-  baixarEstoqueDosDespachados,
-  consumoDoPedido,
+  baixarEstoqueDosDespachadosAsync,
+  consumoDoPedidoAsync,
   criarLinhaAsync,
   estoqueDesdeAsync,
   criarReceitaAsync,
@@ -98,13 +98,13 @@ import {
   markAllEventsSeenAsync
 } from './services/events'
 
-export function registerIpcHandlers(onDatabaseReady: () => void): void {
-  ipcMain.handle('database:status', () => {
+export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promise<void>): void {
+  ipcMain.handle('database:status', async () => {
     const status = publicTursoConfig()
     if (!status.configured) return status
     try {
-      onDatabaseReady()
-      return { ...status, shopeeShopId: getBoundShopeeShopId() }
+      await onDatabaseReady()
+      return { ...status, shopeeShopId: await getBoundShopeeShopIdAsync() }
     } catch (reason) {
       return {
         configured: false,
@@ -122,7 +122,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
       closeDb()
       writeTursoConfig(credentials)
       progress('Banco conectado e pronto.')
-      onDatabaseReady()
+      await onDatabaseReady(true)
       return { ok: true, url: credentials.url }
     }
   )
@@ -131,7 +131,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('settings:get', () => getSettingsAsync())
   ipcMain.handle('settings:update', async (_e, partial: Partial<AppSettings>) => {
     const settings = await updateSettingsAsync(partial)
-    startSyncScheduler() // re-aplica intervalo
+    startSyncScheduler(settings) // re-aplica intervalo sem nova consulta bloqueante
     return settings
   })
   ipcMain.handle('dialog:pickDirectory', async (_e, title: string) => {
@@ -143,9 +143,9 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('shopee:connect', () => openLoginWindow())
   ipcMain.handle('shopee:setup', async () => {
     await openLoginWindowAndWait()
-    return bindCurrentShopeeAccount()
+    return bindCurrentShopeeAccountAsync()
   })
-  ipcMain.handle('shopee:bind', () => bindCurrentShopeeAccount())
+  ipcMain.handle('shopee:bind', () => bindCurrentShopeeAccountAsync())
   ipcMain.handle('shopee:disconnect', () => disconnect())
   ipcMain.handle('shopee:status', () => getConnectionStatus())
   ipcMain.handle('shopee:sync', () => syncAll())
@@ -155,13 +155,13 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   // Reaplica o parsing aos JSON já salvos — sem rede.
   ipcMain.handle('shopee:reprocess', async () => {
     await assertCurrentShopeeAccount()
-    const r = await reprocessDumps((card) => {
+    const r = await reprocessDumps(async (card) => {
       const order = normalizeCard(card)
-      if (order) upsertShopeeOrder(order)
+      if (order) await upsertShopeeOrderAsync(order)
     })
     return r
   })
-  ipcMain.handle('orders:reprocessarExtratos', () => reprocessarExtratos())
+  ipcMain.handle('orders:reprocessarExtratos', () => reprocessarExtratosAsync())
   ipcMain.handle('shopee:dumpInfo', async () => ({ path: dumpPath(), count: await countDumps() }))
   // Diagnóstico: descobre os endpoints reais do Seller Center (leva alguns minutos).
   ipcMain.handle('shopee:probe', async (): Promise<ActionResult> => {
@@ -266,7 +266,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
     ajustarEstoqueAsync(varianteId, quantidade, obs)
   )
   ipcMain.handle('estoque:movimentos', (_e, limite?: number) => listarMovimentosAsync(limite))
-  ipcMain.handle('estoque:baixarDespachados', () => baixarEstoqueDosDespachados())
+  ipcMain.handle('estoque:baixarDespachados', () => baixarEstoqueDosDespachadosAsync())
   ipcMain.handle('estoque:desde', () => estoqueDesdeAsync())
 
   // Receitas e linhas de fabricação
@@ -289,6 +289,6 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
     atualizarItemAsync(id, quantidade)
   )
   ipcMain.handle('fabricacao:removerItem', (_e, id: number) => removerItemAsync(id))
-  ipcMain.handle('fabricacao:consumoDoPedido', (_e, orderSn: string) => consumoDoPedido(orderSn))
+  ipcMain.handle('fabricacao:consumoDoPedido', (_e, orderSn: string) => consumoDoPedidoAsync(orderSn))
 
 }
