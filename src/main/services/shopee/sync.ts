@@ -344,9 +344,8 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
  * Agendador da sincronização. Só liga quando o usuário pede explicitamente
  * (`autoSyncEnabled`); o padrão é sincronizar apenas pelo botão.
  */
-export function startSyncScheduler(): void {
+export function startSyncScheduler(settings = getSettings()): void {
   stopSyncScheduler()
-  const settings = getSettings()
   if (!settings.autoSyncEnabled) {
     console.log('[sync] automático desligado — sincronize pelo botão')
     return

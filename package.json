@@ -11,6 +11,7 @@
     "dev:linux": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "check:db-access": "node scripts/check-db-access.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:win": "electron-vite build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",

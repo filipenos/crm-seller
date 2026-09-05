@@ -7,7 +7,7 @@ import type {
   OrderFilters,
   StageActionKind
 } from '@shared/types'
-import { getSettingsAsync, updateSettings } from './services/settings'
+import { getSettingsAsync, updateSettingsAsync } from './services/settings'
 import { closeDb, prepareTursoDatabaseAsync } from './db'
 import { publicTursoConfig, writeTursoConfig } from './db/config'
 import { provisionTursoDatabase } from './db/tursoPlatform'
@@ -17,26 +17,26 @@ import {
   getBoundShopeeShopId
 } from './services/shopee/accountBinding'
 import {
-  countAwaitingPayment,
+  countAwaitingPaymentAsync,
   countByTabAsync,
   getOrderAsync,
-  getStatusHistory,
+  getStatusHistoryAsync,
   listOrdersAsync,
-  setChildName,
-  setInternalStatus,
-  setNote,
-  setOrderStage,
+  setChildNameAsync,
+  setInternalStatusAsync,
+  setNoteAsync,
+  setOrderStageAsync,
   upsertShopeeOrder
 } from './services/orders'
 import {
-  addAction,
-  createStage,
-  deleteStage,
+  addActionAsync,
+  createStageAsync,
+  deleteStageAsync,
   listStagesAsync,
-  nextStageId,
-  removeAction,
-  reorderStages,
-  updateStage
+  nextStageIdAsync,
+  removeActionAsync,
+  reorderStagesAsync,
+  updateStageAsync
 } from './services/stages'
 import { createOrderFolder, ensureFolderName, openOrderFolder } from './services/folders'
 import { disconnect, openLoginWindow, openLoginWindowAndWait } from './services/shopee/session'
@@ -95,7 +95,7 @@ import {
   countUnseenEventsAsync,
   listEventsAsync,
   listEventsForOrderAsync,
-  markAllEventsSeen
+  markAllEventsSeenAsync
 } from './services/events'
 
 export function registerIpcHandlers(onDatabaseReady: () => void): void {
@@ -129,8 +129,8 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
 
   // Settings
   ipcMain.handle('settings:get', () => getSettingsAsync())
-  ipcMain.handle('settings:update', (_e, partial: Partial<AppSettings>) => {
-    const settings = updateSettings(partial)
+  ipcMain.handle('settings:update', async (_e, partial: Partial<AppSettings>) => {
+    const settings = await updateSettingsAsync(partial)
     startSyncScheduler() // re-aplica intervalo
     return settings
   })
@@ -174,7 +174,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
 
   // Pedidos
   ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrdersAsync(filters))
-  ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPayment())
+  ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPaymentAsync())
   ipcMain.handle('orders:tabCounts', () => countByTabAsync())
   ipcMain.handle('painel:resumo', () => montarPainel())
   ipcMain.handle('painel:serie', (_e, metrica: MetricaPainel, ano: number, mes: number) =>
@@ -186,34 +186,34 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('orders:refreshTracking', (_e, orderSn: string) => refreshTracking(orderSn))
   ipcMain.handle('orders:get', (_e, orderSn: string) => getOrderAsync(orderSn))
   ipcMain.handle('orders:setStatus', (_e, orderSn: string, status: InternalStatus) =>
-    setInternalStatus(orderSn, status)
+    setInternalStatusAsync(orderSn, status)
   )
   ipcMain.handle('orders:setChildName', async (_e, orderSn: string, name: string) => {
-    const order = setChildName(orderSn, name)
+    const order = await setChildNameAsync(orderSn, name)
     await ensureFolderName(orderSn)
     return order
   })
   ipcMain.handle('orders:setStage', (_e, orderSn: string, stageId: number) =>
-    setOrderStage(orderSn, stageId)
+    setOrderStageAsync(orderSn, stageId)
   )
-  ipcMain.handle('orders:setNote', (_e, orderSn: string, note: string) => setNote(orderSn, note))
+  ipcMain.handle('orders:setNote', (_e, orderSn: string, note: string) => setNoteAsync(orderSn, note))
 
   // Etapas de produção cadastráveis
   ipcMain.handle('stages:list', () => listStagesAsync())
   ipcMain.handle('stages:create', (_e, name: string, color: string | null) =>
-    createStage(name, color)
+    createStageAsync(name, color)
   )
   ipcMain.handle('stages:update', (_e, id: number, patch: { name?: string; color?: string | null }) =>
-    updateStage(id, patch)
+    updateStageAsync(id, patch)
   )
-  ipcMain.handle('stages:delete', (_e, id: number) => deleteStage(id))
-  ipcMain.handle('stages:reorder', (_e, orderedIds: number[]) => reorderStages(orderedIds))
+  ipcMain.handle('stages:delete', (_e, id: number) => deleteStageAsync(id))
+  ipcMain.handle('stages:reorder', (_e, orderedIds: number[]) => reorderStagesAsync(orderedIds))
   ipcMain.handle('stages:addAction', (_e, stageId: number, kind: StageActionKind, label: string) =>
-    addAction(stageId, kind, label)
+    addActionAsync(stageId, kind, label)
   )
-  ipcMain.handle('stages:removeAction', (_e, actionId: number) => removeAction(actionId))
-  ipcMain.handle('stages:next', (_e, currentStageId: number | null) => nextStageId(currentStageId))
-  ipcMain.handle('orders:statusHistory', (_e, orderSn: string) => getStatusHistory(orderSn))
+  ipcMain.handle('stages:removeAction', (_e, actionId: number) => removeActionAsync(actionId))
+  ipcMain.handle('stages:next', (_e, currentStageId: number | null) => nextStageIdAsync(currentStageId))
+  ipcMain.handle('orders:statusHistory', (_e, orderSn: string) => getStatusHistoryAsync(orderSn))
   ipcMain.handle('orders:createFolder', (_e, orderSn: string) => createOrderFolder(orderSn))
   ipcMain.handle('orders:openFolder', (_e, orderSn: string) => openOrderFolder(orderSn))
   ipcMain.handle('shell:openPath', (_e, path: string) => shell.openPath(path))
@@ -234,7 +234,7 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   )
   ipcMain.handle('events:byOrder', (_e, orderSn: string) => listEventsForOrderAsync(orderSn))
   ipcMain.handle('events:unseenCount', () => countUnseenEventsAsync())
-  ipcMain.handle('events:markAllSeen', () => markAllEventsSeen())
+  ipcMain.handle('events:markAllSeen', () => markAllEventsSeenAsync())
 
   // Produtos
   ipcMain.handle('produtos:list', () => listarProdutosAsync())

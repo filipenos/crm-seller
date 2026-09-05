@@ -526,6 +526,30 @@ export function setOrderStage(orderSn: string, stageId: number): Order | null {
   return getOrder(orderSn)
 }
 
+export async function setOrderStageAsync(orderSn: string, stageId: number): Promise<Order | null> {
+  const db = getAsyncDb()
+  const currentStatement = await db.prepare(
+    `SELECT o.stage_id, s.name AS stage_name FROM orders o
+      LEFT JOIN workflow_stages s ON s.id = o.stage_id WHERE o.order_sn = ?`
+  )
+  const targetStatement = await db.prepare('SELECT name FROM workflow_stages WHERE id = ?')
+  const [current, target] = await Promise.all([
+    currentStatement.get([orderSn]) as Promise<{ stage_id: number | null; stage_name: string | null } | undefined>,
+    targetStatement.get([stageId]) as Promise<{ name: string } | undefined>
+  ])
+  if (!current) return null
+  if (!target) throw new Error(`Etapa ${stageId} não existe`)
+  if (current.stage_id !== stageId) {
+    const update = await db.prepare('UPDATE orders SET stage_id = ? WHERE order_sn = ?')
+    const history = await db.prepare(
+      'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, ?, ?, ?)'
+    )
+    await update.run([stageId, orderSn])
+    await history.run([orderSn, current.stage_name, target.name, Date.now()])
+  }
+  return getOrderAsync(orderSn)
+}
+
 export function setInternalStatus(orderSn: string, status: InternalStatus): Order | null {
   if (!INTERNAL_STATUSES.includes(status)) {
     throw new Error(`Status interno inválido: ${status}`)
@@ -547,11 +571,37 @@ export function setInternalStatus(orderSn: string, status: InternalStatus): Orde
   return getOrder(orderSn)
 }
 
+export async function setInternalStatusAsync(
+  orderSn: string,
+  status: InternalStatus
+): Promise<Order | null> {
+  if (!INTERNAL_STATUSES.includes(status)) throw new Error(`Status interno inválido: ${status}`)
+  const db = getAsyncDb()
+  const select = await db.prepare('SELECT internal_status FROM orders WHERE order_sn = ?')
+  const current = (await select.get([orderSn])) as { internal_status: string } | undefined
+  if (!current) return null
+  if (current.internal_status !== status) {
+    const update = await db.prepare('UPDATE orders SET internal_status = ? WHERE order_sn = ?')
+    const history = await db.prepare(
+      'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, ?, ?, ?)'
+    )
+    await update.run([status, orderSn])
+    await history.run([orderSn, current.internal_status, status, Date.now()])
+  }
+  return getOrderAsync(orderSn)
+}
+
 export function setChildName(orderSn: string, childName: string): Order | null {
   getDb()
     .prepare('UPDATE orders SET child_name = ? WHERE order_sn = ?')
     .run(childName.trim() || null, orderSn)
   return getOrder(orderSn)
+}
+
+export async function setChildNameAsync(orderSn: string, childName: string): Promise<Order | null> {
+  const statement = await getAsyncDb().prepare('UPDATE orders SET child_name = ? WHERE order_sn = ?')
+  await statement.run([childName.trim() || null, orderSn])
+  return getOrderAsync(orderSn)
 }
 
 export function setNote(orderSn: string, note: string): Order | null {
@@ -561,8 +611,19 @@ export function setNote(orderSn: string, note: string): Order | null {
   return getOrder(orderSn)
 }
 
+export async function setNoteAsync(orderSn: string, note: string): Promise<Order | null> {
+  const statement = await getAsyncDb().prepare('UPDATE orders SET note = ? WHERE order_sn = ?')
+  await statement.run([note.trim() || null, orderSn])
+  return getOrderAsync(orderSn)
+}
+
 export function setFolderPath(orderSn: string, folderPath: string): void {
   getDb().prepare('UPDATE orders SET folder_path = ? WHERE order_sn = ?').run(folderPath, orderSn)
+}
+
+export async function setFolderPathAsync(orderSn: string, folderPath: string): Promise<void> {
+  const statement = await getAsyncDb().prepare('UPDATE orders SET folder_path = ? WHERE order_sn = ?')
+  await statement.run([folderPath, orderSn])
 }
 
 /** Guarda o último checkpoint do rastreio, que é detalhe do pedido. */
@@ -654,6 +715,13 @@ export function countAwaitingPayment(): number {
   return row.n
 }
 
+export async function countAwaitingPaymentAsync(): Promise<number> {
+  const statement = await getAsyncDb().prepare(
+    `SELECT COUNT(*) AS n FROM orders WHERE ${AWAITING_PAYMENT_WHERE}`
+  )
+  return ((await statement.get([])) as { n: number }).n
+}
+
 /** Os mais antigos primeiro: são os que já deveriam ter sido pagos. */
 export function listAwaitingPayment(limit: number): Order[] {
   const rows = getDb()
@@ -689,6 +757,19 @@ export function getStatusHistory(orderSn: string): StatusHistoryEntry[] {
     fromStatus: r.from_status,
     toStatus: r.to_status,
     changedAt: r.changed_at
+  }))
+}
+
+export async function getStatusHistoryAsync(orderSn: string): Promise<StatusHistoryEntry[]> {
+  const statement = await getAsyncDb().prepare(
+    'SELECT id, order_sn, from_status, to_status, changed_at FROM status_history WHERE order_sn = ? ORDER BY changed_at DESC'
+  )
+  const rows = (await statement.all([orderSn])) as {
+    id: number; order_sn: string; from_status: string | null; to_status: string; changed_at: number
+  }[]
+  return rows.map((row) => ({
+    id: row.id, orderSn: row.order_sn, fromStatus: row.from_status,
+    toStatus: row.to_status, changedAt: row.changed_at
   }))
 }
 

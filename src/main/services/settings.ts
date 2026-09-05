@@ -45,3 +45,13 @@ export function updateSettings(partial: Partial<AppSettings>): AppSettings {
   tx()
   return getSettings()
 }
+
+export async function updateSettingsAsync(partial: Partial<AppSettings>): Promise<AppSettings> {
+  const statement = await getAsyncDb().prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  )
+  for (const [key, value] of Object.entries(partial)) {
+    if (value !== undefined) await statement.run([key, JSON.stringify(value)])
+  }
+  return getSettingsAsync()
+}

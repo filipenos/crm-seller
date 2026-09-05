@@ -3,8 +3,8 @@ import { existsSync } from 'fs'
 import { join, basename } from 'path'
 import { shell } from 'electron'
 import type { ActionResult, Order } from '@shared/types'
-import { getSettings } from './settings'
-import { getOrder, setFolderPath } from './orders'
+import { getSettingsAsync } from './settings'
+import { getOrderAsync, setFolderPathAsync } from './orders'
 
 /** Remove caracteres inválidos para nome de pasta/arquivo no Windows. */
 function sanitize(name: string): string {
@@ -58,10 +58,10 @@ function buildInfoFile(order: Order): string {
  * (pedido-info.txt) com itens, nome da criança e mensagens do cliente.
  */
 export async function createOrderFolder(orderSn: string): Promise<ActionResult> {
-  const order = getOrder(orderSn)
+  const order = await getOrderAsync(orderSn)
   if (!order) return { ok: false, error: `Pedido ${orderSn} não encontrado` }
 
-  const settings = getSettings()
+  const settings = await getSettingsAsync()
   const folderPath = join(settings.ordersRootDir, orderFolderName(order))
 
   try {
@@ -81,7 +81,7 @@ export async function createOrderFolder(orderSn: string): Promise<ActionResult> 
     }
 
     await writeFile(join(folderPath, 'pedido-info.txt'), buildInfoFile(order), 'utf-8')
-    setFolderPath(orderSn, folderPath)
+    await setFolderPathAsync(orderSn, folderPath)
     return { ok: true, path: folderPath }
   } catch (err) {
     return { ok: false, error: String(err instanceof Error ? err.message : err) }
@@ -89,7 +89,7 @@ export async function createOrderFolder(orderSn: string): Promise<ActionResult> 
 }
 
 export async function openOrderFolder(orderSn: string): Promise<ActionResult> {
-  const order = getOrder(orderSn)
+  const order = await getOrderAsync(orderSn)
   if (!order?.folderPath || !existsSync(order.folderPath)) {
     const created = await createOrderFolder(orderSn)
     if (!created.ok) return created
@@ -102,13 +102,13 @@ export async function openOrderFolder(orderSn: string): Promise<ActionResult> {
 
 /** Renomeia a pasta se o nome da criança mudou depois de criada (mantém conteúdo). */
 export async function ensureFolderName(orderSn: string): Promise<void> {
-  const order = getOrder(orderSn)
+  const order = await getOrderAsync(orderSn)
   if (!order?.folderPath || !existsSync(order.folderPath)) return
-  const expected = join(getSettings().ordersRootDir, orderFolderName(order))
+  const expected = join((await getSettingsAsync()).ordersRootDir, orderFolderName(order))
   if (expected !== order.folderPath && basename(expected) !== basename(order.folderPath)) {
     if (!existsSync(expected)) {
       await rename(order.folderPath, expected)
-      setFolderPath(orderSn, expected)
+      await setFolderPathAsync(orderSn, expected)
     }
   }
 }

@@ -123,3 +123,8 @@ export async function countUnseenEventsAsync(): Promise<number> {
 export function markAllEventsSeen(): void {
   getDb().prepare('UPDATE order_events SET seen = 1 WHERE seen = 0').run()
 }
+
+export async function markAllEventsSeenAsync(): Promise<void> {
+  const statement = await getAsyncDb().prepare('UPDATE order_events SET seen = 1 WHERE seen = 0')
+  await statement.run([])
+}
