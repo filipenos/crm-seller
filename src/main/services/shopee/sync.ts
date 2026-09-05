@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
 import type {
+  AppSettings,
   EtapaSync,
   ShopeeConnectionStatus,
   SyncResult,
@@ -22,7 +23,7 @@ import {
 } from '../orders'
 import { recordEventAsync } from '../events'
 import { pedidosParaAtualizarPagamentoAsync, salvarRecebimentoAsync } from '../recebimentos'
-import { getSettings, getSettingsAsync } from '../settings'
+import { getSettingsAsync } from '../settings'
 import { saveOrderDump } from '../orderDump'
 import {
   recomporCatalogoDosPedidosAsync,
@@ -345,7 +346,7 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
  * Agendador da sincronização. Só liga quando o usuário pede explicitamente
  * (`autoSyncEnabled`); o padrão é sincronizar apenas pelo botão.
  */
-export function startSyncScheduler(settings = getSettings()): void {
+export function startSyncScheduler(settings: AppSettings): void {
   stopSyncScheduler()
   if (!settings.autoSyncEnabled) {
     console.log('[sync] automático desligado — sincronize pelo botão')

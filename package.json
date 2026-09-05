@@ -10,7 +10,7 @@
     "dev": "electron-vite dev",
     "dev:linux": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run check:db-access && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "check:db-access": "node scripts/check-db-access.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:win": "electron-vite build && electron-builder --win",
@@ -18,8 +18,8 @@
     "build:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "electron-updater": "^6.8.9",
-    "libsql": "^0.5.29",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

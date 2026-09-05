@@ -1,8 +1,8 @@
-import { getAsyncDb, getDb } from '../db'
+import { getAsyncDb } from '../db'
 import type { OrderIncome as ExtratoShopee } from './shopee/client'
 import { parseOrderIncome } from './shopee/client'
 import type { Recebimento } from '@shared/types'
-import { recomputeDerived, recomputeDerivedAsync } from './orders'
+import { recomputeDerivedAsync } from './orders'
 
 /**
  * Recebimentos: quanto entrou por pedido e o que a Shopee descontou.
@@ -43,61 +43,6 @@ export function rowToRecebimento(row: RecebimentoRow): Recebimento {
   }
 }
 
-export function salvarRecebimento(extrato: ExtratoShopee): void {
-  getDb()
-    .prepare(
-      `INSERT INTO order_income (
-         order_sn, valor_produtos, valor_frete, desconto_cupons,
-         taxa_comissao, taxa_servico, outras_taxas,
-         valor_recebido, recebido_em, previsto_para, atualizado_em, raw_json
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(order_sn) DO UPDATE SET
-         valor_produtos = excluded.valor_produtos,
-         valor_frete = excluded.valor_frete,
-         desconto_cupons = excluded.desconto_cupons,
-         taxa_comissao = excluded.taxa_comissao,
-         taxa_servico = excluded.taxa_servico,
-         outras_taxas = excluded.outras_taxas,
-         valor_recebido = excluded.valor_recebido,
-         recebido_em = excluded.recebido_em,
-         previsto_para = excluded.previsto_para,
-         atualizado_em = excluded.atualizado_em,
-         raw_json = excluded.raw_json`
-    )
-    .run(
-      extrato.orderSn,
-      extrato.valorProdutos,
-      extrato.valorFrete,
-      extrato.descontoCupons,
-      extrato.taxaComissao,
-      extrato.taxaServico,
-      extrato.outrasTaxas,
-      extrato.valorRecebido,
-      extrato.recebidoEm,
-      extrato.previstoPara,
-      Date.now(),
-      extrato.rawJson
-    )
-
-  // A criação real (com hora) só existe no extrato; a data lida do número do
-  // pedido é uma aproximação no fuso da Shopee. Quando a real aparece, ela
-  // manda.
-  if (extrato.criadoEm) {
-    getDb()
-      .prepare('UPDATE orders SET created_at_shopee = ? WHERE order_sn = ?')
-      .run(extrato.criadoEm, extrato.orderSn)
-  }
-
-  // O extrato é a fonte da verdade da liberação, então escreve **sem COALESCE**:
-  // um pedido que parecia pago (data prevista lida como efetiva) precisa poder
-  // voltar a não-pago, e o COALESCE nunca limpava esse campo.
-  getDb()
-    .prepare('UPDATE orders SET escrow_amount = ?, escrow_released_at = ? WHERE order_sn = ?')
-    .run(extrato.valorRecebido, extrato.recebidoEm, extrato.orderSn)
-  // É a liberação que move a aba Enviado → Concluído.
-  recomputeDerived(extrato.orderSn)
-}
-
 export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<void> {
   const db = getAsyncDb()
   const income = await db.prepare(
@@ -130,13 +75,6 @@ export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<vo
   await recomputeDerivedAsync(extrato.orderSn)
 }
 
-export function getRecebimento(orderSn: string): Recebimento | null {
-  const row = getDb().prepare('SELECT * FROM order_income WHERE order_sn = ?').get(orderSn) as
-    | RecebimentoRow
-    | undefined
-  return row ? rowToRecebimento(row) : null
-}
-
 /**
  * Pedidos para buscar extrato, os mais antigos primeiro.
  *
@@ -144,30 +82,6 @@ export function getRecebimento(orderSn: string): Recebimento | null {
  * refazer seria centenas de requisições para reescrever o mesmo valor. O
  * `refazer` existe para o caso de a Shopee corrigir algo retroativamente.
  */
-export function pedidosParaExtrato(
-  tab: string,
-  opts: { refazer?: boolean; limite?: number } = {}
-): { orderSn: string; orderId: string }[] {
-  const limite = opts.limite ?? 5000
-  const filtroExtrato = opts.refazer ? '' : 'AND i.order_sn IS NULL'
-  return getDb()
-    .prepare(
-      `SELECT o.order_sn, o.shopee_order_id
-         FROM orders o
-         LEFT JOIN order_income i ON i.order_sn = o.order_sn
-        WHERE o.tab = ?
-          AND o.shopee_order_id IS NOT NULL
-          ${filtroExtrato}
-        ORDER BY o.created_at_shopee ASC
-        LIMIT ?`
-    )
-    .all(tab, limite)
-    .map((r) => {
-      const row = r as { order_sn: string; shopee_order_id: string }
-      return { orderSn: row.order_sn, orderId: row.shopee_order_id }
-    })
-}
-
 /**
  * Reaplica a leitura aos extratos já guardados, usando o `raw_json`.
  *
@@ -175,25 +89,6 @@ export function pedidosParaExtrato(
  * como ao descobrir que `released_time` também traz data prevista —, a base
  * inteira se corrige sem uma requisição.
  */
-export function reprocessarExtratos(): { lidos: number; corrigidos: number } {
-  const rows = getDb()
-    .prepare('SELECT order_sn, raw_json, recebido_em FROM order_income WHERE raw_json IS NOT NULL')
-    .all() as { order_sn: string; raw_json: string; recebido_em: number | null }[]
-
-  let corrigidos = 0
-  for (const row of rows) {
-    try {
-      const extrato = parseOrderIncome(JSON.parse(row.raw_json), row.order_sn)
-      if (!extrato) continue
-      if (extrato.recebidoEm !== row.recebido_em) corrigidos++
-      salvarRecebimento(extrato)
-    } catch (err) {
-      console.warn(`[extratos] ${row.order_sn} ilegível:`, err)
-    }
-  }
-  return { lidos: rows.length, corrigidos }
-}
-
 export async function reprocessarExtratosAsync(): Promise<{ lidos: number; corrigidos: number }> {
   const statement = await getAsyncDb().prepare(
     'SELECT order_sn, raw_json, recebido_em FROM order_income WHERE raw_json IS NOT NULL'
@@ -227,24 +122,6 @@ export async function reprocessarExtratosAsync(): Promise<{ lidos: number; corri
  * número — que está no fuso da Shopee e joga pedido da tarde para o dia
  * seguinte.
  */
-export function pedidosParaAtualizarPagamento(): { orderSn: string; orderId: string }[] {
-  return getDb()
-    .prepare(
-      `SELECT o.order_sn, o.shopee_order_id
-         FROM orders o
-         LEFT JOIN order_income i ON i.order_sn = o.order_sn
-        WHERE o.tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
-          AND o.shopee_order_id IS NOT NULL
-          AND (i.order_sn IS NULL OR (o.tab = 'ENVIADO' AND i.recebido_em IS NULL))
-        ORDER BY o.created_at_shopee ASC`
-    )
-    .all()
-    .map((x) => {
-      const row = x as { order_sn: string; shopee_order_id: string }
-      return { orderSn: row.order_sn, orderId: row.shopee_order_id }
-    })
-}
-
 export async function pedidosParaAtualizarPagamentoAsync(): Promise<{
   orderSn: string; orderId: string
 }[]> {
@@ -258,16 +135,4 @@ export async function pedidosParaAtualizarPagamentoAsync(): Promise<{
   )
   return ((await statement.all([])) as { order_sn: string; shopee_order_id: string }[])
     .map((row) => ({ orderSn: row.order_sn, orderId: row.shopee_order_id }))
-}
-
-export function contarSemExtrato(tab: string): number {
-  const row = getDb()
-    .prepare(
-      `SELECT COUNT(*) AS n
-         FROM orders o
-         LEFT JOIN order_income i ON i.order_sn = o.order_sn
-        WHERE o.tab = ? AND o.shopee_order_id IS NOT NULL AND i.order_sn IS NULL`
-    )
-    .get(tab) as { n: number }
-  return row.n
 }

@@ -1,4 +1,4 @@
-import { getAsyncDb, getDb } from '../db'
+import { getAsyncDb } from '../db'
 import type {
   InternalStatus,
   Order,
@@ -12,7 +12,7 @@ import type {
 } from '@shared/types'
 import { INTERNAL_STATUSES, ORDER_TABS } from '@shared/types'
 import { deriveTab, isReadyToPost } from './tabs'
-import { contarSemExtrato, getRecebimento, rowToRecebimento } from './recebimentos'
+import { rowToRecebimento } from './recebimentos'
 
 interface OrderRow {
   order_sn: string
@@ -115,40 +115,6 @@ function rowToOrder(row: OrderRow, items: OrderItem[], recebimento: Recebimento 
   }
 }
 
-function loadItems(orderSns: string[]): Map<string, OrderItem[]> {
-  const map = new Map<string, OrderItem[]>()
-  if (orderSns.length === 0) return map
-  const placeholders = orderSns.map(() => '?').join(',')
-  const rows = getDb()
-    .prepare(`SELECT * FROM order_items WHERE order_sn IN (${placeholders})`)
-    .all(...orderSns) as {
-    id: number
-    order_sn: string
-    item_name: string
-    model_name: string | null
-    quantity: number
-    image_url: string | null
-    item_sku: string | null
-    pecas: number | null
-  }[]
-  for (const r of rows) {
-    const item: OrderItem = {
-      id: r.id,
-      orderSn: r.order_sn,
-      itemName: r.item_name,
-      modelName: r.model_name,
-      quantity: r.quantity,
-      imageUrl: r.image_url,
-      itemSku: r.item_sku,
-      pecas: r.pecas
-    }
-    const list = map.get(r.order_sn) ?? []
-    list.push(item)
-    map.set(r.order_sn, list)
-  }
-  return map
-}
-
 async function loadItemsAsync(orderSns: string[]): Promise<Map<string, OrderItem[]>> {
   const map = new Map<string, OrderItem[]>()
   if (orderSns.length === 0) return map
@@ -177,28 +143,6 @@ async function loadItemsAsync(orderSns: string[]): Promise<Map<string, OrderItem
  * pagamento (extrato). Concentrar aqui é o que evita a regra existir em dois
  * lugares — antes ela estava em `tabs.ts` e repetida em SQL.
  */
-export function recomputeDerived(orderSn: string): void {
-  const db = getDb()
-  const row = db
-    .prepare(
-      'SELECT shopee_status, escrow_released_at, logistics_code FROM orders WHERE order_sn = ?'
-    )
-    .get(orderSn) as
-    | { shopee_status: string | null; escrow_released_at: number | null; logistics_code: number | null }
-    | undefined
-  if (!row) return
-
-  const tab = deriveTab({
-    shopeeStatus: row.shopee_status,
-    escrowReleasedAt: row.escrow_released_at
-  })
-  db.prepare('UPDATE orders SET tab = ?, ready_to_post = ? WHERE order_sn = ?').run(
-    tab,
-    isReadyToPost(row.logistics_code) ? 1 : 0,
-    orderSn
-  )
-}
-
 export async function recomputeDerivedAsync(orderSn: string): Promise<void> {
   const db = getAsyncDb()
   const select = await db.prepare(
@@ -298,61 +242,6 @@ function montaBusca(termo: string): { sql: string; params: unknown[] } {
   return { sql: `(${partes.join(' OR ')})`, params }
 }
 
-export function listOrders(filters: OrderFilters = {}): Order[] {
-  const db = getDb()
-  const conditions: string[] = []
-  const params: unknown[] = []
-
-  if (filters.internalStatus && filters.internalStatus !== 'TODOS') {
-    conditions.push('internal_status = ?')
-    params.push(filters.internalStatus)
-  }
-  if (filters.stageId !== undefined) {
-    conditions.push('o.stage_id = ?')
-    params.push(filters.stageId)
-  }
-  if (filters.search) {
-    const { sql, params: buscaParams } = montaBusca(filters.search)
-    if (sql) {
-      conditions.push(sql)
-      params.push(...buscaParams)
-    }
-  }
-  if (filters.awaitingPayment) {
-    conditions.push(`(${AWAITING_PAYMENT_WHERE})`)
-  }
-  if (filters.readyToPost) {
-    conditions.push('o.ready_to_post = 1')
-  }
-  if (filters.tab && filters.tab !== 'TODOS') {
-    conditions.push('o.tab = ?')
-    params.push(filters.tab)
-  } else {
-    // Sem aba escolhida, cancelados não entram na listagem: são a última aba.
-    conditions.push("o.tab != 'CANCELADO'")
-  }
-
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
-  const limit = filters.limit === undefined ? null : Math.min(5000, Math.max(1, filters.limit))
-  const limitSql = limit === null ? '' : 'LIMIT ?'
-  if (limit !== null) params.push(limit)
-  const rows = db
-    .prepare(
-      `SELECT ${ORDER_VIEW_COLUMNS}
-         FROM orders o
-         LEFT JOIN workflow_stages s ON s.id = o.stage_id
-         ${where}
-        ORDER BY o.created_at_shopee DESC, o.order_sn DESC
-        ${limitSql}`
-    )
-    .all(...params) as OrderRow[]
-
-  const sns = rows.map((r) => r.order_sn)
-  const items = loadItems(sns)
-  const extratos = loadRecebimentos(sns)
-  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], extratos.get(r.order_sn) ?? null))
-}
-
 /** Leitura não bloqueante da listagem principal. */
 export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order[]> {
   const conditions: string[] = []
@@ -401,17 +290,6 @@ export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order
 }
 
 /** Extratos de vários pedidos numa consulta só, para a listagem não fazer N+1. */
-function loadRecebimentos(orderSns: string[]): Map<string, Recebimento> {
-  const map = new Map<string, Recebimento>()
-  if (orderSns.length === 0) return map
-  const placeholders = orderSns.map(() => '?').join(',')
-  const rows = getDb()
-    .prepare(`SELECT ${INCOME_VIEW_COLUMNS} FROM order_income WHERE order_sn IN (${placeholders})`)
-    .all(...orderSns) as Parameters<typeof rowToRecebimento>[0][]
-  for (const row of rows) map.set(row.order_sn, rowToRecebimento(row))
-  return map
-}
-
 async function loadRecebimentosAsync(orderSns: string[]): Promise<Map<string, Recebimento>> {
   const map = new Map<string, Recebimento>()
   if (orderSns.length === 0) return map
@@ -430,19 +308,6 @@ async function loadRecebimentosAsync(orderSns: string[]): Promise<Map<string, Re
  * e o objetivo das abas é justamente saber quantos existem em cada fase antes
  * de clicar.
  */
-export function countByTab(): OrderCounts {
-  const tabs = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as TabCounts
-  const rows = getDb()
-    .prepare('SELECT tab, COUNT(*) AS n FROM orders WHERE tab IS NOT NULL GROUP BY tab')
-    .all() as { tab: OrderTab; n: number }[]
-  for (const row of rows) if (row.tab in tabs) tabs[row.tab] = row.n
-
-  const ready = getDb()
-    .prepare("SELECT COUNT(*) AS n FROM orders WHERE ready_to_post = 1 AND tab = 'A_ENVIAR'")
-    .get() as { n: number }
-  return { tabs, readyToPost: ready.n, semExtrato: contarSemExtrato('CONCLUIDO') }
-}
-
 export async function countByTabAsync(): Promise<OrderCounts> {
   const db = getAsyncDb()
   const [tabsStatement, readyStatement, incomeStatement] = await Promise.all([
@@ -459,20 +324,6 @@ export async function countByTabAsync(): Promise<OrderCounts> {
   const tabs = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as TabCounts
   for (const row of rows) if (row.tab in tabs) tabs[row.tab] = row.n
   return { tabs, readyToPost: ready.n, semExtrato: semExtrato.n }
-}
-
-export function getOrder(orderSn: string): Order | null {
-  const row = getDb()
-    .prepare(
-      `SELECT ${ORDER_VIEW_COLUMNS}
-         FROM orders o
-         LEFT JOIN workflow_stages s ON s.id = o.stage_id
-        WHERE o.order_sn = ?`
-    )
-    .get(orderSn) as OrderRow | undefined
-  if (!row) return null
-  const items = loadItems([orderSn])
-  return rowToOrder(row, items.get(orderSn) ?? [], getRecebimento(orderSn))
 }
 
 export async function getOrderAsync(orderSn: string): Promise<Order | null> {
@@ -498,34 +349,6 @@ export async function getOrderAsync(orderSn: string): Promise<Order | null> {
  * Move o pedido de etapa de produção. O histórico guarda o **nome** da etapa,
  * não o id: renomear ou apagar a etapa depois não pode reescrever o passado.
  */
-export function setOrderStage(orderSn: string, stageId: number): Order | null {
-  const db = getDb()
-  const current = db
-    .prepare(
-      `SELECT o.stage_id, s.name AS stage_name
-         FROM orders o LEFT JOIN workflow_stages s ON s.id = o.stage_id
-        WHERE o.order_sn = ?`
-    )
-    .get(orderSn) as { stage_id: number | null; stage_name: string | null } | undefined
-  if (!current) return null
-
-  const target = db.prepare('SELECT name FROM workflow_stages WHERE id = ?').get(stageId) as
-    | { name: string }
-    | undefined
-  if (!target) throw new Error(`Etapa ${stageId} não existe`)
-
-  if (current.stage_id !== stageId) {
-    const tx = db.transaction(() => {
-      db.prepare('UPDATE orders SET stage_id = ? WHERE order_sn = ?').run(stageId, orderSn)
-      db.prepare(
-        'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, ?, ?, ?)'
-      ).run(orderSn, current.stage_name, target.name, Date.now())
-    })
-    tx()
-  }
-  return getOrder(orderSn)
-}
-
 export async function setOrderStageAsync(orderSn: string, stageId: number): Promise<Order | null> {
   const db = getAsyncDb()
   const currentStatement = await db.prepare(
@@ -550,27 +373,6 @@ export async function setOrderStageAsync(orderSn: string, stageId: number): Prom
   return getOrderAsync(orderSn)
 }
 
-export function setInternalStatus(orderSn: string, status: InternalStatus): Order | null {
-  if (!INTERNAL_STATUSES.includes(status)) {
-    throw new Error(`Status interno inválido: ${status}`)
-  }
-  const db = getDb()
-  const current = db
-    .prepare('SELECT internal_status FROM orders WHERE order_sn = ?')
-    .get(orderSn) as { internal_status: string } | undefined
-  if (!current) return null
-  if (current.internal_status !== status) {
-    const tx = db.transaction(() => {
-      db.prepare('UPDATE orders SET internal_status = ? WHERE order_sn = ?').run(status, orderSn)
-      db.prepare(
-        'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, ?, ?, ?)'
-      ).run(orderSn, current.internal_status, status, Date.now())
-    })
-    tx()
-  }
-  return getOrder(orderSn)
-}
-
 export async function setInternalStatusAsync(
   orderSn: string,
   status: InternalStatus
@@ -591,24 +393,10 @@ export async function setInternalStatusAsync(
   return getOrderAsync(orderSn)
 }
 
-export function setChildName(orderSn: string, childName: string): Order | null {
-  getDb()
-    .prepare('UPDATE orders SET child_name = ? WHERE order_sn = ?')
-    .run(childName.trim() || null, orderSn)
-  return getOrder(orderSn)
-}
-
 export async function setChildNameAsync(orderSn: string, childName: string): Promise<Order | null> {
   const statement = await getAsyncDb().prepare('UPDATE orders SET child_name = ? WHERE order_sn = ?')
   await statement.run([childName.trim() || null, orderSn])
   return getOrderAsync(orderSn)
-}
-
-export function setNote(orderSn: string, note: string): Order | null {
-  getDb()
-    .prepare('UPDATE orders SET note = ? WHERE order_sn = ?')
-    .run(note.trim() || null, orderSn)
-  return getOrder(orderSn)
 }
 
 export async function setNoteAsync(orderSn: string, note: string): Promise<Order | null> {
@@ -617,31 +405,12 @@ export async function setNoteAsync(orderSn: string, note: string): Promise<Order
   return getOrderAsync(orderSn)
 }
 
-export function setFolderPath(orderSn: string, folderPath: string): void {
-  getDb().prepare('UPDATE orders SET folder_path = ? WHERE order_sn = ?').run(folderPath, orderSn)
-}
-
 export async function setFolderPathAsync(orderSn: string, folderPath: string): Promise<void> {
   const statement = await getAsyncDb().prepare('UPDATE orders SET folder_path = ? WHERE order_sn = ?')
   await statement.run([folderPath, orderSn])
 }
 
 /** Guarda o último checkpoint do rastreio, que é detalhe do pedido. */
-export function setLogisticsStatus(
-  orderSn: string,
-  status: string,
-  deliveredAt: number | null
-): void {
-  getDb()
-    .prepare(
-      `UPDATE orders
-          SET logistics_status = ?,
-              delivered_at = COALESCE(?, delivered_at)
-        WHERE order_sn = ?`
-    )
-    .run(status, deliveredAt, orderSn)
-}
-
 export async function setLogisticsStatusAsync(
   orderSn: string,
   status: string,
@@ -652,19 +421,6 @@ export async function setLogisticsStatusAsync(
       WHERE order_sn = ?`
   )
   await statement.run([status, deliveredAt, orderSn])
-}
-
-export function setRating(
-  orderSn: string,
-  star: number,
-  comment: string | null,
-  ratedAt: number | null
-): void {
-  getDb()
-    .prepare(
-      'UPDATE orders SET rating_star = ?, rating_comment = ?, rated_at = COALESCE(?, rated_at) WHERE order_sn = ?'
-    )
-    .run(star, comment, ratedAt, orderSn)
 }
 
 export async function setRatingAsync(
@@ -684,23 +440,6 @@ export async function setRatingAsync(
  * calcula o valor antes de soltar o dinheiro — é o estado "aguardando
  * pagamento". Só entra aqui data que **já passou**; previsão fica no extrato.
  */
-export function setEscrow(
-  orderSn: string,
-  amount: number | null,
-  releasedAt: number | null
-): void {
-  getDb()
-    .prepare(
-      `UPDATE orders
-          SET escrow_amount = COALESCE(?, escrow_amount),
-              escrow_released_at = COALESCE(?, escrow_released_at)
-        WHERE order_sn = ?`
-    )
-    .run(amount, releasedAt, orderSn)
-  // O pagamento muda a aba: o mesmo pedido sai de Enviado para Concluído.
-  recomputeDerived(orderSn)
-}
-
 /** Pedidos entregues cujo pagamento ainda não caiu — a lista de cobrança a vigiar. */
 /**
  * Entregue mas sem pagamento liberado.
@@ -720,13 +459,6 @@ export function setEscrow(
  */
 const AWAITING_PAYMENT_WHERE = `tab = 'ENVIADO' AND escrow_released_at IS NULL`
 
-export function countAwaitingPayment(): number {
-  const row = getDb()
-    .prepare(`SELECT COUNT(*) AS n FROM orders WHERE ${AWAITING_PAYMENT_WHERE}`)
-    .get() as { n: number }
-  return row.n
-}
-
 export async function countAwaitingPaymentAsync(): Promise<number> {
   const statement = await getAsyncDb().prepare(
     `SELECT COUNT(*) AS n FROM orders WHERE ${AWAITING_PAYMENT_WHERE}`
@@ -735,43 +467,6 @@ export async function countAwaitingPaymentAsync(): Promise<number> {
 }
 
 /** Os mais antigos primeiro: são os que já deveriam ter sido pagos. */
-export function listAwaitingPayment(limit: number): Order[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT ${ORDER_VIEW_COLUMNS}
-         FROM orders o
-         LEFT JOIN workflow_stages s ON s.id = o.stage_id
-        WHERE ${AWAITING_PAYMENT_WHERE}
-          AND o.shopee_order_id IS NOT NULL
-        ORDER BY o.created_at_shopee ASC
-        LIMIT ?`
-    )
-    .all(limit) as OrderRow[]
-  const sns = rows.map((r) => r.order_sn)
-  const items = loadItems(sns)
-  const extratos = loadRecebimentos(sns)
-  return rows.map((r) => rowToOrder(r, items.get(r.order_sn) ?? [], extratos.get(r.order_sn) ?? null))
-}
-
-export function getStatusHistory(orderSn: string): StatusHistoryEntry[] {
-  const rows = getDb()
-    .prepare('SELECT * FROM status_history WHERE order_sn = ? ORDER BY changed_at DESC')
-    .all(orderSn) as {
-    id: number
-    order_sn: string
-    from_status: string | null
-    to_status: string
-    changed_at: number
-  }[]
-  return rows.map((r) => ({
-    id: r.id,
-    orderSn: r.order_sn,
-    fromStatus: r.from_status,
-    toStatus: r.to_status,
-    changedAt: r.changed_at
-  }))
-}
-
 export async function getStatusHistoryAsync(orderSn: string): Promise<StatusHistoryEntry[]> {
   const statement = await getAsyncDb().prepare(
     'SELECT id, order_sn, from_status, to_status, changed_at FROM status_history WHERE order_sn = ? ORDER BY changed_at DESC'
@@ -817,122 +512,6 @@ export interface UpsertOrderInput {
     modelId?: string | null
     pecas?: number | null
   }[]
-}
-
-/** Insere/atualiza um pedido vindo da Shopee. Retorna true se o pedido é novo. */
-export function upsertShopeeOrder(input: UpsertOrderInput): boolean {
-  const db = getDb()
-  const existing = db
-    .prepare('SELECT order_sn, internal_status FROM orders WHERE order_sn = ?')
-    .get(input.orderSn) as { order_sn: string; internal_status: string } | undefined
-
-  const now = Date.now()
-  const tx = db.transaction(() => {
-    if (!existing) {
-      db.prepare(
-        `INSERT INTO orders (
-          order_sn, shopee_order_id, shopee_status, internal_status, buyer_username, buyer_name,
-          total_amount, currency, tracking_number, ship_by_date, logistics_code,
-          status_description, payment_method, carrier, shipping_city, shopee_url_path,
-          package_number, created_at_shopee, updated_at_shopee, synced_at, raw_json
-        ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        input.orderSn,
-        input.shopeeOrderId ?? null,
-        input.shopeeStatus ?? null,
-        input.buyerUsername ?? null,
-        input.buyerName ?? null,
-        input.totalAmount ?? null,
-        input.currency ?? null,
-        input.trackingNumber ?? null,
-        input.shipByDate ?? null,
-        input.logisticsCode ?? null,
-        input.statusDescription ?? null,
-        input.paymentMethod ?? null,
-        input.carrier ?? null,
-        input.shippingCity ?? null,
-        input.shopeeUrlPath ?? null,
-        input.packageNumber ?? null,
-        input.createdAtShopee ?? null,
-        input.updatedAtShopee ?? null,
-        now,
-        input.rawJson ?? null
-      )
-      db.prepare(
-        'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, NULL, ?, ?)'
-      ).run(input.orderSn, 'NOVO', now)
-    } else {
-      db.prepare(
-        `UPDATE orders SET
-          shopee_order_id = COALESCE(?, shopee_order_id),
-          shopee_status = COALESCE(?, shopee_status),
-          buyer_username = COALESCE(?, buyer_username),
-          buyer_name = COALESCE(?, buyer_name),
-          total_amount = COALESCE(?, total_amount),
-          currency = COALESCE(?, currency),
-          tracking_number = COALESCE(?, tracking_number),
-          ship_by_date = COALESCE(?, ship_by_date),
-          logistics_code = COALESCE(?, logistics_code),
-          status_description = COALESCE(?, status_description),
-          payment_method = COALESCE(?, payment_method),
-          carrier = COALESCE(?, carrier),
-          shipping_city = COALESCE(?, shipping_city),
-          shopee_url_path = COALESCE(?, shopee_url_path),
-          package_number = COALESCE(?, package_number),
-          created_at_shopee = COALESCE(?, created_at_shopee),
-          updated_at_shopee = COALESCE(?, updated_at_shopee),
-          synced_at = ?,
-          raw_json = COALESCE(?, raw_json)
-        WHERE order_sn = ?`
-      ).run(
-        input.shopeeOrderId ?? null,
-        input.shopeeStatus ?? null,
-        input.buyerUsername ?? null,
-        input.buyerName ?? null,
-        input.totalAmount ?? null,
-        input.currency ?? null,
-        input.trackingNumber ?? null,
-        input.shipByDate ?? null,
-        input.logisticsCode ?? null,
-        input.statusDescription ?? null,
-        input.paymentMethod ?? null,
-        input.carrier ?? null,
-        input.shippingCity ?? null,
-        input.shopeeUrlPath ?? null,
-        input.packageNumber ?? null,
-        input.createdAtShopee ?? null,
-        input.updatedAtShopee ?? null,
-        now,
-        input.rawJson ?? null,
-        input.orderSn
-      )
-    }
-
-    if (input.items && input.items.length > 0) {
-      db.prepare('DELETE FROM order_items WHERE order_sn = ?').run(input.orderSn)
-      const insertItem = db.prepare(
-        `INSERT INTO order_items (order_sn, item_name, model_name, quantity, image_url, item_sku, pecas, item_id, model_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      for (const item of input.items) {
-        insertItem.run(
-          input.orderSn,
-          item.itemName,
-          item.modelName,
-          item.quantity,
-          item.imageUrl,
-          item.itemSku,
-          item.pecas ?? null,
-          item.itemId ?? null,
-          item.modelId ?? null
-        )
-      }
-    }
-  })
-  tx()
-  // O card acabou de mudar: aba e "pronto para postar" saem daqui, não da leitura.
-  recomputeDerived(input.orderSn)
-  return !existing
 }
 
 /**

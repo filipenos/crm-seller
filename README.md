@@ -249,6 +249,12 @@ array `migrations`. O identificador estável da loja Shopee fica na tabela
 `settings` do próprio banco. Toda operação que importa dados da Shopee confere
 esse vínculo primeiro.
 
+O Turso é remoto: toda consulta no processo principal deve usar `getAsyncDb()`
+e retornar uma `Promise` pelo IPC. O cliente síncrono não faz parte do projeto,
+pois esperar a rede na thread principal congela toda a interface. Rode
+`npm run check:db-access` antes de enviar mudanças; a verificação falha se
+alguém reintroduzir `getDb()` ou importar o cliente síncrono de `libsql`.
+
 ## Smoke test do backend
 
 Em desenvolvimento, `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` podem fornecer a

@@ -1,5 +1,3 @@
-import type Database from 'libsql'
-
 const migrations: string[] = [
   // 1 — schema inicial
   `
@@ -427,20 +425,4 @@ function splitStatements(sql: string): string[] {
 
 export function migrationStatements(index: number): string[] {
   return splitStatements(migrations[index])
-}
-
-export function runMigrations(db: Database.Database): void {
-  db.prepare('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)').run()
-  const row = db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations').get() as {
-    version: number
-  }
-  const currentVersion = Number(row.version)
-  for (let i = currentVersion; i < migrations.length; i++) {
-    // O executor Hrana cria sua própria transação quando exec() recebe vários
-    // comandos e rejeita a transação interna do driver. Enviar um por vez evita
-    // o BEGIN aninhado; a versão só avança depois que todos terminarem.
-    const statements = migrationStatements(i)
-    for (const statement of statements) db.prepare(statement).run()
-    db.prepare('INSERT INTO schema_migrations (version) VALUES (?)').run(i + 1)
-  }
 }

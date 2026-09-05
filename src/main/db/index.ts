@@ -1,67 +1,90 @@
-import Database from 'libsql'
-import PromiseDatabase from 'libsql/promise'
-import { MIGRATION_COUNT, migrationStatements, runMigrations } from './migrations'
+import { createClient, type Client, type InValue } from '@libsql/client'
+import { MIGRATION_COUNT, migrationStatements } from './migrations'
 import { readTursoConfig, type TursoCredentials } from './config'
 
-let db: Database.Database | null = null
-let asyncDb: PromiseDatabase | null = null
-
-function openRemote(url: string, authToken: string): Database.Database {
-  // As definições do pacote ainda não expõem authToken, embora a API oficial exponha.
-  const remote = new Database(url, { authToken } as Database.Options)
-  installRemoteStatementAdapter(remote)
-  installRemoteTransactionAdapter(remote)
-  return remote
+export interface AsyncRunResult {
+  changes: number
+  lastInsertRowid: bigint | undefined
 }
 
-function installRemoteStatementAdapter(remote: Database.Database): void {
-  const prepare = remote.prepare.bind(remote)
-  remote.prepare = ((sql: string) => {
-    const statement = prepare(sql)
-    const mutable = statement as unknown as Record<string, (...args: unknown[]) => unknown>
-    for (const method of ['run', 'get', 'all'] as const) {
-      const execute = statement[method].bind(statement) as (...args: unknown[]) => unknown
-      mutable[method] = (...args: unknown[]) => {
-        if (args.length === 1 && (Array.isArray(args[0]) || isNamedBindings(args[0]))) {
-          return execute(args[0])
-        }
-        return execute(args)
+export interface AsyncStatement {
+  run(parameters?: unknown[]): Promise<AsyncRunResult>
+  get(parameters?: unknown[]): Promise<unknown>
+  all(parameters?: unknown[]): Promise<unknown[]>
+}
+
+export interface AsyncDatabase {
+  prepare(sql: string): Promise<AsyncStatement>
+  close(): void
+}
+
+class TursoStatement implements AsyncStatement {
+  constructor(
+    private readonly client: Client,
+    private readonly sql: string
+  ) {}
+
+  private args(parameters: unknown[] = []): InValue[] {
+    return parameters.map((value) => {
+      if (
+        value === null ||
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'bigint' ||
+        value instanceof Uint8Array
+      ) {
+        return value
       }
-    }
-    return statement
-  }) as typeof remote.prepare
+      if (typeof value === 'boolean') return value ? 1 : 0
+      throw new TypeError(`Parâmetro SQL inválido: ${typeof value}`)
+    })
+  }
+
+  async run(parameters: unknown[] = []): Promise<AsyncRunResult> {
+    const result = await this.client.execute({ sql: this.sql, args: this.args(parameters) })
+    return { changes: result.rowsAffected, lastInsertRowid: result.lastInsertRowid }
+  }
+
+  async get(parameters: unknown[] = []): Promise<unknown> {
+    const result = await this.client.execute({ sql: this.sql, args: this.args(parameters) })
+    return result.rows[0]
+  }
+
+  async all(parameters: unknown[] = []): Promise<unknown[]> {
+    const result = await this.client.execute({ sql: this.sql, args: this.args(parameters) })
+    return [...result.rows]
+  }
 }
 
-function isNamedBindings(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Buffer.isBuffer(value)
+class TursoDatabase implements AsyncDatabase {
+  constructor(private readonly client: Client) {}
+
+  async prepare(sql: string): Promise<AsyncStatement> {
+    return new TursoStatement(this.client, sql)
+  }
+
+  close(): void {
+    this.client.close()
+  }
 }
 
-function installRemoteTransactionAdapter(remote: Database.Database): void {
-  remote.transaction = ((fn: (...args: unknown[]) => unknown) => {
-    // A API síncrona do libsql já transaciona cada statement Hrana e rejeita
-    // BEGIN explícito. Mantemos a interface usada pelos serviços e a ordem das
-    // operações; erros continuam subindo, mas não há rollback entre statements.
-    const wrap = () => (...args: unknown[]): unknown => fn(...args)
-    type Wrapped = (...args: unknown[]) => unknown
-    const transaction = wrap() as Wrapped & {
-      default: Wrapped
-      deferred: Wrapped
-      immediate: Wrapped
-      exclusive: Wrapped
-    }
-    transaction.default = transaction
-    transaction.deferred = wrap()
-    transaction.immediate = wrap()
-    transaction.exclusive = wrap()
-    return transaction
-  }) as unknown as typeof remote.transaction
+function openDatabase(credentials: TursoCredentials): AsyncDatabase {
+  return new TursoDatabase(
+    createClient({
+      url: credentials.url,
+      authToken: credentials.authToken,
+      intMode: 'number'
+    })
+  )
 }
+
+let asyncDb: AsyncDatabase | null = null
 
 export async function prepareTursoDatabaseAsync(
   credentials: TursoCredentials,
   onProgress: (message: string) => void
 ): Promise<void> {
-  const candidate = new PromiseDatabase(credentials.url, { authToken: credentials.authToken })
+  const candidate = openDatabase(credentials)
   try {
     const run = async (sql: string, parameters: unknown[] = []): Promise<void> => {
       const statement = await candidate.prepare(sql)
@@ -93,53 +116,17 @@ export async function prepareTursoDatabaseAsync(
   }
 }
 
-function verifyDatabaseReady(candidate: Database.Database): void {
-  const version = candidate
-    .prepare('SELECT COALESCE(MAX(version), 0) AS version FROM schema_migrations')
-    .get() as { version: number }
-  if (Number(version.version) !== MIGRATION_COUNT) {
-    throw new Error('O banco Turso não concluiu todas as migrações.')
-  }
-  const required = ['settings', 'orders', 'supplies', 'production_lines', 'recipes']
-  const tables = candidate
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-    .all() as { name: string }[]
-  const existing = new Set(tables.map((table) => table.name))
-  const missing = required.filter((table) => !existing.has(table))
-  if (missing.length > 0) {
-    throw new Error(`O banco Turso está incompleto. Tabelas ausentes: ${missing.join(', ')}.`)
-  }
-  candidate.prepare('SELECT 1 FROM settings LIMIT 1').get()
-}
-
-export function getDb(): Database.Database {
-  if (!db) {
-    const config = readTursoConfig()
-    if (!config) throw new Error('Configure a conexão com o Turso antes de usar o aplicativo.')
-
-    db = openRemote(config.url, config.authToken)
-    db.pragma('foreign_keys = ON')
-    runMigrations(db)
-    verifyDatabaseReady(db)
-  }
-  return db
-}
-
 /** Conexão não bloqueante para operações longas executadas no processo principal. */
-export function getAsyncDb(): PromiseDatabase {
+export function getAsyncDb(): AsyncDatabase {
   if (!asyncDb) {
     const config = readTursoConfig()
     if (!config) throw new Error('Configure a conexão com o Turso antes de usar o aplicativo.')
-    asyncDb = new PromiseDatabase(config.url, { authToken: config.authToken })
+    asyncDb = openDatabase(config)
   }
   return asyncDb
 }
 
 export function closeDb(): void {
-  if (db) {
-    db.close()
-    db = null
-  }
   if (asyncDb) {
     asyncDb.close()
     asyncDb = null
