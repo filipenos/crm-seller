@@ -101,7 +101,7 @@ export default function App(): React.JSX.Element {
             Produtos
           </button>
           <button className={page === 'producao' ? 'active' : ''} onClick={() => setPage('producao')}>
-            Produção
+            Composição
           </button>
           <button
             className={page === 'activity' ? 'active' : ''}

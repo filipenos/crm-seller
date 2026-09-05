@@ -25,7 +25,9 @@ import type {
   WorkflowStage,
   SyncResult,
   TrackingRefreshResult,
-  UpdateStatus
+  UpdateStatus,
+  ConsumoProducao,
+  ResumoComposicao
 } from '../shared/types'
 
 const api = {
@@ -220,6 +222,84 @@ const api = {
     removerItem: (id: number): Promise<void> => ipcRenderer.invoke('fabricacao:removerItem', id),
     consumoDoPedido: (orderSn: string): Promise<CustoPedido> =>
       ipcRenderer.invoke('fabricacao:consumoDoPedido', orderSn)
+  },
+  composicao: {
+    resumo: (): Promise<ResumoComposicao> => ipcRenderer.invoke('composicao:resumo'),
+    criarItem: (input: {
+      nome: string
+      tipo: string
+      unidade: string
+      vendavel?: boolean
+      controlaEstoque?: boolean
+      custoReferencia?: number | null
+      perdaPercentual?: number
+      observacao?: string | null
+    }): Promise<number> => ipcRenderer.invoke('composicao:criarItem', input),
+    atualizarItem: (id: number, input: {
+      nome?: string
+      tipo?: string
+      unidade?: string
+      vendavel?: boolean
+      controlaEstoque?: boolean
+      custoReferencia?: number | null
+      perdaPercentual?: number
+      observacao?: string | null
+    }): Promise<void> => ipcRenderer.invoke('composicao:atualizarItem', id, input),
+    removerItem: (id: number): Promise<void> => ipcRenderer.invoke('composicao:removerItem', id),
+    criarVariante: (itemId: number, nome: string): Promise<number> =>
+      ipcRenderer.invoke('composicao:criarVariante', itemId, nome),
+    atualizarVariante: (id: number, nome: string): Promise<void> =>
+      ipcRenderer.invoke('composicao:atualizarVariante', id, nome),
+    removerVariante: (id: number): Promise<void> =>
+      ipcRenderer.invoke('composicao:removerVariante', id),
+    criarTamanhoKit: (input: { itemId: number; totalCaixas: number; multiplicador: number }): Promise<void> =>
+      ipcRenderer.invoke('composicao:criarTamanhoKit', input),
+    atualizarTamanhoKit: (id: number, input: { totalCaixas: number; multiplicador: number }): Promise<void> =>
+      ipcRenderer.invoke('composicao:atualizarTamanhoKit', id, input),
+    removerTamanhoKit: (id: number): Promise<void> =>
+      ipcRenderer.invoke('composicao:removerTamanhoKit', id),
+    definirParte: (input: {
+      itemId: number
+      componenteId: number
+      quantidade: number | null
+    }): Promise<void> => ipcRenderer.invoke('composicao:definirParte', input),
+    removerParte: (id: number): Promise<void> => ipcRenderer.invoke('composicao:removerParte', id),
+    registrarCompra: (input: {
+      itemId: number
+      variantId: number | null
+      quantidade: number
+      valor: number
+      frete?: number
+      compradoEm?: number
+      fornecedor?: string | null
+    }): Promise<void> => ipcRenderer.invoke('composicao:registrarCompra', input),
+    removerCompra: (id: number): Promise<void> => ipcRenderer.invoke('composicao:removerCompra', id),
+    atualizarCompra: (id: number, input: {
+      itemId: number
+      variantId: number | null
+      quantidade: number
+      valor: number
+      frete?: number
+      compradoEm?: number
+      fornecedor?: string | null
+    }): Promise<void> => ipcRenderer.invoke('composicao:atualizarCompra', id, input),
+    ajustarEstoque: (input: {
+      itemId: number
+      variantId: number | null
+      quantidade: number
+      observacao?: string | null
+    }): Promise<void> => ipcRenderer.invoke('composicao:ajustarEstoque', input),
+    preverProducao: (itemId: number, quantidade: number): Promise<ConsumoProducao[]> =>
+      ipcRenderer.invoke('composicao:preverProducao', itemId, quantidade),
+    registrarLote: (input: {
+      itemId: number
+      variantId?: number | null
+      kitSizeId?: number | null
+      quantidade: number
+      produzidoEm?: number
+      observacao?: string | null
+      consumos: { itemId: number; variantId: number | null; quantidade: number }[]
+    }): Promise<void> => ipcRenderer.invoke('composicao:registrarLote', input)
   },
   shell: {
     openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),

@@ -97,6 +97,26 @@ import {
   listEventsForOrderAsync,
   markAllEventsSeenAsync
 } from './services/events'
+import {
+  adjustCompositionStock,
+  compositionSummary,
+  createCompositionItem,
+  createCompositionKitSize,
+  createCompositionProductionLot,
+  createCompositionVariant,
+  deleteCompositionItem,
+  deleteCompositionKitSize,
+  deleteCompositionPurchase,
+  deleteCompositionVariant,
+  previewCompositionProduction,
+  recordCompositionPurchase,
+  removeCompositionPart,
+  setCompositionPart,
+  updateCompositionItem,
+  updateCompositionKitSize,
+  updateCompositionPurchase,
+  updateCompositionVariant
+} from './services/composition'
 
 export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promise<void>): void {
   ipcMain.handle('database:status', async () => {
@@ -290,5 +310,51 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   )
   ipcMain.handle('fabricacao:removerItem', (_e, id: number) => removerItemAsync(id))
   ipcMain.handle('fabricacao:consumoDoPedido', (_e, orderSn: string) => consumoDoPedidoAsync(orderSn))
+
+  // Composição independente de pedidos e da Shopee.
+  ipcMain.handle('composicao:resumo', () => compositionSummary())
+  ipcMain.handle('composicao:criarItem', (_e, input: Parameters<typeof createCompositionItem>[0]) =>
+    createCompositionItem(input)
+  )
+  ipcMain.handle(
+    'composicao:atualizarItem',
+    (_e, id: number, input: Parameters<typeof updateCompositionItem>[1]) =>
+      updateCompositionItem(id, input)
+  )
+  ipcMain.handle('composicao:removerItem', (_e, id: number) => deleteCompositionItem(id))
+  ipcMain.handle('composicao:criarVariante', (_e, itemId: number, nome: string) =>
+    createCompositionVariant(itemId, nome)
+  )
+  ipcMain.handle('composicao:atualizarVariante', (_e, id: number, nome: string) =>
+    updateCompositionVariant(id, nome)
+  )
+  ipcMain.handle('composicao:removerVariante', (_e, id: number) => deleteCompositionVariant(id))
+  ipcMain.handle('composicao:criarTamanhoKit', (_e, input: Parameters<typeof createCompositionKitSize>[0]) =>
+    createCompositionKitSize(input)
+  )
+  ipcMain.handle('composicao:atualizarTamanhoKit', (_e, id: number, input: Parameters<typeof updateCompositionKitSize>[1]) =>
+    updateCompositionKitSize(id, input)
+  )
+  ipcMain.handle('composicao:removerTamanhoKit', (_e, id: number) => deleteCompositionKitSize(id))
+  ipcMain.handle('composicao:definirParte', (_e, input: Parameters<typeof setCompositionPart>[0]) =>
+    setCompositionPart(input)
+  )
+  ipcMain.handle('composicao:removerParte', (_e, id: number) => removeCompositionPart(id))
+  ipcMain.handle('composicao:registrarCompra', (_e, input: Parameters<typeof recordCompositionPurchase>[0]) =>
+    recordCompositionPurchase(input)
+  )
+  ipcMain.handle('composicao:removerCompra', (_e, id: number) => deleteCompositionPurchase(id))
+  ipcMain.handle('composicao:atualizarCompra', (_e, id: number, input: Parameters<typeof updateCompositionPurchase>[1]) =>
+    updateCompositionPurchase(id, input)
+  )
+  ipcMain.handle('composicao:ajustarEstoque', (_e, input: Parameters<typeof adjustCompositionStock>[0]) =>
+    adjustCompositionStock(input)
+  )
+  ipcMain.handle('composicao:preverProducao', (_e, itemId: number, quantidade: number) =>
+    previewCompositionProduction(itemId, quantidade)
+  )
+  ipcMain.handle('composicao:registrarLote', (_e, input: Parameters<typeof createCompositionProductionLot>[0]) =>
+    createCompositionProductionLot(input)
+  )
 
 }

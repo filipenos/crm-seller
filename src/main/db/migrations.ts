@@ -356,6 +356,128 @@ const migrations: string[] = [
   `
   CREATE INDEX idx_orders_tab_created
     ON orders(tab, created_at_shopee DESC, order_sn DESC);
+  `,
+
+  // 17 — domínio independente de composição e produção.
+  // Não referencia pedidos nem catálogo da Shopee: primeiro validamos o que é
+  // fabricado, seus custos e estoque; a integração comercial vem depois.
+  `
+  CREATE TABLE composition_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT UNIQUE,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('MATERIA_PRIMA', 'COMPONENTE', 'CAIXA', 'KIT')),
+    unit TEXT NOT NULL,
+    sellable INTEGER NOT NULL DEFAULT 0,
+    stock_controlled INTEGER NOT NULL DEFAULT 0,
+    reference_cost REAL,
+    waste_percent REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE composition_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    UNIQUE(item_id, name)
+  );
+
+  CREATE TABLE composition_parts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE CASCADE,
+    child_item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE RESTRICT,
+    -- NULL significa quantidade ainda não medida; aparece como pendência e
+    -- não participa do custo até ser preenchida.
+    quantity REAL CHECK(quantity IS NULL OR quantity > 0),
+    position INTEGER NOT NULL DEFAULT 0,
+    CHECK(parent_item_id != child_item_id),
+    UNIQUE(parent_item_id, child_item_id)
+  );
+  CREATE INDEX idx_composition_parts_parent ON composition_parts(parent_item_id);
+  CREATE INDEX idx_composition_parts_child ON composition_parts(child_item_id);
+
+  CREATE TABLE composition_kit_sizes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kit_item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE CASCADE,
+    total_units INTEGER NOT NULL CHECK(total_units > 0),
+    multiplier REAL NOT NULL CHECK(multiplier > 0),
+    UNIQUE(kit_item_id, total_units)
+  );
+
+  CREATE TABLE composition_purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_key TEXT NOT NULL UNIQUE,
+    item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE RESTRICT,
+    variant_id INTEGER REFERENCES composition_variants(id) ON DELETE RESTRICT,
+    quantity REAL NOT NULL CHECK(quantity > 0),
+    total REAL NOT NULL CHECK(total >= 0),
+    shipping REAL NOT NULL DEFAULT 0 CHECK(shipping >= 0),
+    bought_at INTEGER NOT NULL,
+    supplier TEXT,
+    notes TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_composition_purchases_item ON composition_purchases(item_id);
+
+  CREATE TABLE composition_production_lots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_key TEXT NOT NULL UNIQUE,
+    item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE RESTRICT,
+    quantity REAL NOT NULL CHECK(quantity > 0),
+    estimated_unit_cost REAL NOT NULL,
+    actual_total_cost REAL NOT NULL,
+    produced_at INTEGER NOT NULL,
+    notes TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE composition_lot_consumptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lot_id INTEGER NOT NULL REFERENCES composition_production_lots(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE RESTRICT,
+    variant_id INTEGER REFERENCES composition_variants(id) ON DELETE RESTRICT,
+    quantity REAL NOT NULL CHECK(quantity > 0),
+    unit_cost REAL NOT NULL,
+    total_cost REAL NOT NULL
+  );
+
+  CREATE TABLE composition_stock_moves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES composition_items(id) ON DELETE RESTRICT,
+    variant_id INTEGER REFERENCES composition_variants(id) ON DELETE RESTRICT,
+    quantity REAL NOT NULL,
+    unit_cost REAL,
+    reason TEXT NOT NULL CHECK(reason IN ('COMPRA', 'PRODUCAO_ENTRADA', 'PRODUCAO_CONSUMO', 'AJUSTE')),
+    purchase_id INTEGER REFERENCES composition_purchases(id) ON DELETE SET NULL,
+    lot_id INTEGER REFERENCES composition_production_lots(id) ON DELETE SET NULL,
+    happened_at INTEGER NOT NULL,
+    notes TEXT
+  );
+  CREATE INDEX idx_composition_stock_item ON composition_stock_moves(item_id, variant_id);
+  `,
+
+  // 18 — identifica no lote o tema/versão e o tamanho comercial do kit.
+  `
+  ALTER TABLE composition_production_lots
+    ADD COLUMN variant_id INTEGER REFERENCES composition_variants(id) ON DELETE RESTRICT;
+  ALTER TABLE composition_production_lots
+    ADD COLUMN kit_size_id INTEGER REFERENCES composition_kit_sizes(id) ON DELETE RESTRICT;
+  UPDATE composition_items SET stock_controlled = 1 WHERE slug = 'kit-caixas';
+  `,
+
+  // 19 — cola e tinta são estimadas por aplicação enquanto não há medição física.
+  `
+  UPDATE composition_items
+    SET unit = 'aplicação', reference_cost = 0.05, stock_controlled = 1, updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+    WHERE slug = 'cola';
+  UPDATE composition_items
+    SET unit = 'aplicação', reference_cost = 0.05, stock_controlled = 0, updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
+    WHERE slug = 'tinta';
+  UPDATE composition_parts
+    SET quantity = 1
+    WHERE child_item_id IN (SELECT id FROM composition_items WHERE slug IN ('cola', 'tinta'));
   `
 ]
 

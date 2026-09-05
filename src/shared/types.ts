@@ -335,7 +335,7 @@ export interface Produto {
 }
 
 /** Unidades em que um insumo é comprado e consumido. */
-export const UNIDADES = ['un', 'folha', 'm', 'cm', 'ml', 'g'] as const
+export const UNIDADES = ['un', 'folha', 'm', 'cm', 'ml', 'g', 'aplicação'] as const
 export type Unidade = (typeof UNIDADES)[number]
 
 /** Uma cor (ou versão) do insumo: é aqui que moram estoque e preço pago. */
@@ -456,6 +456,122 @@ export interface CustoPedido {
   /** Algum item não tem quantidade ou preço: o custo é piso, não total. */
   incompleto: boolean
   insumos: ConsumoInsumo[]
+}
+
+// ---------- composição independente de pedidos ----------
+
+export const TIPOS_ITEM_COMPOSICAO = ['MATERIA_PRIMA', 'COMPONENTE', 'CAIXA', 'KIT'] as const
+export type TipoItemComposicao = (typeof TIPOS_ITEM_COMPOSICAO)[number]
+
+export const TIPO_ITEM_COMPOSICAO_LABELS: Record<TipoItemComposicao, string> = {
+  MATERIA_PRIMA: 'Matéria-prima',
+  COMPONENTE: 'Componente',
+  CAIXA: 'Caixa',
+  KIT: 'Kit'
+}
+
+export interface VarianteComposicao {
+  id: number
+  nome: string
+  estoque: number
+  custoMedio: number | null
+}
+
+export interface ParteComposicao {
+  id: number
+  itemId: number
+  nome: string
+  unidade: string
+  quantidade: number | null
+  custo: number | null
+  incompleto: boolean
+}
+
+export interface ItemComposicao {
+  id: number
+  nome: string
+  tipo: TipoItemComposicao
+  unidade: Unidade
+  vendavel: boolean
+  controlaEstoque: boolean
+  custoReferencia: number | null
+  perdaPercentual: number
+  observacao: string | null
+  estoque: number
+  custoEstimado: number | null
+  custoIncompleto: boolean
+  variantes: VarianteComposicao[]
+  partes: ParteComposicao[]
+}
+
+export interface TamanhoKitComposicao {
+  id: number
+  kitItemId: number
+  totalCaixas: number
+  multiplicador: number
+  custoEstimado: number | null
+}
+
+export interface CompraComposicao {
+  id: number
+  itemId: number
+  itemNome: string
+  varianteId: number | null
+  varianteNome: string | null
+  quantidade: number
+  valor: number
+  frete: number
+  custoUnitario: number
+  compradoEm: number
+  fornecedor: string | null
+}
+
+export interface MovimentoComposicao {
+  id: number
+  itemId: number
+  itemNome: string
+  varianteNome: string | null
+  quantidade: number
+  unidade: string
+  motivo: 'COMPRA' | 'PRODUCAO_ENTRADA' | 'PRODUCAO_CONSUMO' | 'AJUSTE'
+  aconteceuEm: number
+  observacao: string | null
+}
+
+export interface ConsumoProducao {
+  itemId: number
+  itemNome: string
+  unidade: string
+  varianteId: number | null
+  quantidade: number
+  estoque: number
+  custoUnitario: number | null
+  custoTotal: number | null
+}
+
+export interface LoteProducaoComposicao {
+  id: number
+  itemId: number
+  itemNome: string
+  varianteId: number | null
+  varianteNome: string | null
+  tamanhoKitId: number | null
+  totalCaixas: number | null
+  quantidade: number
+  custoUnitarioEstimado: number
+  custoReal: number
+  custoUnitarioReal: number
+  produzidoEm: number
+  observacao: string | null
+  consumos: ConsumoProducao[]
+}
+
+export interface ResumoComposicao {
+  itens: ItemComposicao[]
+  tamanhosKit: TamanhoKitComposicao[]
+  compras: CompraComposicao[]
+  movimentos: MovimentoComposicao[]
+  lotes: LoteProducaoComposicao[]
 }
 
 export interface OrderCounts {

@@ -32,6 +32,9 @@ export function hasTursoConfig(): boolean {
 }
 
 export function readTursoConfig(): TursoCredentials | null {
+  if (process.env.NODE_ENV === 'test' && process.env.CRM_SELLER_TEST_DATABASE_URL) {
+    return { url: process.env.CRM_SELLER_TEST_DATABASE_URL, authToken: '' }
+  }
   if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
     return {
       url: normalizeTursoUrl(process.env.TURSO_DATABASE_URL),

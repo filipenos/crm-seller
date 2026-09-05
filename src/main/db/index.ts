@@ -15,6 +15,8 @@ export interface AsyncStatement {
 
 export interface AsyncDatabase {
   prepare(sql: string): Promise<AsyncStatement>
+  batch(statements: { sql: string; parameters?: unknown[] }[]): Promise<AsyncRunResult[]>
+  queryBatch(statements: { sql: string; parameters?: unknown[] }[]): Promise<unknown[][]>
   close(): void
 }
 
@@ -59,8 +61,41 @@ class TursoStatement implements AsyncStatement {
 class TursoDatabase implements AsyncDatabase {
   constructor(private readonly client: Client) {}
 
+  private args(parameters: unknown[] = []): InValue[] {
+    return parameters.map((value) => {
+      if (
+        value === null ||
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'bigint' ||
+        value instanceof Uint8Array
+      ) return value
+      if (typeof value === 'boolean') return value ? 1 : 0
+      throw new TypeError(`Parâmetro SQL inválido: ${typeof value}`)
+    })
+  }
+
   async prepare(sql: string): Promise<AsyncStatement> {
     return new TursoStatement(this.client, sql)
+  }
+
+  async batch(statements: { sql: string; parameters?: unknown[] }[]): Promise<AsyncRunResult[]> {
+    const results = await this.client.batch(
+      statements.map(({ sql, parameters }) => ({ sql, args: this.args(parameters) })),
+      'write'
+    )
+    return results.map((result) => ({
+      changes: result.rowsAffected,
+      lastInsertRowid: result.lastInsertRowid
+    }))
+  }
+
+  async queryBatch(statements: { sql: string; parameters?: unknown[] }[]): Promise<unknown[][]> {
+    const results = await this.client.batch(
+      statements.map(({ sql, parameters }) => ({ sql, args: this.args(parameters) })),
+      'read'
+    )
+    return results.map((result) => [...result.rows])
   }
 
   close(): void {

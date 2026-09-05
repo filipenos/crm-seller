@@ -8,6 +8,7 @@ import { startSyncScheduler, stopSyncScheduler } from './services/shopee/sync'
 import { initUpdater, stopUpdater } from './services/updates'
 import { hasTursoConfig, readTursoConfig } from './db/config'
 import { getSettingsAsync } from './services/settings'
+import { ensureDefaultComposition } from './services/composition'
 
 let servicesStart: Promise<void> | null = null
 
@@ -19,6 +20,7 @@ async function startServices(reset = false): Promise<void> {
     if (!credentials) throw new Error('Configure a conexão com o Turso antes de usar o aplicativo.')
     await prepareTursoDatabaseAsync(credentials, () => undefined)
     await garantirCadastroDeFabricacaoAsync()
+    await ensureDefaultComposition()
     await recomporCatalogoDosPedidosAsync()
     startSyncScheduler(await getSettingsAsync())
     initUpdater()

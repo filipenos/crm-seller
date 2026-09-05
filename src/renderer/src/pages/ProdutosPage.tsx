@@ -79,7 +79,7 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
             <th className="num">Caixas</th>
             <th className="num">Vendas</th>
             <th className="num">Custo/caixa</th>
-            <th>Fabricação</th>
+            <th>Composição atual</th>
           </tr>
         </thead>
         <tbody>
@@ -134,7 +134,7 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
         A lista sai dos próprios pedidos — cada item vendido carrega o produto e a variação, então
         ela existe sem sincronizar nada. Sincronizar acrescenta o que os pedidos não sabem: preço de
         hoje, estoque anunciado e produtos que ainda não venderam. O custo por caixa é a média dos
-        modelos da linha de fabricação, e só conta o que tem quantidade e compra registradas.
+        modelos da composição atual, e só conta o que tem quantidade e compra registradas.
       </p>
     </div>
   )

@@ -1,6 +1,6 @@
 {
   "name": "crm-seller",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "CRM local para pedidos personalizados (Shopee)",
   "main": "out/main/index.js",
   "author": "Filipe Peixoto <filipenos@gmail.com>",
@@ -11,6 +11,7 @@
     "dev:linux": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "npm run check:db-access && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:composition": "esbuild scripts/check-composition.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-composition.mjs && NODE_ENV=test node node_modules/.cache/crm-seller-check-composition.mjs",
     "check:db-access": "node scripts/check-db-access.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:win": "electron-vite build && electron-builder --win",
