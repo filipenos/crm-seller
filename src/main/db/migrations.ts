@@ -478,6 +478,13 @@ const migrations: string[] = [
   UPDATE composition_parts
     SET quantity = 1
     WHERE child_item_id IN (SELECT id FROM composition_items WHERE slug IN ('cola', 'tinta'));
+  `,
+  // 20 — parcelas do frete. O total pago pelo comprador pode incluir frete,
+  //      mas a Shopee também registra o custo logístico e o subsídio dela.
+  `
+  ALTER TABLE order_income ADD COLUMN frete_pago_comprador REAL;
+  ALTER TABLE order_income ADD COLUMN custo_frete REAL;
+  ALTER TABLE order_income ADD COLUMN subsidio_frete_shopee REAL;
   `
 ]
 

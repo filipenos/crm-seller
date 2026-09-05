@@ -6,15 +6,30 @@ import type {
   StatusHistoryEntry,
   WorkflowStage
 } from '@shared/types'
-import { ORDER_TAB_LABELS, isWithUs } from '@shared/types'
+import {
+  calcularPercentualTaxas,
+  calcularValorAposCupom,
+  ORDER_TAB_LABELS,
+  isWithUs
+} from '@shared/types'
 
 /** Linha do extrato; omitida quando a Shopee não mandou o valor. */
-function Linha({ rotulo, valor }: { rotulo: string; valor: number | null }): React.JSX.Element | null {
-  if (valor === null || valor === 0) return null
+function Linha({
+  rotulo,
+  valor,
+  sempreVisivel = false
+}: {
+  rotulo: string
+  valor: number | null
+  sempreVisivel?: boolean
+}): React.JSX.Element | null {
+  if (!sempreVisivel && (valor === null || valor === 0)) return null
   return (
     <tr>
       <td>{rotulo}</td>
-      <td className={`num ${valor < 0 ? 'negativo' : ''}`}>R$ {valor.toFixed(2)}</td>
+      <td className={`num ${valor !== null && valor < 0 ? 'negativo' : ''}`}>
+        {valor !== null ? `R$ ${valor.toFixed(2)}` : '—'}
+      </td>
     </tr>
   )
 }
@@ -30,10 +45,17 @@ interface Props {
   orderSn: string
   initialOrder?: Order
   onClose: () => void
+  onOrderChange: (order: Order) => void
   onToast: (msg: string) => void
 }
 
-export default function OrderDetail({ orderSn, initialOrder, onClose, onToast }: Props): React.JSX.Element {
+export default function OrderDetail({
+  orderSn,
+  initialOrder,
+  onClose,
+  onOrderChange,
+  onToast
+}: Props): React.JSX.Element {
   const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
   const [history, setHistory] = useState<StatusHistoryEntry[]>([])
   const [events, setEvents] = useState<OrderEvent[]>([])
@@ -53,6 +75,7 @@ export default function OrderDetail({ orderSn, initialOrder, onClose, onToast }:
     ])
     const o = await window.api.orders.get(orderSn)
     setOrder(o)
+    if (o) onOrderChange(o)
     setChildName(o?.childName ?? '')
     setNote(o?.note ?? '')
     const [novoHistorico, novosEventos, novasEtapas] = await extras
@@ -89,6 +112,9 @@ export default function OrderDetail({ orderSn, initialOrder, onClose, onToast }:
 
   const saveNote = async (): Promise<void> => {
     await window.api.orders.setNote(orderSn, note)
+    const updatedOrder = { ...order, note }
+    setOrder(updatedOrder)
+    onOrderChange(updatedOrder)
     onToast('Observação salva')
   }
 
@@ -236,12 +262,37 @@ export default function OrderDetail({ orderSn, initialOrder, onClose, onToast }:
           <section>
             <table className="extrato">
               <tbody>
-                <Linha rotulo="Produtos" valor={order.recebimento.valorProdutos} />
-                <Linha rotulo="Frete" valor={order.recebimento.valorFrete} />
-                <Linha rotulo="Cupons" valor={order.recebimento.descontoCupons} />
+                <Linha
+                  rotulo="Preço original dos produtos"
+                  valor={order.recebimento.valorProdutos}
+                  sempreVisivel
+                />
+                <Linha rotulo="Frete pago pelo comprador" valor={order.recebimento.fretePagoComprador} />
+                <Linha rotulo="Custo do frete" valor={order.recebimento.custoFrete} />
+                <Linha rotulo="Subsídio de frete da Shopee" valor={order.recebimento.subsidioFreteShopee} />
+                <Linha rotulo="Saldo do frete" valor={order.recebimento.valorFrete} sempreVisivel />
+                <Linha
+                  rotulo="Desconto de cupom"
+                  valor={-Math.abs(order.recebimento.descontoCupons ?? 0)}
+                  sempreVisivel
+                />
+                <Linha
+                  rotulo="Subtotal após o cupom"
+                  valor={calcularValorAposCupom(order.recebimento)}
+                  sempreVisivel
+                />
                 <Linha rotulo="Comissão" valor={order.recebimento.taxaComissao} />
                 <Linha rotulo="Taxa de serviço" valor={order.recebimento.taxaServico} />
                 <Linha rotulo="Outras taxas" valor={order.recebimento.outrasTaxas} />
+                <Linha
+                  rotulo="Total de taxas"
+                  valor={
+                    order.recebimento.totalTaxas !== null
+                      ? -order.recebimento.totalTaxas
+                      : null
+                  }
+                  sempreVisivel
+                />
                 <tr className="extrato-total">
                   <td>Recebido</td>
                   <td className="num">
@@ -258,8 +309,8 @@ export default function OrderDetail({ orderSn, initialOrder, onClose, onToast }:
                 : order.recebimento.previstoPara
                   ? `Ainda não caiu — previsto para ${new Date(order.recebimento.previstoPara).toLocaleDateString('pt-BR')}`
                   : 'Valor calculado pela Shopee; ainda sem data de liberação.'}
-              {order.recebimento.totalTaxas != null && order.totalAmount
-                ? ` · taxas somam ${Math.round((order.recebimento.totalTaxas / order.totalAmount) * 100)}% do que o cliente pagou`
+              {calcularPercentualTaxas(order.recebimento) != null
+                ? ` · taxas somam ${calcularPercentualTaxas(order.recebimento)}% dos produtos após o cupom`
                 : ''}
             </small>
           </section>

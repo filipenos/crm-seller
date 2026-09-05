@@ -229,8 +229,10 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     if (result.error) console.error('[sync] erros:', result.error)
     state.syncing = false
     encerraProgresso()
-    broadcast('shopee:status-changed', await getConnectionStatus())
     broadcast('data:changed', null)
+    // A UI recebe primeiro a versão final dos dados e só depois desbloqueia
+    // Pedidos. Assim a listagem monta uma única vez, já com o banco estável.
+    broadcast('shopee:status-changed', await getConnectionStatus())
   }
   return result
 }

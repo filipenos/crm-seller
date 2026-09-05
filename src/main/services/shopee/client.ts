@@ -709,6 +709,9 @@ export interface OrderIncome {
   orderSn: string
   valorProdutos: number | null
   valorFrete: number | null
+  fretePagoComprador: number | null
+  custoFrete: number | null
+  subsidioFreteShopee: number | null
   descontoCupons: number | null
   taxaComissao: number | null
   taxaServico: number | null
@@ -735,7 +738,11 @@ export interface OrderIncome {
  */
 const CAMPOS_EXTRATO = {
   produtos: 'MERCHANDISE_SUBTOTAL',
+  precoProduto: 'PRODUCT_PRICE',
+  cupomShopee: 'VOUCHER_DISCOUNT_FROM_SHOPEE',
   frete: 'SHIPPING_SUBTOTAL',
+  fretePagoComprador: 'SHIPPING_FEE_PAID_BY_BUYER',
+  custoFrete: 'ACTUAL_SHIPPING_FEE',
   cupons: 'REBATE_AND_VOUCHER',
   taxas: 'FEES_AND_CHARGES',
   comissao: 'COMMISSION_FEE',
@@ -807,6 +814,18 @@ export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | n
   }
 
   const taxasSub = subBloco(CAMPOS_EXTRATO.taxas)
+  const produtosSub = subBloco(CAMPOS_EXTRATO.produtos)
+  const freteSub = subBloco(CAMPOS_EXTRATO.frete)
+  const valorProdutos = valorDe(CAMPOS_EXTRATO.precoProduto, produtosSub)
+    ?? valorDe(CAMPOS_EXTRATO.produtos)
+  const descontoCupons = valorDe(CAMPOS_EXTRATO.cupons)
+    ?? valorDe(CAMPOS_EXTRATO.cupomShopee, produtosSub)
+  const subsidioFreteShopee = freteSub.reduce((total, linha) => {
+    const nome = pickString(linha, ['field_name']) ?? ''
+    if (!/SHIPPING/i.test(nome) || !/(DISCOUNT|REBATE|SUBSID)/i.test(nome)) return total
+    if (!/SHOPEE/i.test(nome)) return total
+    return total + (toMoney(linha.amount) ?? 0)
+  }, 0)
   const comissao = valorDe(CAMPOS_EXTRATO.comissao, taxasSub)
   const servico = valorDe(CAMPOS_EXTRATO.servico, taxasSub)
   const taxasTotal = valorDe(CAMPOS_EXTRATO.taxas)
@@ -830,9 +849,12 @@ export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | n
 
   return {
     orderSn: pickString(data.order_info as AnyObj, ['order_sn']) ?? orderSn,
-    valorProdutos: valorDe(CAMPOS_EXTRATO.produtos),
+    valorProdutos,
     valorFrete: valorDe(CAMPOS_EXTRATO.frete),
-    descontoCupons: valorDe(CAMPOS_EXTRATO.cupons),
+    fretePagoComprador: valorDe(CAMPOS_EXTRATO.fretePagoComprador, freteSub),
+    custoFrete: valorDe(CAMPOS_EXTRATO.custoFrete, freteSub),
+    subsidioFreteShopee: subsidioFreteShopee || null,
+    descontoCupons,
     taxaComissao: comissao,
     taxaServico: servico,
     outrasTaxas: outras === 0 ? null : outras,

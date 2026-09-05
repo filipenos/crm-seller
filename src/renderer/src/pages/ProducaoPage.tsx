@@ -77,7 +77,7 @@ export default function ProducaoPage({ dataVersion }: Props): React.JSX.Element 
       {([['itens', 'Itens'], ['estrutura', 'Estrutura'], ['custos', 'Custos'], ['producao', 'Lotes de produção'], ['estoque', 'Estoque']] as [Tab, string][]).map(([value, label]) =>
         <button key={value} className={tab === value ? 'ativa' : ''} onClick={() => { setError(null); setTab(value) }}>{label}</button>)}
     </div>
-    {error && <div className="aviso alerta composicao-alerta"><span>{errorMessage(error)}</span><button aria-label="Fechar aviso" title="Fechar" onClick={() => setError(null)}>×</button></div>}
+    {error && <div className="aviso alerta composicao-alerta"><span>{errorMessage(error)}</span><button className="alert-close" aria-label="Fechar aviso" title="Fechar" onClick={() => setError(null)}>×</button></div>}
     {working && <div className="operation-status"><span className="spinner" /> Salvando e atualizando custos…</div>}
     {loading && <div className="empty loading-indicator">Carregando composição…</div>}
     {!loading && summary && tab === 'itens' && <ItemsTab summary={summary} run={run} />}

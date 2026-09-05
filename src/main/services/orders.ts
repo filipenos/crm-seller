@@ -67,7 +67,8 @@ const ORDER_VIEW_COLUMNS = `
   s.name AS stage_name, s.color AS stage_color`
 
 const INCOME_VIEW_COLUMNS = `
-  order_sn, valor_produtos, valor_frete, desconto_cupons, taxa_comissao,
+  order_sn, valor_produtos, valor_frete, frete_pago_comprador, custo_frete,
+  subsidio_frete_shopee, desconto_cupons, taxa_comissao,
   taxa_servico, outras_taxas, valor_recebido, recebido_em, previsto_para`
 
 function rowToOrder(row: OrderRow, items: OrderItem[], recebimento: Recebimento | null = null): Order {

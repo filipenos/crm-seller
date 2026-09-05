@@ -16,6 +16,9 @@ interface RecebimentoRow {
   order_sn: string
   valor_produtos: number | null
   valor_frete: number | null
+  frete_pago_comprador: number | null
+  custo_frete: number | null
+  subsidio_frete_shopee: number | null
   desconto_cupons: number | null
   taxa_comissao: number | null
   taxa_servico: number | null
@@ -31,6 +34,9 @@ export function rowToRecebimento(row: RecebimentoRow): Recebimento {
   return {
     valorProdutos: row.valor_produtos,
     valorFrete: row.valor_frete,
+    fretePagoComprador: row.frete_pago_comprador,
+    custoFrete: row.custo_frete,
+    subsidioFreteShopee: row.subsidio_frete_shopee,
     descontoCupons: row.desconto_cupons,
     taxaComissao: row.taxa_comissao,
     taxaServico: row.taxa_servico,
@@ -47,12 +53,16 @@ export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<vo
   const db = getAsyncDb()
   const income = await db.prepare(
     `INSERT INTO order_income (
-       order_sn, valor_produtos, valor_frete, desconto_cupons, taxa_comissao,
+       order_sn, valor_produtos, valor_frete, frete_pago_comprador, custo_frete,
+       subsidio_frete_shopee, desconto_cupons, taxa_comissao,
        taxa_servico, outras_taxas, valor_recebido, recebido_em, previsto_para,
        atualizado_em, raw_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(order_sn) DO UPDATE SET
        valor_produtos = excluded.valor_produtos, valor_frete = excluded.valor_frete,
+       frete_pago_comprador = excluded.frete_pago_comprador,
+       custo_frete = excluded.custo_frete,
+       subsidio_frete_shopee = excluded.subsidio_frete_shopee,
        desconto_cupons = excluded.desconto_cupons, taxa_comissao = excluded.taxa_comissao,
        taxa_servico = excluded.taxa_servico, outras_taxas = excluded.outras_taxas,
        valor_recebido = excluded.valor_recebido, recebido_em = excluded.recebido_em,
@@ -60,9 +70,10 @@ export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<vo
        raw_json = excluded.raw_json`
   )
   await income.run([
-    extrato.orderSn, extrato.valorProdutos, extrato.valorFrete, extrato.descontoCupons,
-    extrato.taxaComissao, extrato.taxaServico, extrato.outrasTaxas, extrato.valorRecebido,
-    extrato.recebidoEm, extrato.previstoPara, Date.now(), extrato.rawJson
+    extrato.orderSn, extrato.valorProdutos, extrato.valorFrete, extrato.fretePagoComprador,
+    extrato.custoFrete, extrato.subsidioFreteShopee, extrato.descontoCupons,
+    extrato.taxaComissao, extrato.taxaServico, extrato.outrasTaxas,
+    extrato.valorRecebido, extrato.recebidoEm, extrato.previstoPara, Date.now(), extrato.rawJson
   ])
   if (extrato.criadoEm) {
     const created = await db.prepare('UPDATE orders SET created_at_shopee = ? WHERE order_sn = ?')
@@ -90,23 +101,55 @@ export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<vo
  * inteira se corrige sem uma requisição.
  */
 export async function reprocessarExtratosAsync(): Promise<{ lidos: number; corrigidos: number }> {
-  const statement = await getAsyncDb().prepare(
+  const db = getAsyncDb()
+  const statement = await db.prepare(
     'SELECT order_sn, raw_json, recebido_em FROM order_income WHERE raw_json IS NOT NULL'
   )
   const rows = (await statement.all([])) as {
     order_sn: string; raw_json: string; recebido_em: number | null
   }[]
   let corrigidos = 0
+  const updates: { sql: string; parameters: unknown[] }[] = []
+  const recalcular: string[] = []
   for (const row of rows) {
     try {
       const income = parseOrderIncome(JSON.parse(row.raw_json), row.order_sn)
       if (!income) continue
-      if (income.recebidoEm !== row.recebido_em) corrigidos++
-      await salvarRecebimentoAsync(income)
+      if (income.recebidoEm !== row.recebido_em) {
+        corrigidos++
+        recalcular.push(row.order_sn)
+      }
+      updates.push({
+        sql: `UPDATE order_income SET
+                valor_produtos = ?, valor_frete = ?, frete_pago_comprador = ?,
+                custo_frete = ?, subsidio_frete_shopee = ?, desconto_cupons = ?,
+                taxa_comissao = ?, taxa_servico = ?, outras_taxas = ?,
+                valor_recebido = ?, recebido_em = ?, previsto_para = ?, atualizado_em = ?
+              WHERE order_sn = ?`,
+        parameters: [
+          income.valorProdutos, income.valorFrete, income.fretePagoComprador,
+          income.custoFrete, income.subsidioFreteShopee, income.descontoCupons,
+          income.taxaComissao, income.taxaServico, income.outrasTaxas,
+          income.valorRecebido, income.recebidoEm, income.previstoPara, Date.now(), row.order_sn
+        ]
+      })
+      updates.push({
+        sql: `UPDATE orders SET
+                created_at_shopee = COALESCE(?, created_at_shopee),
+                escrow_amount = ?, escrow_released_at = ?
+              WHERE order_sn = ?`,
+        parameters: [income.criadoEm, income.valorRecebido, income.recebidoEm, row.order_sn]
+      })
     } catch (error) {
       console.warn(`[extratos] ${row.order_sn} ilegível:`, error)
     }
   }
+  // Lotes pequenos evitam centenas de viagens ao Turso sem criar uma
+  // transação remota grande demais para contas com muitos pedidos.
+  for (let inicio = 0; inicio < updates.length; inicio += 100) {
+    await db.batch(updates.slice(inicio, inicio + 100))
+  }
+  for (const orderSn of recalcular) await recomputeDerivedAsync(orderSn)
   return { lidos: rows.length, corrigidos }
 }
 

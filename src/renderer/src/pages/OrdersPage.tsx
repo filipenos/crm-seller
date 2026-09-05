@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Order, OrderCounts, OrderTab } from '@shared/types'
-import { MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
+import { calcularPercentualTaxas, MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
 
 const PAGE_SIZE = 50
@@ -196,10 +196,13 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                       <div className={o.recebimento.recebidoEm ? '' : 'muted'}>
                         R$ {o.recebimento.valorRecebido.toFixed(2)}
                       </div>
-                      {o.recebimento.totalTaxas != null && o.totalAmount ? (
+                      {calcularPercentualTaxas(o.recebimento) != null ? (
                         <div>
-                          <small className="muted" title="Comissão + serviço + outras taxas">
-                            taxas {Math.round((o.recebimento.totalTaxas / o.totalAmount) * 100)}%
+                          <small
+                            className="muted"
+                            title="Comissão + serviço + outras taxas sobre o valor após o cupom"
+                          >
+                            taxas {calcularPercentualTaxas(o.recebimento)}%
                           </small>
                         </div>
                       ) : null}
@@ -217,7 +220,11 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
                 </td>
                 <td>
                   {o.shipByDate ? (
-                    <span className={prazoApertado(o.shipByDate) ? 'prazo-curto' : ''}>
+                    <span
+                      className={
+                        o.tab === 'A_ENVIAR' && prazoApertado(o.shipByDate) ? 'prazo-curto' : ''
+                      }
+                    >
                       {new Date(o.shipByDate).toLocaleDateString('pt-BR')}
                     </span>
                   ) : (
@@ -279,10 +286,14 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
           key={selected}
           orderSn={selected}
           initialOrder={orders.find((order) => order.orderSn === selected)}
-          onClose={() => {
-            setSelected(null)
-            refresh()
-          }}
+          onClose={() => setSelected(null)}
+          onOrderChange={(changedOrder) =>
+            setOrders((currentOrders) =>
+              currentOrders.map((order) =>
+                order.orderSn === changedOrder.orderSn ? changedOrder : order
+              )
+            )
+          }
           onToast={showToast}
         />
       )}

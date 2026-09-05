@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
+import type { ProgressoLote, ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
 import DashboardPage from './pages/DashboardPage'
 import OrdersPage from './pages/OrdersPage'
 import ProdutosPage from './pages/ProdutosPage'
@@ -8,6 +8,7 @@ import ActivityPage from './pages/ActivityPage'
 import SettingsPage from './pages/SettingsPage'
 import BarraProgresso from './components/BarraProgresso'
 import DatabaseSetupPage from './pages/DatabaseSetupPage'
+import OrdersSyncPage from './pages/OrdersSyncPage'
 
 type Page = 'home' | 'orders' | 'produtos' | 'producao' | 'activity' | 'settings'
 
@@ -25,6 +26,8 @@ export default function App(): React.JSX.Element {
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
   const [unseenEvents, setUnseenEvents] = useState(0)
+  const [syncProgress, setSyncProgress] = useState<ProgressoLote | null>(null)
+  const [syncStarting, setSyncStarting] = useState(false)
 
   const refreshStatus = useCallback(async () => {
     setStatus(await window.api.shopee.status())
@@ -47,6 +50,8 @@ export default function App(): React.JSX.Element {
       setDataVersion((v) => v + 1)
       void refreshUnseen()
     })
+    void window.api.lote.progresso().then(setSyncProgress)
+    const offProgress = window.api.lote.onProgresso(setSyncProgress)
     void window.api.updates.status().then(setUpdate)
     const offUpdate = window.api.updates.onStatus((next) => {
       setUpdate(next)
@@ -55,6 +60,7 @@ export default function App(): React.JSX.Element {
     return () => {
       offStatus()
       offData()
+      offProgress()
       offUpdate()
     }
   }, [database?.configured, refreshStatus, refreshUnseen])
@@ -78,10 +84,16 @@ export default function App(): React.JSX.Element {
   }
 
   const handleSync = async (): Promise<void> => {
-    const result = await window.api.shopee.sync()
-    setLastSync(result)
-    setDataVersion((v) => v + 1)
+    setSyncStarting(true)
+    try {
+      const result = await window.api.shopee.sync()
+      setLastSync(result)
+    } finally {
+      setSyncStarting(false)
+    }
   }
+
+  const syncActive = syncStarting || Boolean(status?.syncing) || Boolean(syncProgress?.rodando)
 
   return (
     <div className="app">
@@ -126,8 +138,8 @@ export default function App(): React.JSX.Element {
             )}
           </div>
         </div>
-        <button className="sync-btn" onClick={handleSync} disabled={status?.syncing}>
-          {status?.syncing ? 'Sincronizando…' : '↻ Sincronizar'}
+        <button className="sync-btn" onClick={handleSync} disabled={syncActive}>
+          {syncActive ? 'Sincronizando…' : '↻ Sincronizar'}
         </button>
         {lastSync?.error && <div className="sync-error" title={lastSync.error}>⚠ {lastSync.error}</div>}
       </aside>
@@ -155,9 +167,11 @@ export default function App(): React.JSX.Element {
           </div>
         )}
         {/* Fica aqui e não na listagem: a sincronização roda em qualquer página. */}
-        <BarraProgresso />
+        {page !== 'orders' && <BarraProgresso />}
         {page === 'home' && <DashboardPage dataVersion={dataVersion} />}
-        {page === 'orders' && <OrdersPage dataVersion={dataVersion} />}
+        {page === 'orders' && (syncActive
+          ? <OrdersSyncPage progress={syncProgress} starting={syncStarting} />
+          : <OrdersPage dataVersion={dataVersion} />)}
         {page === 'produtos' && <ProdutosPage dataVersion={dataVersion} />}
         {page === 'producao' && <ProducaoPage dataVersion={dataVersion} />}
         {page === 'activity' && (

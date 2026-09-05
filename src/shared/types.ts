@@ -88,6 +88,9 @@ export interface WorkflowStage {
 export interface Recebimento {
   valorProdutos: number | null
   valorFrete: number | null
+  fretePagoComprador: number | null
+  custoFrete: number | null
+  subsidioFreteShopee: number | null
   descontoCupons: number | null
   taxaComissao: number | null
   taxaServico: number | null
@@ -99,6 +102,20 @@ export interface Recebimento {
   recebidoEm: number | null
   /** Previsão de liberação, quando ainda não caiu. */
   previstoPara: number | null
+}
+
+/** Valor dos produtos que serve de base para as taxas, já descontado o cupom. */
+export function calcularValorAposCupom(recebimento: Recebimento): number | null {
+  if (recebimento.valorProdutos === null) return null
+  return recebimento.valorProdutos - Math.abs(recebimento.descontoCupons ?? 0)
+}
+
+/** Percentual das taxas sobre os produtos após o desconto do cupom. */
+export function calcularPercentualTaxas(recebimento: Recebimento): number | null {
+  if (recebimento.totalTaxas === null) return null
+  const baseTaxas = calcularValorAposCupom(recebimento)
+  if (baseTaxas === null || baseTaxas <= 0) return null
+  return Math.round((recebimento.totalTaxas / baseTaxas) * 100)
 }
 
 export interface OrderItem {
