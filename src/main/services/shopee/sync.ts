@@ -26,7 +26,10 @@ import { recordEvent, recordEventAsync } from '../events'
 import { pedidosParaAtualizarPagamento, salvarRecebimento, salvarRecebimentoAsync } from '../recebimentos'
 import { getSettings } from '../settings'
 import { saveOrderDump } from '../orderDump'
-import { recomporCatalogoDosPedidos, salvarProdutoShopee } from '../produtos'
+import {
+  recomporCatalogoDosPedidosAsync,
+  salvarProdutoShopeeAsync
+} from '../produtos'
 import { baixarEstoqueDosDespachados } from '../receitas'
 import { assertCurrentShopeeAccount } from './accountBinding'
 
@@ -203,7 +206,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     // baixa de estoque acompanha quem já foi postado. Nenhum dos dois faz
     // requisição, então rodam sempre, mesmo que as etapas acima falhem.
     try {
-      recomporCatalogoDosPedidos()
+      await recomporCatalogoDosPedidosAsync()
       baixarEstoqueDosDespachados()
     } catch (err) {
       console.warn('[sync] catálogo/estoque:', err)
@@ -379,8 +382,8 @@ export async function sincronizarProdutos(): Promise<{
   try {
     await assertCurrentShopeeAccount()
     const produtos = await fetchProducts()
-    for (const p of produtos) salvarProdutoShopee(p)
-    recomporCatalogoDosPedidos()
+    for (const p of produtos) await salvarProdutoShopeeAsync(p)
+    await recomporCatalogoDosPedidosAsync()
     broadcast('data:changed', null)
     return { ok: true, produtos: produtos.length }
   } catch (err) {

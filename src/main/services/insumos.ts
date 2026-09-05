@@ -398,3 +398,123 @@ export function estoqueDoInsumo(insumoId: number): number {
     .get(insumoId) as { estoque: number }
   return arredonda(row.estoque)
 }
+
+export async function criarInsumoAsync(input: {
+  nome: string; unidade: string; estoqueMinimo?: number | null;
+  observacao?: string | null; variantes?: string[]
+}): Promise<number> {
+  const db = getAsyncDb()
+  const insert = await db.prepare(
+    'INSERT INTO supplies (name, unit, min_stock, notes, created_at) VALUES (?, ?, ?, ?, ?)'
+  )
+  const result = await insert.run([
+    input.nome, input.unidade, input.estoqueMinimo ?? null, input.observacao ?? null, Date.now()
+  ])
+  const id = Number(result.lastInsertRowid)
+  const variant = await db.prepare('INSERT INTO supply_variants (supply_id, name) VALUES (?, ?)')
+  for (const name of input.variantes?.length ? input.variantes : ['Padrão']) {
+    await variant.run([id, name])
+  }
+  return id
+}
+
+export async function atualizarInsumoAsync(
+  id: number,
+  input: { nome?: string; unidade?: string; estoqueMinimo?: number | null; observacao?: string | null }
+): Promise<void> {
+  const db = getAsyncDb()
+  const fields: [string, unknown][] = [
+    ['name', input.nome], ['unit', input.unidade], ['min_stock', input.estoqueMinimo],
+    ['notes', input.observacao]
+  ]
+  for (const [column, value] of fields) {
+    if (value === undefined) continue
+    const statement = await db.prepare(`UPDATE supplies SET ${column} = ? WHERE id = ?`)
+    await statement.run([value, id])
+  }
+}
+
+export async function removerInsumoAsync(id: number): Promise<void> {
+  const statement = await getAsyncDb().prepare('DELETE FROM supplies WHERE id = ?')
+  await statement.run([id])
+}
+
+export async function criarVarianteAsync(insumoId: number, nome: string): Promise<number> {
+  const statement = await getAsyncDb().prepare(
+    'INSERT INTO supply_variants (supply_id, name) VALUES (?, ?)'
+  )
+  return Number((await statement.run([insumoId, nome])).lastInsertRowid)
+}
+
+export async function renomearVarianteAsync(id: number, nome: string): Promise<void> {
+  const statement = await getAsyncDb().prepare('UPDATE supply_variants SET name = ? WHERE id = ?')
+  await statement.run([nome, id])
+}
+
+export async function removerVarianteAsync(id: number): Promise<void> {
+  const statement = await getAsyncDb().prepare('DELETE FROM supply_variants WHERE id = ?')
+  await statement.run([id])
+}
+
+export async function registrarCompraAsync(input: {
+  varianteId: number; quantidade: number; valor: number; frete?: number;
+  compradoEm?: number; fornecedor?: string | null; observacao?: string | null
+}): Promise<number> {
+  const db = getAsyncDb()
+  const when = input.compradoEm ?? Date.now()
+  const purchase = await db.prepare(
+    `INSERT INTO purchases (variant_id, quantity, total, shipping, bought_at, supplier, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+  const result = await purchase.run([
+    input.varianteId, input.quantidade, input.valor, input.frete ?? 0, when,
+    input.fornecedor ?? null, input.observacao ?? null, Date.now()
+  ])
+  const id = Number(result.lastInsertRowid)
+  const move = await db.prepare(
+    `INSERT INTO stock_moves (variant_id, quantity, reason, ref, purchase_id, happened_at)
+     VALUES (?, ?, 'compra', ?, ?, ?)`
+  )
+  await move.run([input.varianteId, input.quantidade, `compra:${id}`, id, when])
+  return id
+}
+
+export async function removerCompraAsync(id: number): Promise<void> {
+  const db = getAsyncDb()
+  const moves = await db.prepare('DELETE FROM stock_moves WHERE purchase_id = ?')
+  const purchase = await db.prepare('DELETE FROM purchases WHERE id = ?')
+  await moves.run([id])
+  await purchase.run([id])
+}
+
+export async function ajustarEstoqueAsync(
+  varianteId: number,
+  quantidade: number,
+  observacao?: string
+): Promise<void> {
+  const statement = await getAsyncDb().prepare(
+    `INSERT INTO stock_moves (variant_id, quantity, reason, happened_at, notes)
+     VALUES (?, ?, 'ajuste', ?, ?)`
+  )
+  await statement.run([varianteId, quantidade, Date.now(), observacao ?? null])
+}
+
+export async function listarMovimentosAsync(limite = 100): Promise<MovimentoEstoque[]> {
+  const statement = await getAsyncDb().prepare(
+    `SELECT m.id, m.variant_id, m.quantity, m.reason, m.order_sn, m.happened_at, m.notes,
+            v.name AS variante, s.name AS insumo, s.unit
+       FROM stock_moves m JOIN supply_variants v ON v.id = m.variant_id
+       JOIN supplies s ON s.id = v.supply_id
+      ORDER BY m.happened_at DESC, m.id DESC LIMIT ?`
+  )
+  const rows = (await statement.all([Math.min(1000, Math.max(1, limite))])) as {
+    id: number; variant_id: number; variante: string; insumo: string; unit: string;
+    quantity: number; reason: string; order_sn: string | null; happened_at: number; notes: string | null
+  }[]
+  return rows.map((row) => ({
+    id: row.id, varianteId: row.variant_id, insumoNome: row.insumo,
+    varianteNome: row.variante, unidade: row.unit, quantidade: row.quantity,
+    motivo: row.reason as MovimentoEstoque['motivo'], orderSn: row.order_sn,
+    aconteceuEm: row.happened_at, observacao: row.notes
+  }))
+}

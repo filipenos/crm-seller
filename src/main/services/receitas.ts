@@ -521,6 +521,93 @@ export async function estoqueDesdeAsync(): Promise<number> {
   return now
 }
 
+export async function criarLinhaAsync(nome: string): Promise<number> {
+  const db = getAsyncDb()
+  const countStatement = await db.prepare('SELECT COUNT(*) AS n FROM production_lines')
+  const count = (await countStatement.get([])) as { n: number }
+  const insert = await db.prepare(
+    'INSERT INTO production_lines (name, is_default, created_at) VALUES (?, ?, ?)'
+  )
+  return Number((await insert.run([nome, count.n > 0 ? 0 : 1, Date.now()])).lastInsertRowid)
+}
+
+export async function renomearLinhaAsync(id: number, nome: string): Promise<void> {
+  const statement = await getAsyncDb().prepare('UPDATE production_lines SET name = ? WHERE id = ?')
+  await statement.run([nome, id])
+}
+
+export async function removerLinhaAsync(id: number): Promise<void> {
+  const db = getAsyncDb()
+  const products = await db.prepare('UPDATE products SET line_id = NULL WHERE line_id = ?')
+  const line = await db.prepare('DELETE FROM production_lines WHERE id = ?')
+  await products.run([id])
+  await line.run([id])
+}
+
+export async function criarReceitaAsync(input: {
+  linhaId: number | null; nome: string; tipo: TipoReceita; rende?: number
+}): Promise<number> {
+  const db = getAsyncDb()
+  const positionStatement = await db.prepare(
+    'SELECT COALESCE(MAX(position), 0) + 1 AS p FROM recipes WHERE line_id IS ?'
+  )
+  const position = (await positionStatement.get([input.linhaId])) as { p: number }
+  const insert = await db.prepare(
+    'INSERT INTO recipes (line_id, name, kind, yields, position) VALUES (?, ?, ?, ?, ?)'
+  )
+  return Number((await insert.run([
+    input.linhaId, input.nome, input.tipo, input.rende ?? 1, position.p
+  ])).lastInsertRowid)
+}
+
+export async function atualizarReceitaAsync(
+  id: number,
+  input: { nome?: string; rende?: number }
+): Promise<void> {
+  const db = getAsyncDb()
+  if (input.nome !== undefined) {
+    const statement = await db.prepare('UPDATE recipes SET name = ? WHERE id = ?')
+    await statement.run([input.nome, id])
+  }
+  if (input.rende !== undefined) {
+    const statement = await db.prepare('UPDATE recipes SET yields = ? WHERE id = ?')
+    await statement.run([input.rende, id])
+  }
+}
+
+export async function removerReceitaAsync(id: number): Promise<void> {
+  const statement = await getAsyncDb().prepare('DELETE FROM recipes WHERE id = ?')
+  await statement.run([id])
+}
+
+export async function adicionarItemAsync(input: {
+  receitaId: number; insumoId?: number | null; receitaFilhaId?: number | null;
+  quantidade: number | null
+}): Promise<number> {
+  const db = getAsyncDb()
+  const positionStatement = await db.prepare(
+    'SELECT COALESCE(MAX(position), 0) + 1 AS p FROM recipe_items WHERE recipe_id = ?'
+  )
+  const position = (await positionStatement.get([input.receitaId])) as { p: number }
+  const insert = await db.prepare(
+    'INSERT INTO recipe_items (recipe_id, supply_id, child_recipe_id, quantity, position) VALUES (?, ?, ?, ?, ?)'
+  )
+  return Number((await insert.run([
+    input.receitaId, input.insumoId ?? null, input.receitaFilhaId ?? null,
+    input.quantidade, position.p
+  ])).lastInsertRowid)
+}
+
+export async function atualizarItemAsync(id: number, quantidade: number | null): Promise<void> {
+  const statement = await getAsyncDb().prepare('UPDATE recipe_items SET quantity = ? WHERE id = ?')
+  await statement.run([quantidade, id])
+}
+
+export async function removerItemAsync(id: number): Promise<void> {
+  const statement = await getAsyncDb().prepare('DELETE FROM recipe_items WHERE id = ?')
+  await statement.run([id])
+}
+
 /**
  * Baixa o estoque dos pedidos que já foram postados.
  *

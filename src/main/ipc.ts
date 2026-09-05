@@ -57,39 +57,39 @@ import { reprocessarExtratos } from './services/recebimentos'
 import { montarPainel, serieMensal } from './services/dashboard'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
-  definirLinhaDoProduto,
+  definirLinhaDoProdutoAsync,
   listarProdutosAsync,
-  recomporCatalogoDosPedidos
+  recomporCatalogoDosPedidosAsync
 } from './services/produtos'
 import {
-  ajustarEstoque,
-  atualizarInsumo,
-  criarInsumo,
-  criarVariante,
+  ajustarEstoqueAsync,
+  atualizarInsumoAsync,
+  criarInsumoAsync,
+  criarVarianteAsync,
   listarComprasAsync,
   listarInsumosAsync,
-  listarMovimentos,
-  registrarCompra,
-  removerCompra,
-  removerInsumo,
-  removerVariante,
-  renomearVariante
+  listarMovimentosAsync,
+  registrarCompraAsync,
+  removerCompraAsync,
+  removerInsumoAsync,
+  removerVarianteAsync,
+  renomearVarianteAsync
 } from './services/insumos'
 import {
-  adicionarItem,
-  atualizarItem,
-  atualizarReceita,
+  adicionarItemAsync,
+  atualizarItemAsync,
+  atualizarReceitaAsync,
   baixarEstoqueDosDespachados,
   consumoDoPedido,
-  criarLinha,
+  criarLinhaAsync,
   estoqueDesdeAsync,
-  criarReceita,
+  criarReceitaAsync,
   listarComponentesAsync,
   listarLinhasAsync,
-  removerItem,
-  removerLinha,
-  removerReceita,
-  renomearLinha
+  removerItemAsync,
+  removerLinhaAsync,
+  removerReceitaAsync,
+  renomearLinhaAsync
 } from './services/receitas'
 import {
   countUnseenEventsAsync,
@@ -240,55 +240,55 @@ export function registerIpcHandlers(onDatabaseReady: () => void): void {
   ipcMain.handle('produtos:list', () => listarProdutosAsync())
   ipcMain.handle('produtos:sync', () => sincronizarProdutos())
   // Reconstrói o catálogo a partir dos pedidos — sem rede.
-  ipcMain.handle('produtos:recompor', () => recomporCatalogoDosPedidos())
+  ipcMain.handle('produtos:recompor', () => recomporCatalogoDosPedidosAsync())
   ipcMain.handle('produtos:setLinha', (_e, itemId: string, linhaId: number | null) =>
-    definirLinhaDoProduto(itemId, linhaId)
+    definirLinhaDoProdutoAsync(itemId, linhaId)
   )
 
   // Insumos, compras e estoque
   ipcMain.handle('insumos:list', () => listarInsumosAsync())
-  ipcMain.handle('insumos:criar', (_e, input: Parameters<typeof criarInsumo>[0]) => criarInsumo(input))
-  ipcMain.handle('insumos:atualizar', (_e, id: number, input: Parameters<typeof atualizarInsumo>[1]) =>
-    atualizarInsumo(id, input)
+  ipcMain.handle('insumos:criar', (_e, input: Parameters<typeof criarInsumoAsync>[0]) => criarInsumoAsync(input))
+  ipcMain.handle('insumos:atualizar', (_e, id: number, input: Parameters<typeof atualizarInsumoAsync>[1]) =>
+    atualizarInsumoAsync(id, input)
   )
-  ipcMain.handle('insumos:remover', (_e, id: number) => removerInsumo(id))
+  ipcMain.handle('insumos:remover', (_e, id: number) => removerInsumoAsync(id))
   ipcMain.handle('insumos:criarVariante', (_e, insumoId: number, nome: string) =>
-    criarVariante(insumoId, nome)
+    criarVarianteAsync(insumoId, nome)
   )
-  ipcMain.handle('insumos:renomearVariante', (_e, id: number, nome: string) => renomearVariante(id, nome))
-  ipcMain.handle('insumos:removerVariante', (_e, id: number) => removerVariante(id))
+  ipcMain.handle('insumos:renomearVariante', (_e, id: number, nome: string) => renomearVarianteAsync(id, nome))
+  ipcMain.handle('insumos:removerVariante', (_e, id: number) => removerVarianteAsync(id))
   ipcMain.handle('compras:list', (_e, limite?: number) => listarComprasAsync(limite))
-  ipcMain.handle('compras:registrar', (_e, input: Parameters<typeof registrarCompra>[0]) =>
-    registrarCompra(input)
+  ipcMain.handle('compras:registrar', (_e, input: Parameters<typeof registrarCompraAsync>[0]) =>
+    registrarCompraAsync(input)
   )
-  ipcMain.handle('compras:remover', (_e, id: number) => removerCompra(id))
+  ipcMain.handle('compras:remover', (_e, id: number) => removerCompraAsync(id))
   ipcMain.handle('estoque:ajustar', (_e, varianteId: number, quantidade: number, obs?: string) =>
-    ajustarEstoque(varianteId, quantidade, obs)
+    ajustarEstoqueAsync(varianteId, quantidade, obs)
   )
-  ipcMain.handle('estoque:movimentos', (_e, limite?: number) => listarMovimentos(limite))
+  ipcMain.handle('estoque:movimentos', (_e, limite?: number) => listarMovimentosAsync(limite))
   ipcMain.handle('estoque:baixarDespachados', () => baixarEstoqueDosDespachados())
   ipcMain.handle('estoque:desde', () => estoqueDesdeAsync())
 
   // Receitas e linhas de fabricação
   ipcMain.handle('fabricacao:linhas', () => listarLinhasAsync())
   ipcMain.handle('fabricacao:componentes', () => listarComponentesAsync())
-  ipcMain.handle('fabricacao:criarLinha', (_e, nome: string) => criarLinha(nome))
-  ipcMain.handle('fabricacao:renomearLinha', (_e, id: number, nome: string) => renomearLinha(id, nome))
-  ipcMain.handle('fabricacao:removerLinha', (_e, id: number) => removerLinha(id))
-  ipcMain.handle('fabricacao:criarReceita', (_e, input: Parameters<typeof criarReceita>[0]) =>
-    criarReceita(input)
+  ipcMain.handle('fabricacao:criarLinha', (_e, nome: string) => criarLinhaAsync(nome))
+  ipcMain.handle('fabricacao:renomearLinha', (_e, id: number, nome: string) => renomearLinhaAsync(id, nome))
+  ipcMain.handle('fabricacao:removerLinha', (_e, id: number) => removerLinhaAsync(id))
+  ipcMain.handle('fabricacao:criarReceita', (_e, input: Parameters<typeof criarReceitaAsync>[0]) =>
+    criarReceitaAsync(input)
   )
   ipcMain.handle('fabricacao:atualizarReceita', (_e, id: number, input: { nome?: string; rende?: number }) =>
-    atualizarReceita(id, input)
+    atualizarReceitaAsync(id, input)
   )
-  ipcMain.handle('fabricacao:removerReceita', (_e, id: number) => removerReceita(id))
-  ipcMain.handle('fabricacao:adicionarItem', (_e, input: Parameters<typeof adicionarItem>[0]) =>
-    adicionarItem(input)
+  ipcMain.handle('fabricacao:removerReceita', (_e, id: number) => removerReceitaAsync(id))
+  ipcMain.handle('fabricacao:adicionarItem', (_e, input: Parameters<typeof adicionarItemAsync>[0]) =>
+    adicionarItemAsync(input)
   )
   ipcMain.handle('fabricacao:atualizarItem', (_e, id: number, quantidade: number | null) =>
-    atualizarItem(id, quantidade)
+    atualizarItemAsync(id, quantidade)
   )
-  ipcMain.handle('fabricacao:removerItem', (_e, id: number) => removerItem(id))
+  ipcMain.handle('fabricacao:removerItem', (_e, id: number) => removerItemAsync(id))
   ipcMain.handle('fabricacao:consumoDoPedido', (_e, orderSn: string) => consumoDoPedido(orderSn))
 
 }

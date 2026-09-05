@@ -250,3 +250,63 @@ export async function listarProdutosAsync(): Promise<Produto[]> {
 export function definirLinhaDoProduto(itemId: string, linhaId: number | null): void {
   getDb().prepare('UPDATE products SET line_id = ? WHERE item_id = ?').run(linhaId, itemId)
 }
+
+export async function recomporCatalogoDosPedidosAsync(): Promise<{
+  produtos: number
+  variacoes: number
+}> {
+  const db = getAsyncDb()
+  const products = await db.prepare(
+    `INSERT INTO products (item_id, name, image_url)
+     SELECT i.item_id, i.item_name, MAX(i.image_url) FROM order_items i
+      WHERE i.item_id IS NOT NULL GROUP BY i.item_id, i.item_name
+     ON CONFLICT(item_id) DO UPDATE SET name = COALESCE(products.name, excluded.name),
+       image_url = COALESCE(products.image_url, excluded.image_url)`
+  )
+  const variations = await db.prepare(
+    `INSERT INTO product_variations (model_id, item_id, name, pecas)
+     SELECT i.model_id, MAX(i.item_id), MAX(i.model_name), MAX(i.pecas) FROM order_items i
+      WHERE i.model_id IS NOT NULL AND i.item_id IS NOT NULL GROUP BY i.model_id
+     ON CONFLICT(model_id) DO UPDATE SET name = COALESCE(product_variations.name, excluded.name),
+       pecas = COALESCE(product_variations.pecas, excluded.pecas)`
+  )
+  const productResult = await products.run([])
+  const variationResult = await variations.run([])
+  return { produtos: productResult.changes, variacoes: variationResult.changes }
+}
+
+export async function salvarProdutoShopeeAsync(product: ProdutoShopee): Promise<void> {
+  const db = getAsyncDb()
+  const saveProduct = await db.prepare(
+    `INSERT INTO products (item_id, name, image_url, price, stock, active, synced_at, raw_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(item_id) DO UPDATE SET name = excluded.name,
+       image_url = COALESCE(excluded.image_url, products.image_url), price = excluded.price,
+       stock = excluded.stock, active = excluded.active, synced_at = excluded.synced_at,
+       raw_json = excluded.raw_json`
+  )
+  await saveProduct.run([
+    product.itemId, product.nome, product.imagemUrl, product.preco, product.estoque,
+    product.ativo === null ? null : product.ativo ? 1 : 0, Date.now(), product.rawJson
+  ])
+  const saveVariation = await db.prepare(
+    `INSERT INTO product_variations (model_id, item_id, name, pecas, price, stock)
+     VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(model_id) DO UPDATE SET
+       item_id = excluded.item_id, name = COALESCE(excluded.name, product_variations.name),
+       price = excluded.price, stock = excluded.stock`
+  )
+  for (const variation of product.variacoes) {
+    await saveVariation.run([
+      variation.modelId, product.itemId, variation.nome, pecasDaVariacao(variation.nome),
+      variation.preco, variation.estoque
+    ])
+  }
+}
+
+export async function definirLinhaDoProdutoAsync(
+  itemId: string,
+  linhaId: number | null
+): Promise<void> {
+  const statement = await getAsyncDb().prepare('UPDATE products SET line_id = ? WHERE item_id = ?')
+  await statement.run([linhaId, itemId])
+}
