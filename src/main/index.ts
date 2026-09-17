@@ -10,6 +10,10 @@ import { hasTursoConfig, readTursoConfig } from './db/config'
 import { getSettingsAsync } from './services/settings'
 import { ensureDefaultComposition } from './services/composition'
 
+// Idioma fixo do Chromium/Electron: controles nativos, calendário, menus do
+// sistema e mensagens internas não devem variar com o idioma do computador.
+app.commandLine.appendSwitch('lang', 'pt-BR')
+
 let servicesStart: Promise<void> | null = null
 
 async function startServices(reset = false): Promise<void> {

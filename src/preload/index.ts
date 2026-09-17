@@ -27,7 +27,10 @@ import type {
   TrackingRefreshResult,
   UpdateStatus,
   ConsumoProducao,
-  ResumoComposicao
+  ResumoComposicao,
+  ResumoDesempenho,
+  ResultadoSyncDesempenho,
+  PeriodoDesempenho
 } from '../shared/types'
 
 const api = {
@@ -151,6 +154,11 @@ const api = {
       ipcRenderer.invoke('produtos:recompor'),
     setLinha: (itemId: string, linhaId: number | null): Promise<void> =>
       ipcRenderer.invoke('produtos:setLinha', itemId, linhaId)
+  },
+  desempenho: {
+    resumo: (period?: PeriodoDesempenho): Promise<ResumoDesempenho | null> => ipcRenderer.invoke('desempenho:resumo', period),
+    sincronizar: (period?: PeriodoDesempenho): Promise<ResultadoSyncDesempenho> =>
+      ipcRenderer.invoke('desempenho:sincronizar', period)
   },
   insumos: {
     list: (): Promise<Insumo[]> => ipcRenderer.invoke('insumos:list'),

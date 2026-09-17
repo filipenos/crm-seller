@@ -351,6 +351,59 @@ export interface Produto {
   custoPorCaixa: number | null
 }
 
+// ---------- desempenho ----------
+
+export interface MetricaDesempenho {
+  impressoes: number
+  cliques: number
+  pedidos: number
+  unidades: number
+  vendas: number
+}
+
+export interface DesempenhoProduto extends MetricaDesempenho {
+  itemId: string
+  nome: string
+  imagemUrl: string | null
+  visitantes: number
+  curtidas: number
+  adicionaramAoCarrinho: number
+  ctr: number
+  conversao: number
+}
+
+export interface DesempenhoAds extends MetricaDesempenho {
+  investimento: number
+  roas: number | null
+  cpc: number | null
+}
+
+export interface DesempenhoOfertaRelampago extends MetricaDesempenho {
+  espectadores: number
+  campanhas: number
+}
+
+export interface ResumoDesempenho {
+  inicio: number
+  fim: number
+  sincronizadoEm: number
+  geral: MetricaDesempenho
+  ads: DesempenhoAds
+  ofertaRelampago: DesempenhoOfertaRelampago
+  produtos: DesempenhoProduto[]
+}
+
+export interface ResultadoSyncDesempenho {
+  produtos: number
+  ofertasRelampago: number
+  sincronizadoEm: number
+}
+
+export interface PeriodoDesempenho {
+  inicio: string
+  fim: string
+}
+
 /** Unidades em que um insumo é comprado e consumido. */
 export const UNIDADES = ['un', 'folha', 'm', 'cm', 'ml', 'g', 'aplicação'] as const
 export type Unidade = (typeof UNIDADES)[number]

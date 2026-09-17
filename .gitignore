@@ -2,6 +2,8 @@
 node_modules/
 out/
 dist/
+dist-web/
+.wrangler/
 *.tsbuildinfo
 
 # --- Dados do app: NUNCA versionar ---
@@ -35,6 +37,8 @@ Templates/
 # Credenciais e certificados de assinatura
 .env
 .env.*
+!.env.cloudflare.example
+.dev.vars
 turso.json
 *.pem
 *.key

@@ -485,6 +485,81 @@ const migrations: string[] = [
   ALTER TABLE order_income ADD COLUMN frete_pago_comprador REAL;
   ALTER TABLE order_income ADD COLUMN custo_frete REAL;
   ALTER TABLE order_income ADD COLUMN subsidio_frete_shopee REAL;
+  `,
+  // 21 — snapshots de desempenho. Uma sincronização reúne os dados na Shopee
+  // e grava tudo em um único batch, porque o Turso é remoto.
+  `
+  CREATE TABLE performance_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    synced_at INTEGER NOT NULL,
+    impressions REAL NOT NULL DEFAULT 0,
+    clicks REAL NOT NULL DEFAULT 0,
+    orders_count REAL NOT NULL DEFAULT 0,
+    units REAL NOT NULL DEFAULT 0,
+    sales REAL NOT NULL DEFAULT 0,
+    ads_impressions REAL NOT NULL DEFAULT 0,
+    ads_clicks REAL NOT NULL DEFAULT 0,
+    ads_orders REAL NOT NULL DEFAULT 0,
+    ads_sales REAL NOT NULL DEFAULT 0,
+    ads_cost REAL NOT NULL DEFAULT 0,
+    flash_viewers REAL NOT NULL DEFAULT 0,
+    flash_impressions REAL NOT NULL DEFAULT 0,
+    flash_clicks REAL NOT NULL DEFAULT 0,
+    flash_orders REAL NOT NULL DEFAULT 0,
+    flash_units REAL NOT NULL DEFAULT 0,
+    flash_sales REAL NOT NULL DEFAULT 0,
+    UNIQUE(period_start, period_end)
+  );
+
+  CREATE TABLE product_performance (
+    snapshot_id INTEGER NOT NULL REFERENCES performance_snapshots(id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    image_url TEXT,
+    impressions REAL NOT NULL DEFAULT 0,
+    clicks REAL NOT NULL DEFAULT 0,
+    visitors REAL NOT NULL DEFAULT 0,
+    likes REAL NOT NULL DEFAULT 0,
+    add_to_cart_buyers REAL NOT NULL DEFAULT 0,
+    orders_count REAL NOT NULL DEFAULT 0,
+    units REAL NOT NULL DEFAULT 0,
+    sales REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY(snapshot_id, item_id)
+  );
+  CREATE INDEX idx_product_performance_item ON product_performance(item_id);
+
+  CREATE TABLE flash_sale_performance (
+    snapshot_id INTEGER NOT NULL REFERENCES performance_snapshots(id) ON DELETE CASCADE,
+    flash_sale_id TEXT NOT NULL,
+    start_time INTEGER NOT NULL,
+    end_time INTEGER NOT NULL,
+    status INTEGER,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    enabled_item_count INTEGER NOT NULL DEFAULT 0,
+    clicks REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY(snapshot_id, flash_sale_id)
+  );
+  `,
+  // 22 — série diária de desempenho. Intervalos escolhidos na interface são
+  // somados no Turso, sem uma nova chamada à Shopee a cada troca de datas.
+  `
+  CREATE TABLE daily_performance (
+    day INTEGER PRIMARY KEY,
+    synced_at INTEGER NOT NULL,
+    shop_views REAL NOT NULL DEFAULT 0,
+    shop_visitors REAL NOT NULL DEFAULT 0,
+    product_clicks REAL NOT NULL DEFAULT 0,
+    orders_count REAL NOT NULL DEFAULT 0,
+    sales REAL NOT NULL DEFAULT 0,
+    ads_impressions REAL NOT NULL DEFAULT 0,
+    ads_clicks REAL NOT NULL DEFAULT 0,
+    ads_orders REAL NOT NULL DEFAULT 0,
+    ads_sales REAL NOT NULL DEFAULT 0,
+    ads_cost REAL NOT NULL DEFAULT 0
+  );
+  CREATE INDEX idx_daily_performance_synced ON daily_performance(synced_at);
   `
 ]
 

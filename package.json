@@ -1,6 +1,6 @@
 {
   "name": "crm-seller",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "CRM local para pedidos personalizados (Shopee)",
   "main": "out/main/index.js",
   "author": "Filipe Peixoto <filipenos@gmail.com>",
@@ -10,6 +10,9 @@
     "dev": "electron-vite dev",
     "dev:linux": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
     "build": "electron-vite build",
+    "build:web": "vite build --config vite.web.config.ts && tsc --noEmit -p tsconfig.worker.json",
+    "dev:web": "npm run build:web && wrangler dev",
+    "deploy:web": "node scripts/deploy-web.mjs",
     "typecheck": "npm run check:db-access && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test:composition": "esbuild scripts/check-composition.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-composition.mjs && NODE_ENV=test node node_modules/.cache/crm-seller-check-composition.mjs",
     "check:db-access": "node scripts/check-db-access.mjs",
@@ -33,12 +36,14 @@
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "^7.0.2",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "wrangler": "^4.134.0"
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,
-    "electron@43.2.0": true
+    "electron@43.2.0": true,
+    "workerd@1.20260917.1": true
   }
 }

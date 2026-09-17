@@ -170,6 +170,35 @@ select:focus {
   -webkit-box-orient: vertical;
 }
 
+/* ---------- desempenho ---------- */
+.performance-page { max-width: 1500px; }
+.performance-period { color: var(--muted); margin: 4px 0 14px; }
+.performance-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 12px; }
+.performance-kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 5px; }
+.performance-kpi span { color: var(--muted); font-size: 12px; }
+.performance-kpi strong { font-size: 22px; font-weight: 650; }
+.performance-kpi small { color: var(--muted); }
+.performance-grid.ads .performance-kpi:nth-child(3) { border-color: #f3a28e; background: var(--accent-soft); }
+.section-title { font-size: 15px; margin: 20px 0 10px; }
+.performance-empty { min-height: 280px; border: 1px dashed var(--border); border-radius: 12px; display: grid; place-content: center; text-align: center; gap: 7px; color: var(--muted); }
+.performance-empty strong { color: var(--text); font-size: 16px; }
+.performance-product { display: flex; align-items: center; gap: 9px; min-width: 280px; }
+.performance-table { margin-top: 12px; }
+.performance-product-filter { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.performance-product-filter input { width: min(420px, 100%); border-color: #cfd3da; }
+.performance-page .page-header { align-items: flex-end; flex-wrap: wrap; }
+.performance-actions { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px; margin-left: auto; }
+.performance-actions label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.performance-actions input, .performance-actions select { min-width: 170px; background: #fff; }
+.performance-sync { min-height: 34px; padding: 8px 16px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent); color: #fff; font-weight: 600; box-shadow: 0 2px 5px rgba(238, 77, 45, 0.22); white-space: nowrap; }
+.performance-sync:hover:not(:disabled) { background: #d94225; color: #fff; transform: translateY(-1px); }
+.performance-sync:disabled { opacity: .6; cursor: default; }
+.performance-page .subtabs { display: flex; gap: 8px; margin: 16px 0 4px; }
+.performance-page .subtabs button { border: 1px solid var(--border); background: #fff; color: var(--text); padding: 8px 15px; border-radius: 18px; transition: background .15s, color .15s, border-color .15s; }
+.performance-page .subtabs button:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.performance-page .subtabs button.active { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 600; }
+.performance-page .subtabs button.active:hover { background: #d94225; color: #fff; }
+
 .orders-sync-screen {
   min-height: calc(100vh - 40px);
   display: grid;

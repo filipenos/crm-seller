@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { MetricaPainel, Painel, ResumoPeriodo } from '@shared/types'
+import { api } from '@renderer/api'
 import DetalheMetrica from '../components/DetalheMetrica'
 
 interface Props {
@@ -64,7 +65,7 @@ export default function DashboardPage({ dataVersion }: Props): React.JSX.Element
   const [detalhe, setDetalhe] = useState<MetricaPainel | null>(null)
 
   useEffect(() => {
-    void window.api.painel.resumo().then(setP)
+    void api.painel.resumo().then(setP)
   }, [dataVersion])
 
   if (!p) return <div className="page" />

@@ -5,6 +5,7 @@ import type {
   InternalStatus,
   MetricaPainel,
   OrderFilters,
+  PeriodoDesempenho,
   StageActionKind
 } from '@shared/types'
 import { getSettingsAsync, updateSettingsAsync } from './services/settings'
@@ -117,6 +118,7 @@ import {
   updateCompositionPurchase,
   updateCompositionVariant
 } from './services/composition'
+import { resumoDesempenho, sincronizarDesempenho } from './services/performance'
 
 export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promise<void>): void {
   ipcMain.handle('database:status', async () => {
@@ -264,6 +266,8 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   ipcMain.handle('produtos:setLinha', (_e, itemId: string, linhaId: number | null) =>
     definirLinhaDoProdutoAsync(itemId, linhaId)
   )
+  ipcMain.handle('desempenho:resumo', (_e, period?: PeriodoDesempenho) => resumoDesempenho(period))
+  ipcMain.handle('desempenho:sincronizar', (_e, period?: PeriodoDesempenho) => sincronizarDesempenho(period))
 
   // Insumos, compras e estoque
   ipcMain.handle('insumos:list', () => listarInsumosAsync())

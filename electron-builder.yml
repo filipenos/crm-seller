@@ -6,6 +6,10 @@ directories:
 files:
   - out/**/*
   - package.json
+# Mantém os controles nativos e mensagens do Chromium sempre em português do
+# Brasil também nas versões instaladas para Windows, macOS e Linux.
+electronLanguages:
+  - pt-BR
 asarUnpack:
   - '**/*.node'
 win:

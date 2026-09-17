@@ -1,0 +1,15 @@
+.web-app .sidebar-footer {
+  margin-top: auto;
+  padding: 16px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+@media (max-width: 760px) {
+  .web-app { display: block; }
+  .web-app .sidebar { position: static; width: 100%; min-height: auto; }
+  .web-app .sidebar nav { display: flex; }
+  .web-app .sidebar nav button { flex: 1; }
+  .web-app .sidebar-footer { display: none; }
+  .web-app .content { margin-left: 0; padding: 16px; }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { MetricaPainel, SerieMensal } from '@shared/types'
 import { METRICA_LABELS, METRICAS_EM_REAIS } from '@shared/types'
+import { api } from '@renderer/api'
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const MESES = [
@@ -37,7 +38,7 @@ export default function DetalheMetrica({ metrica, onClose }: Props): React.JSX.E
   const [serie, setSerie] = useState<SerieMensal | null>(null)
 
   useEffect(() => {
-    void window.api.painel.serie(metrica, ano, mes).then(setSerie)
+    void api.painel.serie(metrica, ano, mes).then(setSerie)
   }, [metrica, ano, mes])
 
   const navega = (delta: number): void => {

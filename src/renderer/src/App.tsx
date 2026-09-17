@@ -9,8 +9,9 @@ import SettingsPage from './pages/SettingsPage'
 import BarraProgresso from './components/BarraProgresso'
 import DatabaseSetupPage from './pages/DatabaseSetupPage'
 import OrdersSyncPage from './pages/OrdersSyncPage'
+import PerformancePage from './pages/PerformancePage'
 
-type Page = 'home' | 'orders' | 'produtos' | 'producao' | 'activity' | 'settings'
+type Page = 'home' | 'orders' | 'produtos' | 'performance' | 'producao' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
   const [database, setDatabase] = useState<{
@@ -112,6 +113,9 @@ export default function App(): React.JSX.Element {
           <button className={page === 'produtos' ? 'active' : ''} onClick={() => setPage('produtos')}>
             Produtos
           </button>
+          <button className={page === 'performance' ? 'active' : ''} onClick={() => setPage('performance')}>
+            Desempenho
+          </button>
           <button className={page === 'producao' ? 'active' : ''} onClick={() => setPage('producao')}>
             Composição
           </button>
@@ -173,6 +177,7 @@ export default function App(): React.JSX.Element {
           ? <OrdersSyncPage progress={syncProgress} starting={syncStarting} />
           : <OrdersPage dataVersion={dataVersion} />)}
         {page === 'produtos' && <ProdutosPage dataVersion={dataVersion} />}
+        {page === 'performance' && <PerformancePage />}
         {page === 'producao' && <ProducaoPage dataVersion={dataVersion} />}
         {page === 'activity' && (
           <ActivityPage dataVersion={dataVersion} onSeen={() => void refreshUnseen()} />

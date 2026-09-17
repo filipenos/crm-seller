@@ -6,6 +6,7 @@ export const SHOPEE_PARTITION = 'persist:shopee'
 const LOGIN_URL_PATTERN = /accounts\.shopee\.[^/]+|\/seller\/login|\/buyer\/login/i
 
 let hiddenWindow: BrowserWindow | null = null
+let hiddenWindowPromise: Promise<BrowserWindow> | null = null
 let loginWindow: BrowserWindow | null = null
 
 /**
@@ -165,6 +166,7 @@ export async function openLoginWindowAndWait(): Promise<void> {
 }
 
 async function ensureHiddenWindow(): Promise<BrowserWindow> {
+  if (hiddenWindowPromise) return hiddenWindowPromise
   if (hiddenWindow && !hiddenWindow.isDestroyed()) {
     // A janela é reaproveitada entre chamadas, e o fetch usa caminho relativo:
     // se ela tiver derivado para outro host (redirecionamento de login), as
@@ -175,25 +177,42 @@ async function ensureHiddenWindow(): Promise<BrowserWindow> {
     await hiddenWindow.loadURL(sellerBaseUrl())
     return hiddenWindow
   }
-  hiddenWindow = new BrowserWindow({
-    show: false,
-    webPreferences: {
-      partition: SHOPEE_PARTITION,
-      nodeIntegration: false,
-      contextIsolation: true,
-      backgroundThrottling: false
-    }
-  })
-  await hiddenWindow.loadURL(sellerBaseUrl())
-  if (LOGIN_URL_PATTERN.test(hiddenWindow.webContents.getURL())) {
-    throw new ShopeeSessionExpiredError()
+  // Várias APIs podem começar juntas. Sem compartilhar esta Promise, cada
+  // chamada tenta navegar a mesma BrowserWindow e uma cancela a outra com
+  // ERR_ABORTED. O bloqueio existe só durante a inicialização; os fetches
+  // continuam concorrentes depois que a página base estiver pronta.
+  if (!hiddenWindowPromise) {
+    hiddenWindowPromise = (async () => {
+      const candidate = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          partition: SHOPEE_PARTITION,
+          nodeIntegration: false,
+          contextIsolation: true,
+          backgroundThrottling: false
+        }
+      })
+      hiddenWindow = candidate
+      try {
+        await candidate.loadURL(sellerBaseUrl())
+        if (LOGIN_URL_PATTERN.test(candidate.webContents.getURL())) {
+          throw new ShopeeSessionExpiredError()
+        }
+        return candidate
+      } catch (error) {
+        if (!candidate.isDestroyed()) candidate.destroy()
+        if (hiddenWindow === candidate) hiddenWindow = null
+        throw error
+      }
+    })().finally(() => { hiddenWindowPromise = null })
   }
-  return hiddenWindow
+  return hiddenWindowPromise
 }
 
 export function destroyHiddenWindow(): void {
   if (hiddenWindow && !hiddenWindow.isDestroyed()) hiddenWindow.destroy()
   hiddenWindow = null
+  hiddenWindowPromise = null
 }
 
 /**
