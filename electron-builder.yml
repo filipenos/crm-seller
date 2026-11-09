@@ -6,6 +6,14 @@ directories:
 files:
   - out/**/*
   - package.json
+extraResources:
+  - from: extension
+    to: chrome-extension
+    filter:
+      - manifest.json
+      - background.js
+      - popup.html
+      - popup.js
 # Mantém os controles nativos e mensagens do Chromium sempre em português do
 # Brasil também nas versões instaladas para Windows, macOS e Linux.
 electronLanguages:

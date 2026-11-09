@@ -45,6 +45,8 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [boundShopId, setBoundShopId] = useState<string | null>(null)
   const [shopeeBindError, setShopeeBindError] = useState<string | null>(null)
   const [browserConnecting, setBrowserConnecting] = useState(false)
+  const [extensionFolder, setExtensionFolder] = useState<string | null>(null)
+  const [extensionError, setExtensionError] = useState<string | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
   const [shopeeNotice, setShopeeNotice] = useState<string | null>(null)
   const [authMode, setAuthMode] = useState<'app' | 'chrome'>('app')
@@ -143,6 +145,23 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           Banco vinculado à loja:{' '}
           <b>{boundShopId ? `#${boundShopId}` : 'ainda não vinculado'}</b>.
         </p>
+        <p className="muted">
+          Para usar o login do Chrome, abra <b>chrome://extensions</b>, ative o modo do desenvolvedor
+          e escolha <b>Carregar sem compactação</b>. Selecione a pasta aberta pelo botão abaixo
+          no mesmo perfil do Chrome em que você acessa a Shopee.
+        </p>
+        <div className="action-buttons">
+          <button onClick={async () => {
+            setExtensionError(null)
+            try {
+              setExtensionFolder(await window.api.shell.openChromeExtensionFolder())
+            } catch (reason) {
+              setExtensionError(String(reason instanceof Error ? reason.message : reason))
+            }
+          }}>Abrir pasta da extensão do Chrome</button>
+        </div>
+        {extensionFolder && <small className="muted">Pasta: {extensionFolder}</small>}
+        {extensionError && <small className="muted">⚠ {extensionError}</small>}
         <div className="action-buttons">
           <button
             onClick={async () => {

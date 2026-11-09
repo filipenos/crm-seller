@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
   ActionResult,
   AppSettings,
@@ -273,6 +275,17 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   ipcMain.handle('orders:createFolder', (_e, orderSn: string) => createOrderFolder(orderSn))
   ipcMain.handle('orders:openFolder', (_e, orderSn: string) => openOrderFolder(orderSn))
   ipcMain.handle('shell:openPath', (_e, path: string) => shell.openPath(path))
+  ipcMain.handle('shell:openChromeExtensionFolder', async () => {
+    const folder = app.isPackaged
+      ? join(process.resourcesPath, 'chrome-extension')
+      : join(app.getAppPath(), 'extension')
+    if (!existsSync(join(folder, 'manifest.json'))) {
+      throw new Error('A extensão do Chrome não foi encontrada nesta instalação.')
+    }
+    const error = await shell.openPath(folder)
+    if (error) throw new Error(error)
+    return folder
+  })
 
   // App / atualizações
   ipcMain.handle('app:version', () => app.getVersion())

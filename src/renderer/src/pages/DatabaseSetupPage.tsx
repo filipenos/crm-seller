@@ -17,6 +17,7 @@ export default function DatabaseSetupPage({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(initialError ?? null)
   const [binding, setBinding] = useState(false)
+  const [extensionFolder, setExtensionFolder] = useState<string | null>(null)
   const [started, setStarted] = useState(Boolean(initialError))
   const [progress, setProgress] = useState<string | null>(null)
 
@@ -81,8 +82,19 @@ export default function DatabaseSetupPage({
             {binding ? 'Aguardando extensão…' : 'Usar login do Chrome'}
           </button>
           <small className="muted">
-            Para usar o Chrome, instale a extensão CRM Seller e entre no Seller Center. A sessão fica neste computador.
+            Para usar o Chrome, abra a pasta da extensão, depois vá a chrome://extensions no perfil
+            em que acessa a Shopee. Ative o modo do desenvolvedor e escolha Carregar sem compactação.
+            A sessão fica neste computador.
           </small>
+          <button type="button" onClick={async () => {
+            setError(null)
+            try {
+              setExtensionFolder(await window.api.shell.openChromeExtensionFolder())
+            } catch (reason) {
+              setError(String(reason instanceof Error ? reason.message : reason))
+            }
+          }}>Abrir pasta da extensão do Chrome</button>
+          {extensionFolder && <small className="muted">Pasta: {extensionFolder}</small>}
         </div>
       </main>
     )

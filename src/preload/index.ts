@@ -316,6 +316,7 @@ const api = {
   },
   shell: {
     openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),
+    openChromeExtensionFolder: (): Promise<string> => ipcRenderer.invoke('shell:openChromeExtensionFolder'),
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url)
   },
   app: {
