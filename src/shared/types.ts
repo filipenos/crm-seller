@@ -30,15 +30,15 @@ export const INTERNAL_STATUS_LABELS: Record<InternalStatus, string> = {
  * Aba do pedido, espelhando o Seller Center — foi a agrupação validada contra
  * a conta real (550 concluídos / 19 enviados / 26 a enviar / 85 cancelados).
  *
- * Cuidado: o status do card **não** determina a aba sozinho. `Entregue` e
- * `Pedido Recebido` aparecem tanto em Enviado quanto em Concluído; quem
- * desempata é a liberação do pagamento.
+ * O status do card sozinho não determina a aba: `Entregue` pode aparecer em
+ * Enviado ou Concluído. A sincronização usa a aba retornada pela Shopee.
  */
-export const ORDER_TABS = ['A_ENVIAR', 'ENVIADO', 'CONCLUIDO', 'CANCELADO'] as const
+export const ORDER_TABS = ['NAO_PAGO', 'A_ENVIAR', 'ENVIADO', 'CONCLUIDO', 'CANCELADO'] as const
 
 export type OrderTab = (typeof ORDER_TABS)[number]
 
 export const ORDER_TAB_LABELS: Record<OrderTab, string> = {
+  NAO_PAGO: 'Não pago',
   A_ENVIAR: 'A enviar',
   ENVIADO: 'Enviado',
   CONCLUIDO: 'Concluído',
@@ -46,7 +46,7 @@ export const ORDER_TAB_LABELS: Record<OrderTab, string> = {
 }
 
 /** Abas mostradas na listagem principal; cancelados ficam em página própria. */
-export const MAIN_TABS: OrderTab[] = ['A_ENVIAR', 'ENVIADO', 'CONCLUIDO']
+export const MAIN_TABS: OrderTab[] = ['NAO_PAGO', 'A_ENVIAR', 'ENVIADO', 'CONCLUIDO']
 
 /** O pedido ainda está conosco: é só aqui que a etapa de produção vale. */
 export function isWithUs(tab: OrderTab): boolean {
@@ -126,6 +126,8 @@ export interface OrderItem {
   quantity: number
   /** Caixas do kit, lidas da variação ("20 peças"). */
   pecas: number | null
+  /** Laços no kit, quando o produto é um kit de laços. */
+  lacos: number | null
   imageUrl: string | null
   itemSku: string | null
 }
@@ -165,6 +167,7 @@ export interface Order {
   syncedAt: number | null
   logisticsStatus: string | null
   deliveredAt: number | null
+  labelGeneratedAt: number | null
   ratingStar: number | null
   ratingComment: string | null
   ratedAt: number | null
@@ -205,15 +208,9 @@ export interface AppSettings {
    */
   autoSyncEnabled: boolean
   /**
-   * Páginas de 40 pedidos que o botão Sincronizar busca. O padrão cobre os
-   * mais recentes, que é o que muda no dia a dia; a base inteira sai pelo
-   * "Sincronizar tudo".
-   */
-  syncPageCount: number
-  /**
    * Etapas que o botão Sincronizar executa depois de trazer os pedidos.
    * Ligadas por padrão; desligar serve para uma sincronização rápida, só dos
-   * pedidos novos, sem as chamadas por pedido que levam minutos.
+   * pedidos em aberto, sem as chamadas por pedido que levam minutos.
    */
   syncTracking: boolean
   syncPayments: boolean
@@ -260,7 +257,7 @@ export interface SyncResult {
 export type TabCounts = Record<OrderTab, number>
 
 /** Progresso de uma operação longa (rastreios, extratos). */
-export type EtapaSync = 'pedidos' | 'rastreios' | 'pagamentos'
+export type EtapaSync = 'pedidos' | 'etiquetas' | 'rastreios' | 'pagamentos'
 
 export interface ProgressoLote {
   rodando: boolean
@@ -314,25 +311,40 @@ export interface SerieMensal {
 }
 
 export interface Painel {
-  hoje: ResumoPeriodo
-  ultimos7: ResumoPeriodo
-  ultimos30: ResumoPeriodo
-  aEnviar: number
-  prontosParaPostar: number
-  emTransito: number
-  /** Valor já calculado pela Shopee que ainda não caiu. */
-  aReceber: number
-  pedidosAReceber: number
-  /** Pedidos com menos de 24h para postar. */
-  prazoApertado: number
+  vendasRecentes: DiaPainel[]
+  postagensPrevistas: DiaPainel[]
+  etiquetasRecentes: DiaPainel[]
+  /** Pedidos a enviar sem prazo de postagem informado pela Shopee. */
+  semPrazoPostagem: number
+}
+
+export interface DiaPainel {
+  /** Data civil em America/Sao_Paulo, YYYY-MM-DD. */
+  data: string
+  pedidos: number
+  total: number
+  liquido: number
+  semValorLiquido: number
 }
 
 // ---------- produtos e fabricação ----------
+
+export type ProductKind = 'CAIXAS' | 'LACOS' | 'OUTRO'
+
+export interface ProdutoVariacao {
+  modelId: string
+  nome: string | null
+  cor: string | null
+  quantidadePorKit: number | null
+  kitsVendidos: number
+  lacosVendidos: number
+}
 
 /** Produto do catálogo, com o que os pedidos já sabem dele. */
 export interface Produto {
   itemId: string
   nome: string
+  tipo: ProductKind
   imagemUrl: string | null
   preco: number | null
   /** Estoque anunciado na Shopee (só chega pela sincronização). */
@@ -345,7 +357,13 @@ export interface Produto {
   variacoes: number
   pedidos: number
   caixasVendidas: number
+  lacosVendidos: number
+  kitsVendidos: number
+  variacoesDetalhe: ProdutoVariacao[]
   vendas: number
+  liquido: number
+  pedidosSemLiquido: number
+  pedidosSemRateio: number
   ultimoPedidoEm: number | null
   /** Custo dos insumos de uma caixa, pela linha de fabricação. */
   custoPorCaixa: number | null

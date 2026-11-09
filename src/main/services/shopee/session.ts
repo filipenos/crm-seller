@@ -1,6 +1,7 @@
 import { BrowserWindow, session as electronSession } from 'electron'
+import { appShopeePartition, chromeShopeePartition, getChromeUserAgent, getShopeeAuthMode, setShopeeAuthMode, shopeePartition } from './authMode'
 
-export const SHOPEE_PARTITION = 'persist:shopee'
+export { shopeePartition }
 
 /** Para onde o Seller Center joga o usuário quando a sessão morre. */
 const LOGIN_URL_PATTERN = /accounts\.shopee\.[^/]+|\/seller\/login|\/buyer\/login/i
@@ -141,7 +142,7 @@ export async function openLoginWindow(): Promise<void> {
     height: 800,
     title: 'Login Shopee — feche esta janela após entrar no Seller Center',
     webPreferences: {
-      partition: SHOPEE_PARTITION,
+      partition: appShopeePartition(),
       nodeIntegration: false,
       contextIsolation: true
     }
@@ -186,7 +187,7 @@ async function ensureHiddenWindow(): Promise<BrowserWindow> {
       const candidate = new BrowserWindow({
         show: false,
         webPreferences: {
-          partition: SHOPEE_PARTITION,
+          partition: shopeePartition(),
           nodeIntegration: false,
           contextIsolation: true,
           backgroundThrottling: false
@@ -194,6 +195,9 @@ async function ensureHiddenWindow(): Promise<BrowserWindow> {
       })
       hiddenWindow = candidate
       try {
+        if (getShopeeAuthMode() === 'chrome' && getChromeUserAgent()) {
+          candidate.webContents.setUserAgent(getChromeUserAgent()!)
+        }
         await candidate.loadURL(sellerBaseUrl())
         if (LOGIN_URL_PATTERN.test(candidate.webContents.getURL())) {
           throw new ShopeeSessionExpiredError()
@@ -334,7 +338,7 @@ export async function capturePageRequests(
   path: string,
   waitMs = 12000
 ): Promise<CapturedRequest[]> {
-  const ses = electronSession.fromPartition(SHOPEE_PARTITION)
+  const ses = electronSession.fromPartition(shopeePartition())
   const bodies = new Map<string, string>()
   const captured: CapturedRequest[] = []
   ses.webRequest.onBeforeRequest((details, callback) => {
@@ -423,7 +427,7 @@ const SESSION_COOKIES = ['SPC_SC_TK', 'SPC_SC_SESSION', 'SPC_ST']
  * `ShopeeSessionExpiredError` na primeira navegação.
  */
 export async function isConnected(): Promise<boolean> {
-  const ses = electronSession.fromPartition(SHOPEE_PARTITION)
+  const ses = electronSession.fromPartition(shopeePartition())
   const cookies = await ses.cookies.get({})
   const nowSeconds = Date.now() / 1000
   const connected = cookies.some(
@@ -434,16 +438,16 @@ export async function isConnected(): Promise<boolean> {
       (c.expirationDate === undefined || c.expirationDate > nowSeconds)
   )
   if (!connected) {
-    console.log(
-      '[shopee] não conectado. Cookies presentes:',
-      cookies.map((c) => c.name).join(', ') || '(nenhum)'
-    )
+    console.log('[shopee] sessão não conectada')
   }
   return connected
 }
 
 export async function disconnect(): Promise<void> {
   destroyHiddenWindow()
-  const ses = electronSession.fromPartition(SHOPEE_PARTITION)
-  await ses.clearStorageData()
+  await Promise.all([
+    electronSession.fromPartition(appShopeePartition()).clearStorageData(),
+    electronSession.fromPartition(chromeShopeePartition()).clearStorageData()
+  ])
+  setShopeeAuthMode('app')
 }

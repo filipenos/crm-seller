@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "CRM Seller — sessão Shopee",
+  "description": "Compartilha a sessão Shopee do Chrome somente com o CRM Seller neste computador.",
+  "version": "0.2.1",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsCeGAGpuygB1mtI10taMiDlhx7IxOJh8mWVLuLzy8OSNy2/SJ6MIA3Kg7FPurlO06ty4bWtHNhtWOV15e5bcqTTVh5zrmkf37QEde4lTJmL/0j4rqS9yvYiEpa6zIZe1/KeLwQHWKltHMzSUIF+Ifvtx6Re9wOHiE/UaDuqpoRHeJpii16noDJ8+5kGGIJimvRBqDM1swSwtjNlmcgGB2YPpqkEiu4Wv/xhyOZGx8tWNfpg5HzC2R+YV3LUaMn2Nz5fRduu3o8tm9euJp6eycxMQ4tizhPP6wNcDBAcknGgO9AVOqz//gmuZuCnGO8jr0stHKyXnZlEcUQ52dg4eOQIDAQAB",
+  "permissions": ["cookies", "alarms"],
+  "host_permissions": ["https://*.shopee.com.br/*", "http://*.shopee.com.br/*", "http://127.0.0.1:17384/*"],
+  "action": { "default_title": "CRM Seller — sessão Shopee", "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js" }
+}

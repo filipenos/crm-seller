@@ -1,5 +1,10 @@
 import { session as electronSession } from 'electron'
-import { pageFetchJson, ShopeeApiError, SHOPEE_PARTITION } from './session'
+import type { OrderTab } from '@shared/types'
+import { inferProductKind, parseBowVariation } from '@shared/productVariation'
+import { tabFromShopeeSource } from '../tabs'
+
+type ActiveShopeeTab = 'A_ENVIAR' | 'ENVIADO'
+import { pageFetchJson, ShopeeApiError, shopeePartition } from './session'
 
 /** Moeda numérica da Shopee → código ISO. 9 = BRL. */
 const CURRENCY_CODES: Record<number, string> = { 9: 'BRL', 7: 'USD' }
@@ -24,6 +29,7 @@ function imageUrl(hash: string | null | undefined): string | null {
 
 export interface NormalizedShopeeOrder {
   orderSn: string
+  shopeeTab?: OrderTab
   shopeeOrderId: string | null
   shopeeStatus: string | null
   buyerUsername: string | null
@@ -54,6 +60,7 @@ export interface NormalizedShopeeOrder {
     quantity: number
     /** Caixas que o kit contém, lidas da variação. */
     pecas: number | null
+    lacos: number | null
     imageUrl: string | null
     itemSku: string | null
     /** Produto na Shopee — é o que liga o pedido ao catálogo. */
@@ -64,7 +71,7 @@ export interface NormalizedShopeeOrder {
 }
 
 async function getSpcCds(): Promise<string> {
-  const ses = electronSession.fromPartition(SHOPEE_PARTITION)
+  const ses = electronSession.fromPartition(shopeePartition())
   const cookies = await ses.cookies.get({ name: 'SPC_CDS' })
   return cookies[0]?.value ?? ''
 }
@@ -331,7 +338,11 @@ interface OrderIndexRef {
  * Passo 1 — lista os pedidos (só IDs). Corresponde ao POST que a página
  * /portal/sale/order faz em search_order_list_index.
  */
-async function fetchOrderIndex(cds: string, maxPages: number | null): Promise<OrderIndexRef[]> {
+async function fetchOrderIndex(
+  cds: string,
+  maxPages: number | null,
+  tab: 100 | 300 | 400 = 100
+): Promise<OrderIndexRef[]> {
   const pageSize = 40
   const refs: OrderIndexRef[] = []
   // `null` = até acabar. O teto existe porque o índice é barato, mas cada
@@ -343,7 +354,7 @@ async function fetchOrderIndex(cds: string, maxPages: number | null): Promise<Or
       pageFetchJson(`/api/v3/order/search_order_list_index?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
         method: 'POST',
         body: {
-          order_list_tab: 100, // 100 = todos
+          order_list_tab: tab,
           entity_type: 1,
           pagination: { from_page_number: 1, page_number: page, page_size: pageSize },
           filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 },
@@ -453,11 +464,13 @@ function extractItems(groups: AnyObj[]): NormalizedShopeeOrder['items'] {
         const name = pickString(it, ['name'])
         if (!name) continue
         const variacao = pickString(it, ['description', 'model_name'])
+        const kind = inferProductKind(name)
         items.push({
           itemName: name,
           // "description" traz a variação, ex.: "Variação: 30 peças / 6 de cada modelo"
           modelName: variacao,
-          pecas: pecasDaVariacao(variacao),
+          pecas: kind === 'CAIXAS' ? pecasDaVariacao(variacao) : null,
+          lacos: kind === 'LACOS' ? parseBowVariation(variacao)?.size ?? null : null,
           quantity: pickNumber(it, ['amount', 'quantity']) ?? 1,
           imageUrl: imageUrl(pickString(it, ['image'])),
           itemSku: pickString(it, ['item_sku']),
@@ -562,19 +575,98 @@ export interface FetchOrdersOptions {
   shouldCancel?: () => boolean
 }
 
+function tagOrderTab(
+  order: NormalizedShopeeOrder,
+  activeTabs: Map<number, ActiveShopeeTab>
+): NormalizedShopeeOrder {
+  const tab = tabFromShopeeSource(
+    order.shopeeStatus,
+    activeTabs.get(Number(order.shopeeOrderId)) ?? null
+  )
+  if (tab) order.shopeeTab = tab
+  return order
+}
+
+function withTaggedOrders(
+  options: FetchOrdersOptions,
+  activeTabs: Map<number, ActiveShopeeTab>
+): FetchOrdersOptions {
+  return options.onOrder
+    ? { ...options, onOrder: (order) => options.onOrder!(tagOrderTab(order, activeTabs)) }
+    : options
+}
+
+async function fetchActiveOrderRefs(cds: string): Promise<{
+  refs: Map<number, OrderIndexRef>
+  tabs: Map<number, ActiveShopeeTab>
+}> {
+  const toShip = await fetchOrderIndex(cds, null, 300)
+  const shipped = await fetchOrderIndex(cds, null, 400)
+  const first = toShip[0] ?? shipped[0]
+  if (first && [...toShip, ...shipped].some((ref) => ref.shop_id !== first.shop_id || ref.region_id !== first.region_id)) {
+    throw new Error('A Shopee retornou pedidos de lojas ou regiões diferentes na mesma sessão.')
+  }
+  const refs = new Map<number, OrderIndexRef>()
+  const tabs = new Map<number, ActiveShopeeTab>()
+  for (const [tab, items] of [['A_ENVIAR', toShip], ['ENVIADO', shipped]] as const) {
+    for (const ref of items) {
+      refs.set(ref.order_id, ref)
+      tabs.set(ref.order_id, tab)
+    }
+  }
+  return { refs, tabs }
+}
+
 export async function fetchOrders(
   options: FetchOrdersOptions = { maxPages: 5 }
 ): Promise<NormalizedShopeeOrder[]> {
   const cds = await getSpcCds()
   const refs = await fetchOrderIndex(cds, options.maxPages)
   if (refs.length === 0) return []
-  const cards = await fetchOrderCards(cds, refs, options)
+  const activeTabs = options.maxPages === null
+    ? (await fetchActiveOrderRefs(cds)).tabs
+    : new Map<number, ActiveShopeeTab>()
+  const cards = await fetchOrderCards(cds, refs, withTaggedOrders(options, activeTabs))
   const orders: NormalizedShopeeOrder[] = []
   for (const card of cards) {
     const order = normalizeCard(card)
-    if (order) orders.push(order)
+    if (order) orders.push(tagOrderTab(order, activeTabs))
   }
   return orders
+}
+
+/** Abas ativas da Shopee, mais pedidos locais que ainda precisam de estado final. */
+export async function fetchOpenOrders(
+  localOpenOrderIds: string[],
+  options: FetchOrdersOptions
+): Promise<NormalizedShopeeOrder[]> {
+  const cds = await getSpcCds()
+  const { refs, tabs } = await fetchActiveOrderRefs(cds)
+
+  // O card de um pedido que acabou de sair das abas ativas ainda precisa ser
+  // relido para que o banco registre a transição para concluído/cancelado.
+  const template = refs.values().next().value as OrderIndexRef | undefined
+  if (!template && localOpenOrderIds.length > 0) {
+    const recent = await fetchOrderIndex(cds, 1)
+    if (recent[0]) refs.set(recent[0].order_id, recent[0])
+  }
+  const reference = template ?? refs.values().next().value as OrderIndexRef | undefined
+  if (!reference && localOpenOrderIds.length > 0) {
+    throw new Error('Não foi possível identificar a loja para atualizar pedidos em aberto.')
+  }
+  if (reference) {
+    for (const rawId of localOpenOrderIds) {
+      if (!/^\d+$/.test(rawId)) continue
+      const id = Number(rawId)
+      if (!Number.isSafeInteger(id) || refs.has(id)) continue
+      refs.set(id, { order_id: id, shop_id: reference.shop_id, region_id: reference.region_id })
+    }
+  }
+  if (refs.size === 0) return []
+  const cards = await fetchOrderCards(cds, [...refs.values()], withTaggedOrders(options, tabs))
+  return cards.map(normalizeCard)
+    .filter((order): order is NormalizedShopeeOrder => order !== null)
+    .map((order) => tagOrderTab(order, tabs))
 }
 
 /** Quantos pedidos a Shopee diz que existem (uma requisição, sem baixar nada). */
@@ -596,6 +688,19 @@ export async function fetchOrderTotal(): Promise<number | null> {
 }
 
 // ---------- rastreio logístico ----------
+
+/** Criação da logística na Shopee, que coincide com o checkpoint "Pedido em preparação". */
+export async function fetchLabelGeneratedAt(orderId: string): Promise<number | null> {
+  if (!/^\d+$/.test(orderId)) throw new Error('ID do pedido inválido.')
+  const cds = await getSpcCds()
+  const json = (await withRetry(() => pageFetchJson(
+    `/api/v3/order/get_forder_logistics?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${orderId}`
+  ))) as AnyObj
+  const list = deepGet(json, 'data.list')
+  if (!Array.isArray(list)) throw new Error('Resposta da logística sem lista de pedidos.')
+  const createdAt = list.length > 0 && isObj(list[0]) ? pickNumber(list[0], ['ctime']) : null
+  return createdAt && createdAt > 0 ? toMs(createdAt) : null
+}
 
 export interface TrackingCheckpoint {
   description: string
@@ -930,8 +1035,10 @@ export async function fetchProducts(pageSize = 48): Promise<ShopeeProduct[]> {
         itemId,
         nome,
         imagemUrl: imageUrl(pickString(p, ['image', 'images.0', 'image_url', 'cover_image'])),
-        preco: toMoney(deepGet(p, 'price') ?? deepGet(p, 'price_info.0.current_price')),
-        estoque: pickNumber(p, ['stock', 'normal_stock', 'total_available_stock']),
+        preco: toMoney(deepGet(p, 'price_detail.selling_price_min') ??
+          deepGet(p, 'price_detail.price_min') ?? deepGet(p, 'price') ??
+          deepGet(p, 'price_info.0.current_price')),
+        estoque: pickNumber(p, ['stock_detail.total_available_stock', 'stock', 'normal_stock', 'total_available_stock']),
         // A Shopee usa 1 para normal e 0 para inativo/banido, com nomes variados.
         ativo: (() => {
           const s = pickNumber(p, ['status', 'item_status', 'list_status'])
@@ -942,8 +1049,10 @@ export async function fetchProducts(pageSize = 48): Promise<ShopeeProduct[]> {
           .map((m) => ({
             modelId: pickString(m, ['model_id', 'id']) ?? '',
             nome: pickString(m, ['name', 'model_name', 'tier_variation_name']),
-            preco: toMoney(deepGet(m, 'price') ?? deepGet(m, 'price_info.0.current_price')),
-            estoque: pickNumber(m, ['stock', 'normal_stock', 'total_available_stock'])
+            preco: toMoney(deepGet(m, 'price_detail.promotion_price') ??
+              deepGet(m, 'price_detail.origin_price') ?? deepGet(m, 'price') ??
+              deepGet(m, 'price_info.0.current_price')),
+            estoque: pickNumber(m, ['stock_detail.total_available_stock', 'stock', 'normal_stock', 'total_available_stock'])
           }))
           .filter((m) => m.modelId !== '')
       })

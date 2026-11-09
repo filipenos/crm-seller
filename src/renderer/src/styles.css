@@ -1073,45 +1073,26 @@ code {
 }
 
 /* ---------- Painel ---------- */
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 12px;
-  margin-bottom: 22px;
-}
-.kpi {
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 10px;
-  padding: 12px 14px;
-}
-.kpi-rotulo { font-size: 12px; color: #64748b; }
-.kpi-valor { font-size: 26px; font-weight: 700; line-height: 1.25; }
-/* Os períodos são contexto, não protagonistas: o número de hoje é o que importa. */
-.kpi-periodos {
-  display: flex;
-  gap: 12px;
-  font-size: 11px;
-  color: #64748b;
-  margin-top: 2px;
-}
-.secao-agora { margin: 0 0 8px; }
-.agoras { display: flex; flex-wrap: wrap; gap: 10px; }
-.agora {
-  border: 1px solid var(--border, #e2e8f0);
-  border-radius: 10px;
-  padding: 10px 14px;
-  min-width: 120px;
-}
-.agora-valor { font-size: 20px; font-weight: 700; }
-.agora-rotulo { font-size: 12px; color: #64748b; }
-/* Prazo estourando vira multa da Shopee — precisa saltar. */
-.agora.alerta { border-color: #fecaca; background: #fef2f2; }
-.agora.alerta .agora-valor { color: #b91c1c; }
 
-/* KPI clicável abre o detalhe diário. */
-.kpi.clicavel { cursor: pointer; }
-.kpi.clicavel:hover { border-color: #94a3b8; background: #f8fafc; }
-
+.painel-page { display: flex; flex-direction: column; gap: 18px; }
+.painel-page .page-header { margin-bottom: 0; }
+.painel-faixa { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+.painel-faixa-cabecalho { display: flex; justify-content: space-between; gap: 20px; align-items: start; margin-bottom: 14px; }
+.painel-faixa-cabecalho h2 { font-size: 17px; margin: 0 0 3px; }
+.painel-faixa-cabecalho p { margin: 0; font-size: 13px; }
+.painel-faixa-resumo { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 14px; font-size: 13px; white-space: nowrap; }
+.painel-dias { display: grid; grid-template-columns: repeat(7, minmax(140px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 3px; }
+.painel-dia { background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 11px; min-width: 140px; }
+.painel-dia.hoje { border-color: var(--accent); background: var(--accent-soft); }
+.painel-dia h3 { display: flex; justify-content: space-between; gap: 5px; margin: 0 0 12px; font-size: 13px; text-transform: capitalize; }
+.painel-dia h3 small { color: var(--accent); font-size: 11px; }
+.painel-dia-pedidos { margin-bottom: 10px; font-size: 12px; }
+.painel-dia-pedidos strong { font-size: 20px; }
+.painel-dia dl { margin: 0; display: grid; gap: 6px; font-size: 12px; }
+.painel-dia dl div { display: flex; justify-content: space-between; gap: 5px; }
+.painel-dia dt { color: var(--muted); }
+.painel-dia dd { margin: 0; font-weight: 600; white-space: nowrap; }
+.painel-observacao { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .drawer-largo { width: min(920px, 96vw); }
 .mes-nav {
   display: flex;
@@ -1200,6 +1181,17 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.produto-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.produto-meta select { padding: 3px 6px; font-size: 12px; }
+.produto-variacoes-toggle {
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+}
+.produto-variacoes-toggle:hover { text-decoration: underline; }
 
 .aviso {
   padding: 10px 12px;

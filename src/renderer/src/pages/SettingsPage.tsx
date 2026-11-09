@@ -44,12 +44,17 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [tursoResult, setTursoResult] = useState<string | null>(null)
   const [boundShopId, setBoundShopId] = useState<string | null>(null)
   const [shopeeBindError, setShopeeBindError] = useState<string | null>(null)
+  const [browserConnecting, setBrowserConnecting] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [shopeeNotice, setShopeeNotice] = useState<string | null>(null)
+  const [authMode, setAuthMode] = useState<'app' | 'chrome'>('app')
 
   useEffect(() => {
     void window.api.settings.get().then(setSettings)
     void window.api.app.version().then(setVersion)
     void window.api.updates.status().then(setUpdateStatus)
     void window.api.shopee.dumpInfo().then(setDumpInfo)
+    void window.api.shopee.browserStatus().then((status) => setAuthMode(status.mode))
     void window.api.database.status().then((status) => {
       setTursoUrl(status.url ?? '')
       setBoundShopId(status.shopeeShopId ?? null)
@@ -132,8 +137,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
       <section className="settings-card">
         <h3>Conexão Shopee</h3>
         <p className="muted">
-          Abre a janela do Seller Center para você entrar com sua conta. A sessão fica salva
-          neste computador — depois de logar, feche a janela e clique em Sincronizar.
+          Sessão em uso: {authMode === 'chrome' ? 'Chrome' : 'janela do aplicativo'}. A sessão fica salva somente neste computador.
         </p>
         <p className="muted">
           Banco vinculado à loja:{' '}
@@ -145,13 +149,33 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
               setShopeeBindError(null)
               try {
                 setBoundShopId(await window.api.shopee.setup())
+                setAuthMode('app')
                 onStatusChange()
               } catch (reason) {
-                setShopeeBindError(String(reason instanceof Error ? reason.message : reason))
+                setShopeeBindError(String(reason instanceof Error ? reason.message : reason).replace(/^Error invoking remote method '[^']+': Error: /, ''))
               }
             }}
           >
             🔑 Conectar / reconectar Seller Center
+          </button>
+          <button
+            disabled={browserConnecting}
+            onClick={async () => {
+              setBrowserConnecting(true)
+              setShopeeBindError(null)
+              setAuthMode('chrome')
+              try {
+                setBoundShopId(await window.api.shopee.connectBrowser())
+                setAuthMode('chrome')
+                onStatusChange()
+              } catch (reason) {
+                setShopeeBindError(String(reason instanceof Error ? reason.message : reason).replace(/^Error invoking remote method '[^']+': Error: /, ''))
+              } finally {
+                setBrowserConnecting(false)
+              }
+            }}
+          >
+            {browserConnecting ? 'Aguardando extensão…' : 'Usar login do Chrome'}
           </button>
           {!boundShopId && (
             <button
@@ -169,14 +193,26 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           )}
           <button
             className="danger"
+            disabled={disconnecting}
             onClick={async () => {
-              await window.api.shopee.disconnect()
-              onStatusChange()
+              setDisconnecting(true)
+              setShopeeNotice(null)
+              try {
+                await window.api.shopee.disconnect()
+                setAuthMode('app')
+                setShopeeNotice('Sessões locais da Shopee removidas. O vínculo do banco foi mantido.')
+                onStatusChange()
+              } catch (reason) {
+                setShopeeNotice(`Falha ao limpar a sessão: ${String(reason instanceof Error ? reason.message : reason)}`)
+              } finally {
+                setDisconnecting(false)
+              }
             }}
           >
-            Desconectar (limpar sessão)
+            {disconnecting ? 'Limpando sessão…' : 'Desconectar (limpar sessão)'}
           </button>
         </div>
+        {shopeeNotice && <small className="muted">{shopeeNotice}</small>}
         {shopeeBindError && <small className="muted">⚠ {shopeeBindError}</small>}
       </section>
 
@@ -223,21 +259,11 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           Por padrão o app só sincroniza quando você clica em <b>Sincronizar</b>. As APIs da
           Shopee são internas e sem cota publicada — ligue o automático só se precisar.
         </p>
-        <div className="setting-row">
-          <label>Páginas por sincronização (40 pedidos cada)</label>
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={settings.syncPageCount}
-            onChange={(e) => update({ syncPageCount: Number(e.target.value) || 2 })}
-            style={{ width: 100 }}
-          />
-          <small className="muted">
-            O botão <b>Sincronizar</b> pega só as páginas mais recentes — é o que muda no dia a
-            dia. Para a base inteira, use o botão abaixo.
-          </small>
-        </div>
+        <p className="muted">
+          <b>Sincronizar</b> atualiza todos os pedidos em A Enviar e Enviado na Shopee, além dos
+          pedidos que continuam em aberto neste banco. Para importar o histórico inteiro, use o
+          botão abaixo.
+        </p>
 
         <div className="action-buttons">
           <button

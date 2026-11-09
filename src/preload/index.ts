@@ -8,6 +8,7 @@ import type {
   LinhaFabricacao,
   MovimentoEstoque,
   Produto,
+  ProductKind,
   Receita,
   TipoReceita,
   InternalStatus,
@@ -60,6 +61,8 @@ const api = {
   shopee: {
     connect: (): Promise<void> => ipcRenderer.invoke('shopee:connect'),
     setup: (): Promise<string> => ipcRenderer.invoke('shopee:setup'),
+    connectBrowser: (): Promise<string> => ipcRenderer.invoke('shopee:connectBrowser'),
+    browserStatus: (): Promise<{ mode: 'app' | 'chrome'; pending: boolean; error: string | null }> => ipcRenderer.invoke('shopee:browserStatus'),
     bind: (): Promise<string> => ipcRenderer.invoke('shopee:bind'),
     disconnect: (): Promise<void> => ipcRenderer.invoke('shopee:disconnect'),
     status: (): Promise<ShopeeConnectionStatus> => ipcRenderer.invoke('shopee:status'),
@@ -153,7 +156,9 @@ const api = {
     recompor: (): Promise<{ produtos: number; variacoes: number }> =>
       ipcRenderer.invoke('produtos:recompor'),
     setLinha: (itemId: string, linhaId: number | null): Promise<void> =>
-      ipcRenderer.invoke('produtos:setLinha', itemId, linhaId)
+      ipcRenderer.invoke('produtos:setLinha', itemId, linhaId),
+    setTipo: (itemId: string, tipo: ProductKind): Promise<void> =>
+      ipcRenderer.invoke('produtos:setTipo', itemId, tipo)
   },
   desempenho: {
     resumo: (period?: PeriodoDesempenho): Promise<ResumoDesempenho | null> => ipcRenderer.invoke('desempenho:resumo', period),

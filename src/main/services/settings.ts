@@ -9,7 +9,6 @@ function defaults(): AppSettings {
     ordersRootDir: join(docs, 'CRM Seller', 'Pedidos'),
     templatesDir: join(docs, 'CRM Seller', 'Templates'),
     autoSyncEnabled: false,
-    syncPageCount: 2,
     syncTracking: true,
     syncPayments: true,
     syncIntervalMinutes: 15

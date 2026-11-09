@@ -9,6 +9,7 @@ import { initUpdater, stopUpdater } from './services/updates'
 import { hasTursoConfig, readTursoConfig } from './db/config'
 import { getSettingsAsync } from './services/settings'
 import { ensureDefaultComposition } from './services/composition'
+import { startBrowserBridge, stopBrowserBridge } from './services/shopee/browserBridge'
 
 // Idioma fixo do Chromium/Electron: controles nativos, calendário, menus do
 // sistema e mensagens internas não devem variar com o idioma do computador.
@@ -61,6 +62,9 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(() => {
+  void startBrowserBridge().catch((error) => {
+    console.error('Ponte local com Chrome indisponível:', error instanceof Error ? error.message : error)
+  })
   registerIpcHandlers(startServices)
   if (hasTursoConfig()) {
     void startServices().catch((error) => {
@@ -79,6 +83,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  stopBrowserBridge()
   stopSyncScheduler()
   stopUpdater()
   closeDb()

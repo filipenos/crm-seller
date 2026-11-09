@@ -1,5 +1,6 @@
 import { createClient, type Client } from '@libsql/client/web'
-import { ORDER_TABS, type MetricaPainel, type Order, type OrderCounts, type OrderTab, type Painel, type ResumoPeriodo, type SerieMensal, type TabCounts } from '../shared/types'
+import { ORDER_TABS, type MetricaPainel, type Order, type OrderCounts, type OrderTab, type Painel, type SerieMensal, type TabCounts } from '../shared/types'
+import { buildDailyDashboard, dashboardDates, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '../shared/dashboardDays'
 
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> }
@@ -34,59 +35,10 @@ function dayMs(daysAgo = 0): number {
   return new Date(`${saoPauloDate(daysAgo)}T00:00:00-03:00`).getTime()
 }
 
-function period(row: Row, prefix: 'hoje' | 'sete' | 'trinta'): ResumoPeriodo {
-  return {
-    pedidos: number(row, `${prefix}_pedidos`), vendas: Number(number(row, `${prefix}_vendas`).toFixed(2)),
-    caixas: number(row, `${prefix}_caixas`), recebido: Number(number(row, `${prefix}_recebido`).toFixed(2)),
-    pedidosRecebidos: number(row, `${prefix}_pedidos_recebidos`), despachados: number(row, `${prefix}_despachados`)
-  }
-}
-
 async function dashboard(db: Client): Promise<Painel> {
-  const result = await db.execute({
-    sql: `WITH limites AS (SELECT ? AS hoje, ? AS sete, ? AS trinta, ? AS amanha, ? AS prazo),
-      pedidos AS (SELECT
-        COUNT(CASE WHEN created_at_shopee >= limites.hoje THEN 1 END) AS hoje_pedidos,
-        COUNT(CASE WHEN created_at_shopee >= limites.sete THEN 1 END) AS sete_pedidos,
-        COUNT(CASE WHEN created_at_shopee >= limites.trinta THEN 1 END) AS trinta_pedidos,
-        COALESCE(SUM(CASE WHEN created_at_shopee >= limites.hoje THEN total_amount ELSE 0 END),0) AS hoje_vendas,
-        COALESCE(SUM(CASE WHEN created_at_shopee >= limites.sete THEN total_amount ELSE 0 END),0) AS sete_vendas,
-        COALESCE(SUM(CASE WHEN created_at_shopee >= limites.trinta THEN total_amount ELSE 0 END),0) AS trinta_vendas,
-        COUNT(CASE WHEN tab='A_ENVIAR' THEN 1 END) AS a_enviar,
-        COUNT(CASE WHEN tab='A_ENVIAR' AND ready_to_post=1 THEN 1 END) AS prontos,
-        COUNT(CASE WHEN tab='ENVIADO' THEN 1 END) AS em_transito,
-        COUNT(CASE WHEN tab='A_ENVIAR' AND ship_by_date IS NOT NULL AND ship_by_date<=limites.prazo THEN 1 END) AS prazo_apertado
-        FROM orders, limites WHERE created_at_shopee<limites.amanha AND tab!='CANCELADO'),
-      caixas AS (SELECT
-        COALESCE(SUM(CASE WHEN o.created_at_shopee>=limites.hoje THEN i.pecas*i.quantity ELSE 0 END),0) AS hoje_caixas,
-        COALESCE(SUM(CASE WHEN o.created_at_shopee>=limites.sete THEN i.pecas*i.quantity ELSE 0 END),0) AS sete_caixas,
-        COALESCE(SUM(CASE WHEN o.created_at_shopee>=limites.trinta THEN i.pecas*i.quantity ELSE 0 END),0) AS trinta_caixas
-        FROM order_items i JOIN orders o ON o.order_sn=i.order_sn, limites
-        WHERE o.created_at_shopee<limites.amanha AND o.tab!='CANCELADO' AND i.pecas IS NOT NULL),
-      recebidos AS (SELECT
-        COALESCE(SUM(CASE WHEN recebido_em>=limites.hoje AND recebido_em<limites.amanha THEN valor_recebido ELSE 0 END),0) AS hoje_recebido,
-        COALESCE(SUM(CASE WHEN recebido_em>=limites.sete AND recebido_em<limites.amanha THEN valor_recebido ELSE 0 END),0) AS sete_recebido,
-        COALESCE(SUM(CASE WHEN recebido_em>=limites.trinta AND recebido_em<limites.amanha THEN valor_recebido ELSE 0 END),0) AS trinta_recebido,
-        COUNT(CASE WHEN recebido_em>=limites.hoje AND recebido_em<limites.amanha THEN 1 END) AS hoje_pedidos_recebidos,
-        COUNT(CASE WHEN recebido_em>=limites.sete AND recebido_em<limites.amanha THEN 1 END) AS sete_pedidos_recebidos,
-        COUNT(CASE WHEN recebido_em>=limites.trinta AND recebido_em<limites.amanha THEN 1 END) AS trinta_pedidos_recebidos FROM order_income, limites),
-      despachos AS (SELECT
-        COUNT(DISTINCT CASE WHEN happened_at>=limites.hoje THEN order_sn END) AS hoje_despachados,
-        COUNT(DISTINCT CASE WHEN happened_at>=limites.sete THEN order_sn END) AS sete_despachados,
-        COUNT(DISTINCT CASE WHEN happened_at>=limites.trinta THEN order_sn END) AS trinta_despachados
-        FROM order_events, limites WHERE source='logistics' AND happened_at<limites.amanha AND LOWER(description) LIKE '%postado%'),
-      pendentes AS (SELECT COALESCE(SUM(i.valor_recebido),0) AS a_receber, COUNT(*) AS pedidos_a_receber
-        FROM order_income i JOIN orders o ON o.order_sn=i.order_sn WHERE i.recebido_em IS NULL AND o.tab!='CANCELADO')
-      SELECT * FROM pedidos, caixas, recebidos, despachos, pendentes`,
-    args: [dayMs(), dayMs(6), dayMs(29), dayMs(-1), Date.now() + 86_400_000]
-  })
-  const row = result.rows[0] as Row
-  return {
-    hoje: period(row, 'hoje'), ultimos7: period(row, 'sete'), ultimos30: period(row, 'trinta'),
-    aEnviar: number(row, 'a_enviar'), prontosParaPostar: number(row, 'prontos'), emTransito: number(row, 'em_transito'),
-    aReceber: Number(number(row, 'a_receber').toFixed(2)), pedidosAReceber: number(row, 'pedidos_a_receber'),
-    prazoApertado: number(row, 'prazo_apertado')
-  }
+  const { today, bounds } = dashboardDates()
+  const result = await db.execute({ sql: DAILY_DASHBOARD_SQL, args: bounds })
+  return buildDailyDashboard(result.rows as unknown as DailyDashboardRow[], today)
 }
 
 async function monthlySeries(db: Client, metric: MetricaPainel, year: number, month: number): Promise<SerieMensal> {
@@ -124,11 +76,11 @@ async function orders(db: Client, url: URL): Promise<{ orders: Order[]; counts: 
       o.total_amount,o.currency,o.child_name,o.note,o.tracking_number,o.ship_by_date,o.created_at_shopee,
       o.updated_at_shopee,o.synced_at,o.logistics_status,o.tab,o.ready_to_post,o.status_description,
       o.payment_method,o.carrier,o.shipping_city,o.shopee_url_path,o.package_number,o.stage_id,
-      o.delivered_at,o.rating_star,o.rating_comment,o.rated_at,o.escrow_amount,o.escrow_released_at,
+      o.delivered_at,o.label_generated_at,o.rating_star,o.rating_comment,o.rated_at,o.escrow_amount,o.escrow_released_at,
       s.name AS stage_name,s.color AS stage_color,
       i.valor_produtos,i.valor_frete,i.frete_pago_comprador,i.custo_frete,i.subsidio_frete_shopee,
       i.desconto_cupons,i.taxa_comissao,i.taxa_servico,i.outras_taxas,i.valor_recebido,i.recebido_em,i.previsto_para,
-      COALESCE((SELECT json_group_array(json_object('id',oi.id,'itemName',oi.item_name,'modelName',oi.model_name,'quantity',oi.quantity,'imageUrl',oi.image_url,'itemSku',oi.item_sku,'pecas',oi.pecas)) FROM order_items oi WHERE oi.order_sn=o.order_sn),'[]') AS items
+      COALESCE((SELECT json_group_array(json_object('id',oi.id,'itemName',oi.item_name,'modelName',oi.model_name,'quantity',oi.quantity,'imageUrl',oi.image_url,'itemSku',oi.item_sku,'pecas',oi.pecas,'lacos',oi.lacos)) FROM order_items oi WHERE oi.order_sn=o.order_sn),'[]') AS items
       FROM orders o LEFT JOIN workflow_stages s ON s.id=o.stage_id LEFT JOIN order_income i ON i.order_sn=o.order_sn
       WHERE ${conditions.join(' AND ')} ORDER BY o.created_at_shopee DESC,o.order_sn DESC LIMIT ?`, args },
     { sql: 'SELECT tab,COUNT(*) AS total FROM orders WHERE tab IS NOT NULL GROUP BY tab', args: [] },
@@ -156,11 +108,11 @@ async function orders(db: Client, url: URL): Promise<{ orders: Order[]; counts: 
       shipByDate: row.ship_by_date === null ? null : Number(row.ship_by_date), folderPath: null,
       createdAtShopee: row.created_at_shopee === null ? null : Number(row.created_at_shopee), updatedAtShopee: row.updated_at_shopee === null ? null : Number(row.updated_at_shopee),
       syncedAt: row.synced_at === null ? null : Number(row.synced_at), logisticsStatus: row.logistics_status === null ? null : String(row.logistics_status),
-      deliveredAt: row.delivered_at === null ? null : Number(row.delivered_at), ratingStar: row.rating_star === null ? null : Number(row.rating_star),
+      deliveredAt: row.delivered_at === null ? null : Number(row.delivered_at), labelGeneratedAt: row.label_generated_at === null ? null : Number(row.label_generated_at), ratingStar: row.rating_star === null ? null : Number(row.rating_star),
       ratingComment: row.rating_comment === null ? null : String(row.rating_comment), ratedAt: row.rated_at === null ? null : Number(row.rated_at),
       escrowAmount: row.escrow_amount === null ? null : Number(row.escrow_amount), escrowReleasedAt: row.escrow_released_at === null ? null : Number(row.escrow_released_at),
       recebimento: hasIncome ? { valorProdutos: row.valor_produtos === null ? null : Number(row.valor_produtos), valorFrete: row.valor_frete === null ? null : Number(row.valor_frete), fretePagoComprador: row.frete_pago_comprador === null ? null : Number(row.frete_pago_comprador), custoFrete: row.custo_frete === null ? null : Number(row.custo_frete), subsidioFreteShopee: row.subsidio_frete_shopee === null ? null : Number(row.subsidio_frete_shopee), descontoCupons: row.desconto_cupons === null ? null : Number(row.desconto_cupons), taxaComissao: row.taxa_comissao === null ? null : Number(row.taxa_comissao), taxaServico: row.taxa_servico === null ? null : Number(row.taxa_servico), outrasTaxas: row.outras_taxas === null ? null : Number(row.outras_taxas), totalTaxas: fees || null, valorRecebido: row.valor_recebido === null ? null : Number(row.valor_recebido), recebidoEm: row.recebido_em === null ? null : Number(row.recebido_em), previstoPara: row.previsto_para === null ? null : Number(row.previsto_para) } : null,
-      items: parsedItems.map((item) => ({ id: Number(item.id), orderSn: String(row.order_sn), itemName: String(item.itemName), modelName: item.modelName === null ? null : String(item.modelName), quantity: Number(item.quantity), imageUrl: item.imageUrl === null ? null : String(item.imageUrl), itemSku: item.itemSku === null ? null : String(item.itemSku), pecas: item.pecas === null ? null : Number(item.pecas) }))
+      items: parsedItems.map((item) => ({ id: Number(item.id), orderSn: String(row.order_sn), itemName: String(item.itemName), modelName: item.modelName === null ? null : String(item.modelName), quantity: Number(item.quantity), imageUrl: item.imageUrl === null ? null : String(item.imageUrl), itemSku: item.itemSku === null ? null : String(item.itemSku), pecas: item.pecas == null ? null : Number(item.pecas), lacos: item.lacos == null ? null : Number(item.lacos) }))
     }
   })
   return { orders: mapped, counts: { tabs, readyToPost: number(results[2].rows[0] as Row, 'total'), semExtrato: number(results[3].rows[0] as Row, 'total') } }

@@ -64,9 +64,24 @@ export default function DatabaseSetupPage({
           >
             {binding ? 'Aguardando login…' : 'Configurar Shopee'}
           </button>
+          <button
+            disabled={binding}
+            onClick={async () => {
+              setBinding(true)
+              setError(null)
+              try {
+                onBound(await window.api.shopee.connectBrowser())
+              } catch (reason) {
+                setError(String(reason instanceof Error ? reason.message : reason).replace(/^Error invoking remote method '[^']+': Error: /, ''))
+              } finally {
+                setBinding(false)
+              }
+            }}
+          >
+            {binding ? 'Aguardando extensão…' : 'Usar login do Chrome'}
+          </button>
           <small className="muted">
-            Entre no Seller Center na janela que abrir e feche-a ao terminar. O vínculo será
-            confirmado automaticamente.
+            Para usar o Chrome, instale a extensão CRM Seller e entre no Seller Center. A sessão fica neste computador.
           </small>
         </div>
       </main>

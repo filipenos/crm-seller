@@ -1,6 +1,6 @@
 {
   "name": "crm-seller",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "CRM local para pedidos personalizados (Shopee)",
   "main": "out/main/index.js",
   "author": "Filipe Peixoto <filipenos@gmail.com>",
@@ -15,6 +15,9 @@
     "deploy:web": "node scripts/deploy-web.mjs",
     "typecheck": "npm run check:db-access && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test:composition": "esbuild scripts/check-composition.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-composition.mjs && NODE_ENV=test node node_modules/.cache/crm-seller-check-composition.mjs",
+    "test:tabs": "esbuild scripts/check-order-tabs.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --outfile=node_modules/.cache/crm-seller-check-order-tabs.mjs && node node_modules/.cache/crm-seller-check-order-tabs.mjs",
+    "test:orders": "esbuild scripts/check-order-sync.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-order-sync.mjs && NODE_ENV=test node node_modules/.cache/crm-seller-check-order-sync.mjs",
+    "test:dashboard": "esbuild scripts/check-dashboard.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.cache/crm-seller-check-dashboard.mjs && node node_modules/.cache/crm-seller-check-dashboard.mjs",
     "check:db-access": "node scripts/check-db-access.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:win": "electron-vite build && electron-builder --win",

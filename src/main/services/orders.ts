@@ -46,6 +46,7 @@ interface OrderRow {
   stage_name: string | null
   stage_color: string | null
   delivered_at: number | null
+  label_generated_at: number | null
   rating_star: number | null
   rating_comment: string | null
   rated_at: number | null
@@ -62,7 +63,7 @@ const ORDER_VIEW_COLUMNS = `
   o.updated_at_shopee, o.synced_at, o.logistics_status, o.logistics_code, o.tab,
   o.ready_to_post, o.status_description, o.payment_method, o.carrier,
   o.shipping_city, o.shopee_url_path, o.package_number, o.logistics_phase,
-  o.stage_id, o.delivered_at, o.rating_star, o.rating_comment, o.rated_at,
+  o.stage_id, o.delivered_at, o.label_generated_at, o.rating_star, o.rating_comment, o.rated_at,
   o.escrow_amount, o.escrow_released_at,
   s.name AS stage_name, s.color AS stage_color`
 
@@ -106,6 +107,7 @@ function rowToOrder(row: OrderRow, items: OrderItem[], recebimento: Recebimento 
     syncedAt: row.synced_at,
     logisticsStatus: row.logistics_status,
     deliveredAt: row.delivered_at,
+    labelGeneratedAt: row.label_generated_at,
     ratingStar: row.rating_star,
     ratingComment: row.rating_comment,
     ratedAt: row.rated_at,
@@ -124,13 +126,13 @@ async function loadItemsAsync(orderSns: string[]): Promise<Map<string, OrderItem
   )
   const rows = (await statement.all(orderSns)) as {
     id: number; order_sn: string; item_name: string; model_name: string | null
-    quantity: number; image_url: string | null; item_sku: string | null; pecas: number | null
+    quantity: number; image_url: string | null; item_sku: string | null; pecas: number | null; lacos: number | null
   }[]
   for (const r of rows) {
     const list = map.get(r.order_sn) ?? []
     list.push({
       id: r.id, orderSn: r.order_sn, itemName: r.item_name, modelName: r.model_name,
-      quantity: r.quantity, imageUrl: r.image_url, itemSku: r.item_sku, pecas: r.pecas
+      quantity: r.quantity, imageUrl: r.image_url, itemSku: r.item_sku, pecas: r.pecas, lacos: r.lacos
     })
     map.set(r.order_sn, list)
   }
@@ -327,6 +329,34 @@ export async function countByTabAsync(): Promise<OrderCounts> {
   return { tabs, readyToPost: ready.n, semExtrato: semExtrato.n }
 }
 
+/** IDs ainda sujeitos a mudanças de envio, entrega ou conclusão na Shopee. */
+export async function listOpenShopeeOrderIdsAsync(): Promise<string[]> {
+  const statement = await getAsyncDb().prepare(
+    "SELECT DISTINCT shopee_order_id FROM orders WHERE tab IN ('NAO_PAGO', 'A_ENVIAR', 'ENVIADO') AND shopee_order_id IS NOT NULL"
+  )
+  const rows = (await statement.all([])) as { shopee_order_id: string }[]
+  return rows.map((row) => row.shopee_order_id)
+}
+
+/** Só pedidos recentes sem data de etiqueta; a busca na Shopee é pontual e limitada. */
+export async function listOrdersMissingLabelDateAsync(limit = 40): Promise<{ orderSn: string; orderId: string }[]> {
+  const rows = (await (await getAsyncDb().prepare(
+    `SELECT order_sn, shopee_order_id FROM orders
+      WHERE tab IN ('ENVIADO', 'CONCLUIDO') AND shopee_order_id IS NOT NULL
+        AND label_generated_at IS NULL AND created_at_shopee >= ?
+      ORDER BY created_at_shopee DESC LIMIT ?`
+  )).all([Date.now() - 45 * 86_400_000, limit])) as { order_sn: string; shopee_order_id: string }[]
+  return rows.map((row) => ({ orderSn: row.order_sn, orderId: row.shopee_order_id }))
+}
+
+export async function saveLabelDatesAsync(dates: { orderSn: string; generatedAt: number }[]): Promise<void> {
+  if (dates.length === 0) return
+  await getAsyncDb().batch(dates.map(({ orderSn, generatedAt }) => ({
+    sql: 'UPDATE orders SET label_generated_at = COALESCE(label_generated_at, ?) WHERE order_sn = ?',
+    parameters: [generatedAt, orderSn]
+  })))
+}
+
 export async function getOrderAsync(orderSn: string): Promise<Order | null> {
   const db = getAsyncDb()
   const orderStatement = await db.prepare(
@@ -483,6 +513,7 @@ export async function getStatusHistoryAsync(orderSn: string): Promise<StatusHist
 
 export interface UpsertOrderInput {
   orderSn: string
+  shopeeTab?: OrderTab
   /** 1 etiquetado · 9 aguardando · 2 enviado (order_ext_info.logistics_status). */
   logisticsCode?: number | null
   statusDescription?: string | null
@@ -512,6 +543,7 @@ export interface UpsertOrderInput {
     itemId?: string | null
     modelId?: string | null
     pecas?: number | null
+    lacos?: number | null
   }[]
 }
 
@@ -525,9 +557,9 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
     const statement = await db.prepare(sql)
     return (await statement.get(params)) as T | undefined
   }
-  const run = async (sql: string, params: unknown[]): Promise<void> => {
-    const statement = await db.prepare(sql)
-    await statement.run(params)
+  const writes: { sql: string; parameters: unknown[] }[] = []
+  const run = (sql: string, parameters: unknown[]): void => {
+    writes.push({ sql, parameters })
   }
 
   const existing = await get<{
@@ -541,7 +573,7 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
   )
   const now = Date.now()
   if (!existing) {
-    await run(
+    run(
       `INSERT INTO orders (
         order_sn, shopee_order_id, shopee_status, internal_status, buyer_username, buyer_name,
         total_amount, currency, tracking_number, ship_by_date, logistics_code,
@@ -558,12 +590,12 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
         now, input.rawJson ?? null
       ]
     )
-    await run(
+    run(
       'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, NULL, ?, ?)',
       [input.orderSn, 'NOVO', now]
     )
   } else {
-    await run(
+    run(
       `UPDATE orders SET
         shopee_order_id = COALESCE(?, shopee_order_id), shopee_status = COALESCE(?, shopee_status),
         buyer_username = COALESCE(?, buyer_username), buyer_name = COALESCE(?, buyer_name),
@@ -588,24 +620,25 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
   }
 
   if (input.items && input.items.length > 0) {
-    await run('DELETE FROM order_items WHERE order_sn = ?', [input.orderSn])
+    run('DELETE FROM order_items WHERE order_sn = ?', [input.orderSn])
     for (const item of input.items) {
-      await run(
+      run(
         `INSERT INTO order_items
-          (order_sn, item_name, model_name, quantity, image_url, item_sku, pecas, item_id, model_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (order_sn, item_name, model_name, quantity, image_url, item_sku, pecas, lacos, item_id, model_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [input.orderSn, item.itemName, item.modelName, item.quantity, item.imageUrl, item.itemSku,
-          item.pecas ?? null, item.itemId ?? null, item.modelId ?? null]
+          item.pecas ?? null, item.lacos ?? null, item.itemId ?? null, item.modelId ?? null]
       )
     }
   }
 
-  const tab = deriveTab({
+  const tab = input.shopeeTab ?? deriveTab({
     shopeeStatus: input.shopeeStatus ?? existing?.shopee_status ?? null,
     escrowReleasedAt: existing?.escrow_released_at ?? null
   })
-  await run('UPDATE orders SET tab = ?, ready_to_post = ? WHERE order_sn = ?', [
+  run('UPDATE orders SET tab = ?, ready_to_post = ? WHERE order_sn = ?', [
     tab, isReadyToPost(input.logisticsCode ?? existing?.logistics_code ?? null) ? 1 : 0, input.orderSn
   ])
+  await db.batch(writes)
   return !existing
 }

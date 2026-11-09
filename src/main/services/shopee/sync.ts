@@ -8,15 +8,21 @@ import type {
 } from '@shared/types'
 import {
   fetchOrderIncome,
+  fetchLabelGeneratedAt,
+  fetchOpenOrders,
   fetchOrders,
   fetchProducts,
   fetchRatings,
   fetchTrackingInfo
 } from './client'
+import type { FetchOrdersOptions } from './client'
 import { isConnected } from './session'
 import {
   getOrderAsync,
   listOrdersAsync,
+  listOpenShopeeOrderIdsAsync,
+  listOrdersMissingLabelDateAsync,
+  saveLabelDatesAsync,
   setLogisticsStatusAsync,
   setRatingAsync,
   upsertShopeeOrderAsync
@@ -61,6 +67,27 @@ export async function getConnectionStatus(): Promise<ShopeeConnectionStatus> {
   return { ...state }
 }
 
+/** Consulta somente etiquetas recentes ainda sem data, e grava tudo em um lote no Turso. */
+export async function syncRecentLabelDates(
+  onProgress?: (done: number, total: number) => void,
+  shouldCancel?: () => boolean
+): Promise<{ updated: number; failed: number }> {
+  const missing = await listOrdersMissingLabelDateAsync()
+  const dates: { orderSn: string; generatedAt: number }[] = []
+  let failed = 0
+  for (const [index, order] of missing.entries()) {
+    if (shouldCancel?.()) break
+    try {
+      const generatedAt = await fetchLabelGeneratedAt(order.orderId)
+      if (generatedAt) dates.push({ orderSn: order.orderSn, generatedAt })
+    } catch { failed++ }
+    onProgress?.(index + 1, missing.length)
+    await sleep(150)
+  }
+  await saveLabelDatesAsync(dates)
+  return { updated: dates.length, failed }
+}
+
 export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<SyncResult> {
   if (state.syncing) {
     return {
@@ -91,10 +118,10 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
 
     // Pedidos
     try {
-      const paginas = opts.todasAsPaginas ? null : Math.max(1, (await getSettingsAsync()).syncPageCount)
-      console.log(`[sync] pedidos: ${paginas === null ? 'todas as páginas' : paginas + ' página(s)'}`)
-      await fetchOrders({
-        maxPages: paginas,
+      const localOpenIds = opts.todasAsPaginas ? [] : await listOpenShopeeOrderIdsAsync()
+      console.log(`[sync] pedidos: ${opts.todasAsPaginas ? 'histórico completo' : 'abas ativas e pedidos locais em aberto'}`)
+      const orderOptions: FetchOrdersOptions = {
+        maxPages: null,
         onCard: (orderId, card) => saveOrderDump(orderId, card),
         onOrder: async (order) => {
           if (lote.cancelar) return
@@ -110,9 +137,28 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
           lote.total = total ?? feitos
           emiteProgresso()
         }
-      })
+      }
+      if (opts.todasAsPaginas) await fetchOrders(orderOptions)
+      else await fetchOpenOrders(localOpenIds, orderOptions)
     } catch (err) {
       errors.push(String(err instanceof Error ? err.message : err))
+    }
+
+    // A data de criação da logística é buscada uma vez por pedido recente.
+    // Os pedidos que já têm o checkpoint "Pedido em preparação" são preenchidos
+    // na migração; a consulta abaixo cobre os demais sem reler o histórico.
+    if (!lote.cancelar) {
+      try {
+        const labels = await syncRecentLabelDates((done, total) => {
+          if (lote.rotulo !== 'etiquetas') iniciaEtapa('etiquetas', total)
+          lote.feitos = done
+          lote.total = total
+          emiteProgresso()
+        }, () => lote.cancelar)
+        if (labels.failed > 0) errors.push(`etiquetas: ${labels.failed} consultas falharam`)
+      } catch (err) {
+        errors.push(`etiquetas: ${String(err instanceof Error ? err.message : err)}`)
+      }
     }
 
     // Avaliações dos compradores
@@ -317,6 +363,8 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
     const latest = checkpoints.reduce((a, b) => (a.happenedAt > b.happenedAt ? a : b))
     const delivered = checkpoints.find((c) => DELIVERED_PATTERN.test(c.description))
     await setLogisticsStatusAsync(orderSn, latest.description, delivered?.happenedAt ?? null)
+    const label = checkpoints.find((c) => c.description.trim().toLocaleLowerCase('pt-BR') === 'pedido em preparação')
+    if (!order.labelGeneratedAt && label) await saveLabelDatesAsync([{ orderSn, generatedAt: label.happenedAt }])
 
     let newEvents = 0
     for (const c of checkpoints) {

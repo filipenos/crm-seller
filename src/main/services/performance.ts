@@ -1,7 +1,7 @@
 import { session as electronSession } from 'electron'
 import type { DesempenhoProduto, PeriodoDesempenho, ResumoDesempenho, ResultadoSyncDesempenho } from '@shared/types'
 import { getAsyncDb } from '../db'
-import { pageFetchJson, ShopeeApiError, SHOPEE_PARTITION } from './shopee/session'
+import { pageFetchJson, ShopeeApiError, shopeePartition } from './shopee/session'
 
 type Obj = Record<string, unknown>
 const SHOPEE_ADS_MONEY_UNIT = 100000
@@ -64,7 +64,7 @@ async function fetchPerformance(path: string, init?: { method?: string; body?: u
 }
 
 async function cds(): Promise<string> {
-  const cookies = await electronSession.fromPartition(SHOPEE_PARTITION).cookies.get({ name: 'SPC_CDS' })
+  const cookies = await electronSession.fromPartition(shopeePartition()).cookies.get({ name: 'SPC_CDS' })
   return cookies[0]?.value ?? ''
 }
 

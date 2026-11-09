@@ -7,6 +7,7 @@ interface Props {
 
 const LABELS: Record<string, string> = {
   pedidos: 'Sincronizando pedidos',
+  etiquetas: 'Atualizando datas das etiquetas',
   rastreios: 'Atualizando rastreios',
   pagamentos: 'Atualizando pagamentos'
 }

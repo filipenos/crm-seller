@@ -560,6 +560,40 @@ const migrations: string[] = [
     ads_cost REAL NOT NULL DEFAULT 0
   );
   CREATE INDEX idx_daily_performance_synced ON daily_performance(synced_at);
+  `,
+  // 23 — produtos que não são caixas. A quantidade de laços vem da segunda
+  //      parte da variação "Cor,Quantidade"; os pedidos antigos são corrigidos
+  //      em uma consulta, sem reler a Shopee.
+  `
+  ALTER TABLE products ADD COLUMN kind TEXT NOT NULL DEFAULT 'CAIXAS';
+  ALTER TABLE order_items ADD COLUMN lacos INTEGER;
+
+  UPDATE products SET kind = 'LACOS'
+   WHERE lower(trim(name)) LIKE 'kit laço%'
+      OR lower(trim(name)) LIKE 'kit laco%'
+      OR lower(trim(name)) LIKE 'kit de laço%'
+      OR lower(trim(name)) LIKE 'kit de laco%';
+
+  UPDATE order_items SET lacos = CAST(trim(substr(model_name, instr(model_name, ',') + 1)) AS INTEGER)
+   WHERE item_id IN (SELECT item_id FROM products WHERE kind = 'LACOS')
+     AND instr(model_name, ',') > 0
+     AND CAST(trim(substr(model_name, instr(model_name, ',') + 1)) AS INTEGER) IN (10, 20, 30, 40);
+  `,
+  // 24 — previsão de entrega separada do prazo de postagem e da liberação do pagamento.
+  `
+  ALTER TABLE orders ADD COLUMN expected_delivery_at INTEGER;
+  `,
+  // 25 — horário em que a logística foi criada após a geração da etiqueta.
+  `
+  ALTER TABLE orders ADD COLUMN label_generated_at INTEGER;
+  UPDATE orders SET label_generated_at = (
+    SELECT MIN(e.happened_at) FROM order_events e
+     WHERE e.order_sn = orders.order_sn AND e.source = 'logistics'
+       AND LOWER(TRIM(e.description)) = 'pedido em preparação'
+  ) WHERE EXISTS (
+    SELECT 1 FROM order_events e WHERE e.order_sn = orders.order_sn
+      AND e.source = 'logistics' AND LOWER(TRIM(e.description)) = 'pedido em preparação'
+  );
   `
 ]
 

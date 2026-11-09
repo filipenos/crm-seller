@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   ActionResult,
   AppSettings,
@@ -6,6 +6,7 @@ import type {
   MetricaPainel,
   OrderFilters,
   PeriodoDesempenho,
+  ProductKind,
   StageActionKind
 } from '@shared/types'
 import { getSettingsAsync, updateSettingsAsync } from './services/settings'
@@ -41,6 +42,9 @@ import {
 } from './services/stages'
 import { createOrderFolder, ensureFolderName, openOrderFolder } from './services/folders'
 import { disconnect, openLoginWindow, openLoginWindowAndWait } from './services/shopee/session'
+import { getShopeeAuthMode, setShopeeAuthMode } from './services/shopee/authMode'
+import { browserBridgeStatus, cancelBrowserSession, requestBrowserSession, startBrowserBridge } from './services/shopee/browserBridge'
+import { destroyHiddenWindow } from './services/shopee/session'
 import {
   cancelarLote,
   getConnectionStatus,
@@ -58,6 +62,7 @@ import { reprocessarExtratosAsync } from './services/recebimentos'
 import { montarPainel, serieMensal } from './services/dashboard'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
+  definirTipoDoProdutoAsync,
   definirLinhaDoProdutoAsync,
   listarProdutosAsync,
   recomporCatalogoDosPedidosAsync
@@ -162,13 +167,43 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   })
 
   // Shopee
-  ipcMain.handle('shopee:connect', () => openLoginWindow())
+  ipcMain.handle('shopee:connect', () => {
+    setShopeeAuthMode('app')
+    destroyHiddenWindow()
+    return openLoginWindow()
+  })
   ipcMain.handle('shopee:setup', async () => {
+    setShopeeAuthMode('app')
+    destroyHiddenWindow()
     await openLoginWindowAndWait()
     return bindCurrentShopeeAccountAsync()
   })
+  ipcMain.handle('shopee:browserStatus', () => browserBridgeStatus())
+  ipcMain.handle('shopee:connectBrowser', async () => {
+    await startBrowserBridge()
+    setShopeeAuthMode('chrome')
+    destroyHiddenWindow()
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('shopee:status-changed', await getConnectionStatus())
+    }
+    try {
+      return await requestBrowserSession()
+    } finally {
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('shopee:status-changed', await getConnectionStatus())
+      }
+    }
+  })
+  ipcMain.handle('shopee:authMode', () => getShopeeAuthMode())
   ipcMain.handle('shopee:bind', () => bindCurrentShopeeAccountAsync())
-  ipcMain.handle('shopee:disconnect', () => disconnect())
+  ipcMain.handle('shopee:disconnect', async () => {
+    cancelBrowserSession()
+    await disconnect()
+    const status = await getConnectionStatus()
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('shopee:status-changed', status)
+    }
+  })
   ipcMain.handle('shopee:status', () => getConnectionStatus())
   ipcMain.handle('shopee:sync', () => syncAll())
   // Carga completa: percorre todas as páginas e grava o JSON cru de cada pedido.
@@ -219,7 +254,6 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
     setOrderStageAsync(orderSn, stageId)
   )
   ipcMain.handle('orders:setNote', (_e, orderSn: string, note: string) => setNoteAsync(orderSn, note))
-
   // Etapas de produção cadastráveis
   ipcMain.handle('stages:list', () => listStagesAsync())
   ipcMain.handle('stages:create', (_e, name: string, color: string | null) =>
@@ -265,6 +299,9 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   ipcMain.handle('produtos:recompor', () => recomporCatalogoDosPedidosAsync())
   ipcMain.handle('produtos:setLinha', (_e, itemId: string, linhaId: number | null) =>
     definirLinhaDoProdutoAsync(itemId, linhaId)
+  )
+  ipcMain.handle('produtos:setTipo', (_e, itemId: string, tipo: ProductKind) =>
+    definirTipoDoProdutoAsync(itemId, tipo)
   )
   ipcMain.handle('desempenho:resumo', (_e, period?: PeriodoDesempenho) => resumoDesempenho(period))
   ipcMain.handle('desempenho:sincronizar', (_e, period?: PeriodoDesempenho) => sincronizarDesempenho(period))

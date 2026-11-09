@@ -15,3 +15,12 @@ export const safeStorage = {
     return false
   }
 }
+
+export const BrowserWindow = class {
+  constructor() { throw new Error('O teste isolado não deve abrir janelas.') }
+  static getAllWindows(): never { throw new Error('O teste isolado não deve abrir janelas.') }
+}
+
+export const session = {
+  fromPartition(): never { throw new Error('O teste isolado não deve acessar sessões.') }
+}

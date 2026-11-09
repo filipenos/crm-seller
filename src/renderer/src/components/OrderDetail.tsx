@@ -64,7 +64,6 @@ export default function OrderDetail({
   const [stages, setStages] = useState<WorkflowStage[]>([])
   const [refreshingIncome, setRefreshingIncome] = useState(false)
   const [refreshingTracking, setRefreshingTracking] = useState(false)
-
   const load = async (): Promise<void> => {
     // Todas começam juntas, mas o pedido libera o formulário assim que chega;
     // histórico, eventos e etapas não seguram mais a abertura do painel.
@@ -175,6 +174,7 @@ export default function OrderDetail({
             <div className="ready-tag">🏷️ Etiqueta gerada — pronto para o ponto de coleta</div>
           )}
           {order.logisticsStatus && <div className="muted">🚚 {order.logisticsStatus}</div>}
+          {order.labelGeneratedAt && <div className="muted">Etiqueta gerada em {new Date(order.labelGeneratedAt).toLocaleDateString('pt-BR')}</div>}
         </section>
 
         {isWithUs(order.tab) ? (
@@ -324,6 +324,7 @@ export default function OrderDetail({
               <li key={i.id}>
                 <b>{i.quantity}x</b> {i.itemName}
                 {i.modelName && <span className="muted"> — {i.modelName}</span>}
+                {i.lacos && <span className="muted"> · {i.quantity * i.lacos} laços</span>}
               </li>
             ))}
           </ul>
