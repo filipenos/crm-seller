@@ -319,6 +319,7 @@ export interface Painel {
 }
 
 export interface PainelOffsets {
+  /** Deslocamento em dias da janela de sete dias de cada faixa. */
   vendas: number
   previstas: number
   etiquetas: number
@@ -340,6 +341,7 @@ export interface AgendaQuantidade {
 
 export interface AgendaPedido {
   orderSn: string
+  createdAtShopee: number | null
   status: InternalStatus
   itens: string[]
   pendencias: string[]

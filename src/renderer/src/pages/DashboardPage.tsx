@@ -37,7 +37,7 @@ function FaixaDias({ titulo, descricao, dias, hoje, avisoPrazo, offset, loading,
       </div>
     </div>
     <div className="painel-navegacao" aria-busy={loading}>
-      <button type="button" className="painel-seta" aria-label={`Período anterior: ${titulo}`} disabled={loading || offset <= -520} onClick={() => onNavigate(-1)}>‹</button>
+      <button type="button" className="painel-seta" aria-label={`Voltar um dia: ${titulo}`} disabled={loading || offset <= -3650} onClick={() => onNavigate(-1)}>‹</button>
       <div className="painel-dias">
       {dias.map((dia) => <article className={`painel-dia ${dia.data === hoje ? 'hoje' : ''}`} key={dia.data}>
         <h3>{DAY.format(new Date(`${dia.data}T12:00:00-03:00`))}{dia.data === hoje && <small>Hoje</small>}</h3>
@@ -48,7 +48,7 @@ function FaixaDias({ titulo, descricao, dias, hoje, avisoPrazo, offset, loading,
         </dl>
       </article>)}
       </div>
-      <button type="button" className="painel-seta" aria-label={`Próximo período: ${titulo}`} disabled={loading || offset >= 520} onClick={() => onNavigate(1)}>›</button>
+      <button type="button" className="painel-seta" aria-label={`Avançar um dia: ${titulo}`} disabled={loading || offset >= 3650} onClick={() => onNavigate(1)}>›</button>
     </div>
     {loading && <p className="painel-observacao">Atualizando período…</p>}
     {semLiquido > 0 && <p className="painel-observacao">* {semLiquido} {semLiquido === 1 ? 'pedido ainda não tem' : 'pedidos ainda não têm'} valor líquido calculado pela Shopee; o líquido exibido é parcial.</p>}

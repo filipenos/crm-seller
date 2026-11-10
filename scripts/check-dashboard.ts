@@ -19,6 +19,7 @@ try {
     ['sale-estimated-today', 'ENVIADO', Date.parse('2026-11-09T00:00:00-03:00'), null, null, 40],
     ['sale-estimated-month', 'ENVIADO', Date.parse('2026-11-01T00:00:00-03:00'), null, null, 20],
     ['post-tomorrow', 'A_ENVIAR', at('2026-11-07'), at('2026-11-10'), null, 50],
+    ['post-shifted', 'A_ENVIAR', at('2026-11-07'), at('2026-11-17'), null, 70],
     ['post-next-week', 'A_ENVIAR', at('2026-11-07'), at('2026-11-18'), null, 60],
     ['labeled-today', 'ENVIADO', at('2026-11-02'), null, null, 80],
     ['no-forecast', 'A_ENVIAR', at('2026-11-08'), null, null, 30],
@@ -38,7 +39,7 @@ try {
   })
   for (const sql of migrationStatements(MIGRATION_COUNT - 2)) await db.execute(sql)
   assert.equal((await db.execute("SELECT label_generated_at AS value FROM orders WHERE order_sn='labeled-today'")).rows[0]?.value, at('2026-11-09'))
-  for (const [orderSn, net] of [['sale-today', 70], ['post-tomorrow', 35], ['post-next-week', 42], ['labeled-today', 56]] as const) {
+  for (const [orderSn, net] of [['sale-today', 70], ['post-tomorrow', 35], ['post-shifted', 49], ['post-next-week', 42], ['labeled-today', 56]] as const) {
     await db.execute({ sql: 'INSERT INTO order_income (order_sn, valor_recebido, atualizado_em) VALUES (?, ?, ?)', args: [orderSn, net, Date.now()] })
   }
   const actualCreatedAt = Date.parse('2026-11-08T14:00:00-03:00')
@@ -66,15 +67,19 @@ try {
   const previousSales = { ...DEFAULT_PAINEL_OFFSETS, vendas: -1 }
   const previousRows = (await db.execute({ sql: DAILY_DASHBOARD_SQL, args: dashboardPeriodBounds(today, previousSales) })).rows as unknown as DailyDashboardRow[]
   const previous = buildDailyDashboard(previousRows, today, previousSales)
-  assert.deepEqual(previous.vendasRecentes[4], { data: '2026-10-31', pedidos: 1, total: 20, liquido: 14, semValorLiquido: 0 })
+  assert.deepEqual(previous.vendasRecentes[6], { data: '2026-11-08', pedidos: 2, total: 70, liquido: 28, semValorLiquido: 1 })
   assert.deepEqual(previous.postagensPrevistas[0], panel.postagensPrevistas[0])
   assert.deepEqual(previous.etiquetasRecentes[6], panel.etiquetasRecentes[6])
   const futureShipping = { ...DEFAULT_PAINEL_OFFSETS, previstas: 1 }
   const futureRows = (await db.execute({ sql: DAILY_DASHBOARD_SQL, args: dashboardPeriodBounds(today, futureShipping) })).rows as unknown as DailyDashboardRow[]
   const future = buildDailyDashboard(futureRows, today, futureShipping)
-  assert.deepEqual(future.postagensPrevistas[1], { data: '2026-11-17', pedidos: 1, total: 60, liquido: 42, semValorLiquido: 0 })
+  assert.deepEqual(future.postagensPrevistas[6], { data: '2026-11-16', pedidos: 1, total: 70, liquido: 49, semValorLiquido: 0 })
   assert.deepEqual(future.vendasRecentes[6], panel.vendasRecentes[6])
-  assert.throws(() => dashboardPeriodBounds(today, { ...DEFAULT_PAINEL_OFFSETS, vendas: 521 }), /inválido/)
+  const nextDay = { ...DEFAULT_PAINEL_OFFSETS, previstas: 2 }
+  const nextRows = (await db.execute({ sql: DAILY_DASHBOARD_SQL, args: dashboardPeriodBounds(today, nextDay) })).rows as unknown as DailyDashboardRow[]
+  const next = buildDailyDashboard(nextRows, today, nextDay)
+  assert.deepEqual(next.postagensPrevistas[6], { data: '2026-11-17', pedidos: 1, total: 60, liquido: 42, semValorLiquido: 0 })
+  assert.throws(() => dashboardPeriodBounds(today, { ...DEFAULT_PAINEL_OFFSETS, vendas: 3651 }), /inválido/)
   console.log('Painel diário validado.')
 } finally {
   db.close()

@@ -4,7 +4,7 @@ export const DEFAULT_PAINEL_OFFSETS: PainelOffsets = { vendas: 0, previstas: 0, 
 
 export function validatePainelOffsets(value: PainelOffsets): PainelOffsets {
   for (const offset of [value.vendas, value.previstas, value.etiquetas]) {
-    if (!Number.isInteger(offset) || Math.abs(offset) > 520) throw new Error('Período do painel inválido.')
+    if (!Number.isInteger(offset) || Math.abs(offset) > 3650) throw new Error('Período do painel inválido.')
   }
   return value
 }
@@ -67,9 +67,9 @@ export function dashboardDates(now = Date.now()): { today: string; bounds: numbe
 export function dashboardPeriodBounds(today: string, offsets: PainelOffsets = DEFAULT_PAINEL_OFFSETS): number[] {
   validatePainelOffsets(offsets)
   const ms = (day: string): number => Date.parse(`${day}T00:00:00-03:00`)
-  const vendasStart = -6 + offsets.vendas * 7
-  const previstasStart = offsets.previstas * 7
-  const etiquetasStart = -6 + offsets.etiquetas * 7
+  const vendasStart = -6 + offsets.vendas
+  const previstasStart = offsets.previstas
+  const etiquetasStart = -6 + offsets.etiquetas
   return [
     ms(shiftedDay(today, vendasStart)), ms(shiftedDay(today, vendasStart + 7)),
     ms(shiftedDay(today, previstasStart + 1)), ms(shiftedDay(today, previstasStart + 8)),
@@ -90,9 +90,9 @@ export function buildDailyDashboard(
     }
   })
   return {
-    vendasRecentes: days('vendas', [-6, -5, -4, -3, -2, -1, 0].map((day) => day + offsets.vendas * 7)),
-    postagensPrevistas: days('previstas', [0, 1, 2, 3, 4, 5, 6].map((day) => day + offsets.previstas * 7)),
-    etiquetasRecentes: days('etiquetas', [-6, -5, -4, -3, -2, -1, 0].map((day) => day + offsets.etiquetas * 7)),
+    vendasRecentes: days('vendas', [-6, -5, -4, -3, -2, -1, 0].map((day) => day + offsets.vendas)),
+    postagensPrevistas: days('previstas', [0, 1, 2, 3, 4, 5, 6].map((day) => day + offsets.previstas)),
+    etiquetasRecentes: days('etiquetas', [-6, -5, -4, -3, -2, -1, 0].map((day) => day + offsets.etiquetas)),
     semPrazoPostagem: Number(rows.find((row) => row.grupo === 'sem_prazo')?.pedidos ?? 0)
   }
 }
