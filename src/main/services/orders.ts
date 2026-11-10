@@ -531,6 +531,7 @@ export interface UpsertOrderInput {
   trackingNumber?: string | null
   shipByDate?: number | null
   createdAtShopee?: number | null
+  createdAtEstimated?: boolean
   updatedAtShopee?: number | null
   rawJson?: string
   items?: {
@@ -604,7 +605,9 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
         logistics_code = COALESCE(?, logistics_code), status_description = COALESCE(?, status_description),
         payment_method = COALESCE(?, payment_method), carrier = COALESCE(?, carrier),
         shipping_city = COALESCE(?, shipping_city), shopee_url_path = COALESCE(?, shopee_url_path),
-        package_number = COALESCE(?, package_number), created_at_shopee = COALESCE(?, created_at_shopee),
+        package_number = COALESCE(?, package_number),
+        created_at_shopee = CASE WHEN ? = 1 AND created_at_shopee IS NOT NULL
+          THEN created_at_shopee ELSE COALESCE(?, created_at_shopee) END,
         updated_at_shopee = COALESCE(?, updated_at_shopee), synced_at = ?,
         raw_json = COALESCE(?, raw_json) WHERE order_sn = ?`,
       [
@@ -613,7 +616,8 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
         input.trackingNumber ?? null, input.shipByDate ?? null, input.logisticsCode ?? null,
         input.statusDescription ?? null, input.paymentMethod ?? null, input.carrier ?? null,
         input.shippingCity ?? null, input.shopeeUrlPath ?? null, input.packageNumber ?? null,
-        input.createdAtShopee ?? null, input.updatedAtShopee ?? null, now,
+        input.createdAtEstimated ? 1 : 0, input.createdAtShopee ?? null,
+        input.updatedAtShopee ?? null, now,
         input.rawJson ?? null, input.orderSn
       ]
     )

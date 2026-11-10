@@ -39,6 +39,8 @@ export interface NormalizedShopeeOrder {
   trackingNumber: string | null
   shipByDate: number | null
   createdAtShopee: number | null
+  /** O card não tinha horário; a data foi estimada pelo número do pedido. */
+  createdAtEstimated: boolean
   /** `order_ext_info.logistics_status`: 1 etiquetado · 9 aguardando · 2 enviado. */
   logisticsCode: number | null
   /** Texto da Shopee explicando o estado ("Pendente confirmação de postagem…"). */
@@ -187,7 +189,9 @@ function dateFromOrderSn(orderSn: string): number | null {
   const month = Number(mm)
   const day = Number(dd)
   if (month < 1 || month > 12 || day < 1 || day > 31) return null
-  return new Date(year, month - 1, day).getTime()
+  const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  const timestamp = Date.parse(`${date}T00:00:00-03:00`)
+  return Number.isNaN(timestamp) ? null : timestamp
 }
 
 /**
@@ -530,6 +534,7 @@ export function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
     pickString(pkgExt, ['consignment_no', 'package_number'])
 
   const currencyNum = pickNumber(payment, ['currency'])
+  const createdAtShopee = toMs(pickNumber(ext, ['create_time', 'pay_time']))
 
   return {
     orderSn,
@@ -555,7 +560,8 @@ export function normalizeCard(card: AnyObj): NormalizedShopeeOrder | null {
     shippingCity: cityFromAddress(pickString(pkgExt, ['shipping_address'])),
     shopeeUrlPath: pickString(ext, ['odp_url_path_query'])?.trim() ?? null,
     packageNumber: pickString(pkgExt, ['package_number']),
-    createdAtShopee: toMs(pickNumber(ext, ['create_time', 'pay_time'])) ?? dateFromOrderSn(orderSn),
+    createdAtShopee: createdAtShopee ?? dateFromOrderSn(orderSn),
+    createdAtEstimated: createdAtShopee === null,
     updatedAtShopee: null,
     rawJson: JSON.stringify(card),
     items

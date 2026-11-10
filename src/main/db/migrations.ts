@@ -594,6 +594,27 @@ const migrations: string[] = [
     SELECT 1 FROM order_events e WHERE e.order_sn = orders.order_sn
       AND e.source = 'logistics' AND LOWER(TRIM(e.description)) = 'pedido em preparação'
   );
+  `,
+  // 26 — restaura o horário real do extrato, que sincronizações posteriores
+  // sobrescreviam com a data aproximada derivada do número do pedido.
+  `
+  WITH exact AS (
+    SELECT i.order_sn,
+      MIN(CASE WHEN CAST(json_extract(t.value, '$.ctime') AS INTEGER) < 10000000000
+        THEN CAST(json_extract(t.value, '$.ctime') AS INTEGER) * 1000
+        ELSE CAST(json_extract(t.value, '$.ctime') AS INTEGER) END) AS created_at
+    FROM order_income i, json_each(i.raw_json, '$.tracking_info_list') t
+    WHERE i.raw_json IS NOT NULL
+      AND json_type(t.value, '$.ctime') IN ('integer', 'real')
+      AND CAST(json_extract(t.value, '$.ctime') AS INTEGER) > 0
+    GROUP BY i.order_sn
+  )
+  UPDATE orders SET created_at_shopee = (
+    SELECT created_at FROM exact WHERE exact.order_sn = orders.order_sn
+  ) WHERE order_sn IN (SELECT order_sn FROM exact)
+    AND created_at_shopee IS NOT (
+      SELECT created_at FROM exact WHERE exact.order_sn = orders.order_sn
+    );
   `
 ]
 

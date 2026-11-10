@@ -26,6 +26,15 @@ try {
   assert.equal((await client.execute({ sql: 'SELECT tab FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.tab, 'ENVIADO')
   assert.equal((await client.execute({ sql: 'SELECT COUNT(*) AS n FROM order_items WHERE order_sn = ?', args: [orderSn] })).rows[0]?.n, 1)
 
+  const realCreatedAt = Date.parse('2026-11-08T14:00:00-03:00')
+  const approximateCreatedAt = Date.parse('2026-11-09T00:00:00-03:00')
+  await client.execute({ sql: 'UPDATE orders SET created_at_shopee = ? WHERE order_sn = ?', args: [realCreatedAt, orderSn] })
+  await upsertShopeeOrderAsync({ orderSn, createdAtShopee: approximateCreatedAt, createdAtEstimated: true })
+  assert.equal((await client.execute({ sql: 'SELECT created_at_shopee AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, realCreatedAt)
+  const correctedCreatedAt = realCreatedAt + 60_000
+  await upsertShopeeOrderAsync({ orderSn, createdAtShopee: correctedCreatedAt, createdAtEstimated: false })
+  assert.equal((await client.execute({ sql: 'SELECT created_at_shopee AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, correctedCreatedAt)
+
   assert.equal(await upsertShopeeOrderAsync({
     orderSn, shopeeStatus: 'Entregue', shopeeTab: 'CONCLUIDO', items
   }), false)
