@@ -24,9 +24,10 @@ win:
   target:
     - nsis
 nsis:
-  oneClick: false
-  # Instalação por usuário, em pasta fixa: é o que permite a atualização se
-  # instalar sozinha, sem pedir permissão de administrador toda vez.
+  # Usa sempre a instalação por usuário já adotada pelo app. O instalador
+  # assistido permitia escolher "todos os usuários", criando outra instalação
+  # e solicitando elevação ao atualizar a cópia em AppData.
+  oneClick: true
   perMachine: false
   allowToChangeInstallationDirectory: false
   shortcutName: CRM Seller
