@@ -5,6 +5,7 @@ import type { AgendaDia, AgendaPedido, AgendaQuantidade, AgendaTrabalho, Interna
 
 interface OrderItemRow {
   order_sn: string
+  created_at_shopee: number | null
   ship_by_date: number
   internal_status: InternalStatus
   item_name: string | null
@@ -50,12 +51,12 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
   const lower = midnight(addDays(hoje, 1))
   const upper = midnight(addDays(hoje, days + 1))
   const [rawItems, rawBoxes, rawCounts] = await getAsyncDb().queryBatch([
-    { sql: `SELECT o.order_sn, o.ship_by_date, o.internal_status,
+    { sql: `SELECT o.order_sn, o.created_at_shopee, o.ship_by_date, o.internal_status,
         i.item_name, i.model_name, i.quantity, i.pecas, i.lacos, p.kind
       FROM orders o LEFT JOIN order_items i ON i.order_sn = o.order_sn
       LEFT JOIN products p ON p.item_id = i.item_id
       WHERE o.tab = 'A_ENVIAR' AND o.ship_by_date >= ? AND o.ship_by_date < ?
-      ORDER BY o.ship_by_date, o.order_sn, i.id`, parameters: [lower, upper] },
+      ORDER BY o.ship_by_date, o.created_at_shopee IS NULL, o.created_at_shopee, o.order_sn, i.id`, parameters: [lower, upper] },
     { sql: `SELECT box.name, part.quantity
       FROM composition_items kit
       JOIN composition_parts part ON part.parent_item_id = kit.id
@@ -88,7 +89,7 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     const embalado = ['EMBALADO', 'ENVIADO', 'CONCLUIDO'].includes(row.internal_status)
     let order = day.orders.get(row.order_sn)
     if (!order) {
-      order = { orderSn: row.order_sn, status: row.internal_status, itens: [], pendencias: [], embalado }
+      order = { orderSn: row.order_sn, createdAtShopee: row.created_at_shopee, status: row.internal_status, itens: [], pendencias: [], embalado }
       day.orders.set(row.order_sn, order)
     }
     if (!row.item_name) {

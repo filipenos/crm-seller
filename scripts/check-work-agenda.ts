@@ -26,16 +26,16 @@ try {
   const { workAgenda } = await import('../src/main/services/workAgenda')
   await ensureDefaultComposition()
   const { today } = dashboardDates()
-  const insertOrder = async (sn: string, shipBy: number | null, status = 'NOVO', tab = 'A_ENVIAR'): Promise<void> => {
-    await client.execute({ sql: 'INSERT INTO orders (order_sn, ship_by_date, internal_status, tab) VALUES (?, ?, ?, ?)', args: [sn, shipBy, status, tab] })
+  const insertOrder = async (sn: string, shipBy: number | null, status = 'NOVO', tab = 'A_ENVIAR', createdAt: number | null = null): Promise<void> => {
+    await client.execute({ sql: 'INSERT INTO orders (order_sn, ship_by_date, internal_status, tab, created_at_shopee) VALUES (?, ?, ?, ?, ?)', args: [sn, shipBy, status, tab, createdAt] })
   }
   const insertItem = async (sn: string, name: string, model: string, quantity: number, pieces: number | null, bows: number | null, itemId: string): Promise<void> => {
     await client.execute({ sql: 'INSERT INTO order_items (order_sn, item_name, model_name, quantity, pecas, lacos, item_id) VALUES (?, ?, ?, ?, ?, ?, ?)', args: [sn, name, model, quantity, pieces, bows, itemId] })
   }
   await client.execute({ sql: "INSERT INTO products (item_id, name, kind) VALUES ('boxes', 'Kit de caixas', 'CAIXAS'), ('bows', 'Kit de laços', 'LACOS')", args: [] })
-  await insertOrder('box', at(shift(today, 1)))
+  await insertOrder('box', at(shift(today, 1)), 'NOVO', 'A_ENVIAR', at(shift(today, -2)))
   await insertItem('box', 'Kit de caixas', '10 peças / 2 de cada modelo', 1, 10, null, 'boxes')
-  await insertOrder('bow', at(shift(today, 1)))
+  await insertOrder('bow', at(shift(today, 1)), 'NOVO', 'A_ENVIAR', at(shift(today, -3)))
   await insertItem('bow', 'Kit de laços', 'Azul Bebê,20', 2, null, 20, 'bows')
   await insertItem('bow', 'Kit de laços', 'Rosa,10', 1, null, 10, 'bows')
   await insertOrder('packed', at(shift(today, 1)), 'EMBALADO')
@@ -51,6 +51,8 @@ try {
   assert.equal(one.dias[0].data, today)
   assert.equal(one.dias[0].postarAte, shift(today, 1))
   assert.equal(one.dias[0].pedidos.length, 3)
+  assert.deepEqual(one.dias[0].pedidos.map((order) => order.orderSn), ['bow', 'box', 'packed'])
+  assert.equal(one.dias[0].pedidos[0].createdAtShopee, at(shift(today, -3)))
   assert.equal(one.dias[0].pedidosLacos, 1)
   assert.equal(one.dias[0].pedidosCaixas, 1)
   assert.equal(one.dias[0].caixas.reduce((sum, box) => sum + box.quantidade, 0), 10)

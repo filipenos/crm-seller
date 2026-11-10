@@ -117,7 +117,7 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
           </button>}
           {expanded === day.data && <div className="work-orders">{day.pedidos.map((order) =>
             <button type="button" key={order.orderSn} onClick={() => setSelected(order.orderSn)}>
-              <span className="mono">{order.orderSn}</span><small>{INTERNAL_STATUS_LABELS[order.status]}{order.embalado ? ' · embalado' : ''}</small>
+              <span className="mono">{order.orderSn}</span><small>Entrada: {order.createdAtShopee ? new Date(order.createdAtShopee).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : 'não informada'} · {INTERNAL_STATUS_LABELS[order.status]}{order.embalado ? ' · embalado' : ''}</small>
               {order.itens.map((item, index) => <small key={index}>{item}</small>)}
               {order.pendencias.map((item, index) => <small className="work-pending" key={index}>{item}</small>)}
             </button>)}
