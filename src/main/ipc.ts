@@ -7,6 +7,7 @@ import type {
   InternalStatus,
   MetricaPainel,
   OrderFilters,
+  PainelOffsets,
   PeriodoDesempenho,
   ProductKind,
   StageActionKind
@@ -236,7 +237,7 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   ipcMain.handle('orders:list', (_e, filters: OrderFilters) => listOrdersAsync(filters))
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPaymentAsync())
   ipcMain.handle('orders:tabCounts', () => countByTabAsync())
-  ipcMain.handle('painel:resumo', () => montarPainel())
+  ipcMain.handle('painel:resumo', (_e, offsets?: PainelOffsets) => montarPainel(offsets))
   ipcMain.handle('trabalho:agenda', (_e, days: number) => workAgenda(days))
   ipcMain.handle('painel:serie', (_e, metrica: MetricaPainel, ano: number, mes: number) =>
     serieMensal(metrica, ano, mes)

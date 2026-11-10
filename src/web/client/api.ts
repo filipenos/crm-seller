@@ -1,4 +1,4 @@
-import type { MetricaPainel, Order, OrderCounts, OrderTab, Painel, SerieMensal } from '../../shared/types'
+import type { MetricaPainel, Order, OrderCounts, OrderTab, Painel, PainelOffsets, SerieMensal } from '../../shared/types'
 
 export interface WebProductionData {
   items: Array<{ id: number; name: string; kind: string; unit: string; sellable: number; stock_controlled: number; reference_cost: number | null; waste_percent: number; stock: number; average_cost: number | null; parts: number }>
@@ -15,7 +15,8 @@ async function get<T>(path: string): Promise<T> {
 
 export const api = {
   painel: {
-    resumo: (): Promise<Painel> => get('/api/dashboard'),
+    resumo: (offsets: PainelOffsets): Promise<Painel> =>
+      get(`/api/dashboard?vendas=${offsets.vendas}&previstas=${offsets.previstas}&etiquetas=${offsets.etiquetas}`),
     serie: (metric: MetricaPainel, year: number, month: number): Promise<SerieMensal> =>
       get(`/api/dashboard/series?metric=${encodeURIComponent(metric)}&year=${year}&month=${month}`)
   },

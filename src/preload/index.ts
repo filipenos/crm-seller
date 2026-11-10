@@ -18,6 +18,7 @@ import type {
   OrderFilters,
   OrderCounts,
   Painel,
+  PainelOffsets,
   MetricaPainel,
   SerieMensal,
   ProgressoLote,
@@ -108,7 +109,7 @@ const api = {
       ipcRenderer.invoke('orders:reprocessarExtratos')
   },
   painel: {
-    resumo: (): Promise<Painel> => ipcRenderer.invoke('painel:resumo'),
+    resumo: (offsets?: PainelOffsets): Promise<Painel> => ipcRenderer.invoke('painel:resumo', offsets),
     serie: (metrica: MetricaPainel, ano: number, mes: number): Promise<SerieMensal> =>
       ipcRenderer.invoke('painel:serie', metrica, ano, mes)
   },

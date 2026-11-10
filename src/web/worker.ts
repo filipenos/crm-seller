@@ -1,6 +1,6 @@
 import { createClient, type Client } from '@libsql/client/web'
-import { ORDER_TABS, type MetricaPainel, type Order, type OrderCounts, type OrderTab, type Painel, type SerieMensal, type TabCounts } from '../shared/types'
-import { buildDailyDashboard, dashboardDates, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '../shared/dashboardDays'
+import { ORDER_TABS, type MetricaPainel, type Order, type OrderCounts, type OrderTab, type Painel, type PainelOffsets, type SerieMensal, type TabCounts } from '../shared/types'
+import { buildDailyDashboard, dashboardDates, dashboardPeriodBounds, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '../shared/dashboardDays'
 
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> }
@@ -35,10 +35,15 @@ function dayMs(daysAgo = 0): number {
   return new Date(`${saoPauloDate(daysAgo)}T00:00:00-03:00`).getTime()
 }
 
-async function dashboard(db: Client): Promise<Painel> {
-  const { today, bounds } = dashboardDates()
-  const result = await db.execute({ sql: DAILY_DASHBOARD_SQL, args: bounds })
-  return buildDailyDashboard(result.rows as unknown as DailyDashboardRow[], today)
+async function dashboard(db: Client, url: URL): Promise<Painel> {
+  const offsets: PainelOffsets = {
+    vendas: Number(url.searchParams.get('vendas') ?? 0),
+    previstas: Number(url.searchParams.get('previstas') ?? 0),
+    etiquetas: Number(url.searchParams.get('etiquetas') ?? 0)
+  }
+  const { today } = dashboardDates()
+  const result = await db.execute({ sql: DAILY_DASHBOARD_SQL, args: dashboardPeriodBounds(today, offsets) })
+  return buildDailyDashboard(result.rows as unknown as DailyDashboardRow[], today, offsets)
 }
 
 async function monthlySeries(db: Client, metric: MetricaPainel, year: number, month: number): Promise<SerieMensal> {
@@ -135,7 +140,7 @@ async function api(request: Request, env: Env): Promise<Response> {
   const db = createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN })
   const url = new URL(request.url)
   try {
-    if (request.method === 'GET' && url.pathname === '/api/dashboard') return json(await dashboard(db))
+    if (request.method === 'GET' && url.pathname === '/api/dashboard') return json(await dashboard(db, url))
     if (request.method === 'GET' && url.pathname === '/api/dashboard/series') return json(await monthlySeries(db, url.searchParams.get('metric') as MetricaPainel, Number(url.searchParams.get('year')), Number(url.searchParams.get('month'))))
     if (request.method === 'GET' && url.pathname === '/api/orders') return json(await orders(db, url))
     if (request.method === 'GET' && url.pathname === '/api/production') return json(await production(db))

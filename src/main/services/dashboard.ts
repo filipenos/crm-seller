@@ -1,12 +1,12 @@
 import { getAsyncDb } from '../db'
-import { buildDailyDashboard, dashboardDates, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '@shared/dashboardDays'
-import type { MetricaPainel, Painel, SerieMensal } from '@shared/types'
+import { buildDailyDashboard, dashboardDates, dashboardPeriodBounds, DEFAULT_PAINEL_OFFSETS, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '@shared/dashboardDays'
+import type { MetricaPainel, Painel, PainelOffsets, SerieMensal } from '@shared/types'
 
 /** Três séries de sete dias em uma única leitura remota do Turso. */
-export async function montarPainel(): Promise<Painel> {
-  const { today, bounds } = dashboardDates()
-  const rows = (await (await getAsyncDb().prepare(DAILY_DASHBOARD_SQL)).all(bounds)) as DailyDashboardRow[]
-  return buildDailyDashboard(rows, today)
+export async function montarPainel(offsets: PainelOffsets = DEFAULT_PAINEL_OFFSETS): Promise<Painel> {
+  const { today } = dashboardDates()
+  const rows = (await (await getAsyncDb().prepare(DAILY_DASHBOARD_SQL)).all(dashboardPeriodBounds(today, offsets))) as DailyDashboardRow[]
+  return buildDailyDashboard(rows, today, offsets)
 }
 
 /** Série diária de uma métrica dentro de um mês, sempre no fuso local. */

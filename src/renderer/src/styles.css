@@ -1081,6 +1081,10 @@ code {
 .painel-faixa-cabecalho h2 { font-size: 17px; margin: 0 0 3px; }
 .painel-faixa-cabecalho p { margin: 0; font-size: 13px; }
 .painel-faixa-resumo { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 14px; font-size: 13px; white-space: nowrap; }
+.painel-navegacao { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; align-items: stretch; gap: 8px; }
+.painel-seta { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 27px; line-height: 1; }
+.painel-seta:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.painel-seta:disabled { opacity: 0.45; cursor: default; }
 .painel-dias { display: grid; grid-template-columns: repeat(7, minmax(140px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 3px; }
 .painel-dia { background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 11px; min-width: 140px; }
 .painel-dia.hoje { border-color: var(--accent); background: var(--accent-soft); }

@@ -318,6 +318,12 @@ export interface Painel {
   semPrazoPostagem: number
 }
 
+export interface PainelOffsets {
+  vendas: number
+  previstas: number
+  etiquetas: number
+}
+
 export interface DiaPainel {
   /** Data civil em America/Sao_Paulo, YYYY-MM-DD. */
   data: string
