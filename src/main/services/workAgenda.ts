@@ -18,7 +18,6 @@ interface OrderItemRow {
 interface BoxRow {
   name: string
   quantity: number | null
-  bows: number | null
 }
 
 function addDays(day: string, days: number): string {
@@ -57,10 +56,7 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
       LEFT JOIN products p ON p.item_id = i.item_id
       WHERE o.tab = 'A_ENVIAR' AND o.ship_by_date >= ? AND o.ship_by_date < ?
       ORDER BY o.ship_by_date, o.order_sn, i.id`, parameters: [lower, upper] },
-    { sql: `SELECT box.name, part.quantity,
-        (SELECT SUM(bow_part.quantity) FROM composition_parts bow_part
-          JOIN composition_items bow ON bow.id = bow_part.child_item_id
-          WHERE bow_part.parent_item_id = box.id AND bow.slug = 'laco') AS bows
+    { sql: `SELECT box.name, part.quantity
       FROM composition_items kit
       JOIN composition_parts part ON part.parent_item_id = kit.id
       JOIN composition_items box ON box.id = part.child_item_id AND box.kind = 'CAIXA'
@@ -74,11 +70,15 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
   const baseBoxes = boxRows.reduce((total, box) => total + (box.quantity ?? 0), 0)
   const byDay = new Map<string, {
     orders: Map<string, AgendaPedido>
+    bowOrders: Set<string>
+    boxOrders: Set<string>
     bows: Map<string, number>
     boxes: Map<string, number>
   }>()
   for (let offset = 0; offset < days; offset++) {
-    byDay.set(addDays(hoje, offset), { orders: new Map(), bows: new Map(), boxes: new Map() })
+    byDay.set(addDays(hoje, offset), {
+      orders: new Map(), bowOrders: new Set(), boxOrders: new Set(), bows: new Map(), boxes: new Map()
+    })
   }
 
   for (const row of rawItems as OrderItemRow[]) {
@@ -106,14 +106,16 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     const kind = row.kind ?? (inferred === 'LACOS' ? 'LACOS'
       : row.pecas || piecesFromVariation(row.model_name) ? 'CAIXAS' : 'OUTRO')
     if (kind === 'LACOS') {
+      day.bowOrders.add(row.order_sn)
       const perKit = row.lacos ?? parseBowVariation(row.model_name)?.size ?? null
-      if (perKit === null || perKit <= 0) {
-        order.pendencias.push(`Quantidade de laços não identificada: ${row.item_name}`)
+      const color = parseBowVariation(row.model_name)?.color
+      if (perKit === null || perKit <= 0 || !color) {
+        order.pendencias.push(`Cor ou quantidade de laços não identificada: ${row.item_name}`)
         continue
       }
-      const color = parseBowVariation(row.model_name)?.color ?? 'Cor a definir'
       add(day.bows, color, amount * perKit)
     } else if (kind === 'CAIXAS') {
+      day.boxOrders.add(row.order_sn)
       const total = row.pecas ?? piecesFromVariation(row.model_name)
       if (!total || baseBoxes <= 0 || boxRows.some((box) => box.quantity === null)) {
         order.pendencias.push(`Composição ou quantidade de caixas pendente: ${row.item_name}`)
@@ -127,7 +129,6 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
       for (const box of boxRows) {
         const count = multiplier * (box.quantity ?? 0)
         add(day.boxes, box.name, count)
-        if (box.bows) add(day.bows, 'Cor a definir', count * box.bows)
       }
     } else {
       order.pendencias.push(`Produto sem composição de produção: ${row.item_name}`)
@@ -138,6 +139,8 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     data,
     postarAte: addDays(data, 1),
     pedidos: [...item.orders.values()],
+    pedidosLacos: item.bowOrders.size,
+    pedidosCaixas: item.boxOrders.size,
     lacos: quantities(item.bows),
     caixas: quantities(item.boxes)
   }))

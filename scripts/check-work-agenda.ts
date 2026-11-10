@@ -37,6 +37,7 @@ try {
   await insertItem('box', 'Kit de caixas', '10 peças / 2 de cada modelo', 1, 10, null, 'boxes')
   await insertOrder('bow', at(shift(today, 1)))
   await insertItem('bow', 'Kit de laços', 'Azul Bebê,20', 2, null, 20, 'bows')
+  await insertItem('bow', 'Kit de laços', 'Rosa,10', 1, null, 10, 'bows')
   await insertOrder('packed', at(shift(today, 1)), 'EMBALADO')
   await insertItem('packed', 'Kit de caixas', '5 peças', 1, 5, null, 'boxes')
   await insertOrder('later', at(shift(today, 2)))
@@ -50,9 +51,11 @@ try {
   assert.equal(one.dias[0].data, today)
   assert.equal(one.dias[0].postarAte, shift(today, 1))
   assert.equal(one.dias[0].pedidos.length, 3)
+  assert.equal(one.dias[0].pedidosLacos, 1)
+  assert.equal(one.dias[0].pedidosCaixas, 1)
   assert.equal(one.dias[0].caixas.reduce((sum, box) => sum + box.quantidade, 0), 10)
   assert.deepEqual(one.dias[0].lacos, [
-    { nome: 'Azul Bebê', quantidade: 40 }, { nome: 'Cor a definir', quantidade: 4 }
+    { nome: 'Azul Bebê', quantidade: 40 }, { nome: 'Rosa', quantidade: 10 }
   ])
   assert.equal(one.atrasados, 1)
   assert.equal(one.semPrazo, 1)

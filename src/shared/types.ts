@@ -344,6 +344,8 @@ export interface AgendaDia {
   data: string
   postarAte: string
   pedidos: AgendaPedido[]
+  pedidosLacos: number
+  pedidosCaixas: number
   lacos: AgendaQuantidade[]
   caixas: AgendaQuantidade[]
 }

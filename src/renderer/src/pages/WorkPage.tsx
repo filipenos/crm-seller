@@ -21,6 +21,10 @@ function total(items: AgendaQuantidade[]): number {
   return items.reduce((sum, item) => sum + item.quantidade, 0)
 }
 
+function pedidosLabel(count: number): string {
+  return `${count} ${count === 1 ? 'pedido' : 'pedidos'}`
+}
+
 function summarize(days: AgendaDia[], key: 'lacos' | 'caixas'): AgendaQuantidade[] {
   const values = new Map<string, number>()
   for (const day of days) {
@@ -104,8 +108,8 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
           <div className="work-day-head"><h3>{day.data === agenda.hoje ? 'Hoje' : displayDay(day.data)}</h3>
             <span>{day.pedidos.length} {day.pedidos.length === 1 ? 'pedido' : 'pedidos'} · Shopee: postar até {displayDate(day.postarAte)}</span>
           </div>
-          <div className="work-day-group"><b>Laços</b><span>{day.lacos.length ? day.lacos.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhum'}</span></div>
-          <div className="work-day-group"><b>Caixas</b><span>{day.caixas.length ? day.caixas.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhuma'}</span></div>
+          <div className="work-day-group"><b>Laços · {pedidosLabel(day.pedidosLacos)} · {total(day.lacos).toLocaleString('pt-BR')} laços</b><span>{day.lacos.length ? day.lacos.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhum'}</span></div>
+          <div className="work-day-group"><b>Caixas · {pedidosLabel(day.pedidosCaixas)} · {total(day.caixas).toLocaleString('pt-BR')} caixas</b><span>{day.caixas.length ? day.caixas.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhuma'}</span></div>
           {pending > 0 && <div className="work-pending">{pending} pedido(s) precisam de dados para calcular a produção</div>}
           {day.pedidos.length > 0 && <button className="work-expand" type="button" aria-expanded={expanded === day.data}
             onClick={() => setExpanded(expanded === day.data ? null : day.data)}>
@@ -121,7 +125,7 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
         </article>
       })}</div>
       <div className="work-summaries"><Summary title="Laços por cor" items={bows} /><Summary title="Caixas por modelo" items={boxes} /></div>
-      <p className="muted small">Quantidades dos pedidos ainda não embalados; o estoque e os lotes já produzidos ainda não são descontados.</p>
+      <p className="muted small">Laços por cor incluem os kits de laços; caixas incluem os kits de caixas. Quantidades dos pedidos ainda não embalados, sem descontar estoque ou lotes já produzidos.</p>
     </>}
     {toast && <div className="toast">{toast}</div>}
     {selected && <OrderDetail orderSn={selected} onClose={() => setSelected(null)}
