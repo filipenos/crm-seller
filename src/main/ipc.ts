@@ -62,6 +62,7 @@ import { fetchOrderTotal, normalizeCard } from './services/shopee/client'
 import { countDumps, dumpPath, reprocessDumps } from './services/orderDump'
 import { reprocessarExtratosAsync } from './services/recebimentos'
 import { montarPainel, serieMensal } from './services/dashboard'
+import { workAgenda } from './services/workAgenda'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   definirTipoDoProdutoAsync,
@@ -236,6 +237,7 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPaymentAsync())
   ipcMain.handle('orders:tabCounts', () => countByTabAsync())
   ipcMain.handle('painel:resumo', () => montarPainel())
+  ipcMain.handle('trabalho:agenda', (_e, days: number) => workAgenda(days))
   ipcMain.handle('painel:serie', (_e, metrica: MetricaPainel, ano: number, mes: number) =>
     serieMensal(metrica, ano, mes)
   )

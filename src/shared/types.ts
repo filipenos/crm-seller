@@ -327,6 +327,34 @@ export interface DiaPainel {
   semValorLiquido: number
 }
 
+export interface AgendaQuantidade {
+  nome: string
+  quantidade: number
+}
+
+export interface AgendaPedido {
+  orderSn: string
+  status: InternalStatus
+  itens: string[]
+  pendencias: string[]
+  embalado: boolean
+}
+
+export interface AgendaDia {
+  data: string
+  postarAte: string
+  pedidos: AgendaPedido[]
+  lacos: AgendaQuantidade[]
+  caixas: AgendaQuantidade[]
+}
+
+export interface AgendaTrabalho {
+  hoje: string
+  dias: AgendaDia[]
+  atrasados: number
+  semPrazo: number
+}
+
 // ---------- produtos e fabricação ----------
 
 export type ProductKind = 'CAIXAS' | 'LACOS' | 'OUTRO'

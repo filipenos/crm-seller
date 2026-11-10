@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   ActionResult,
+  AgendaTrabalho,
   AppSettings,
   Compra,
   CustoPedido,
@@ -110,6 +111,9 @@ const api = {
     resumo: (): Promise<Painel> => ipcRenderer.invoke('painel:resumo'),
     serie: (metrica: MetricaPainel, ano: number, mes: number): Promise<SerieMensal> =>
       ipcRenderer.invoke('painel:serie', metrica, ano, mes)
+  },
+  trabalho: {
+    agenda: (days: number): Promise<AgendaTrabalho> => ipcRenderer.invoke('trabalho:agenda', days)
   },
   lote: {
     progresso: (): Promise<ProgressoLote> => ipcRenderer.invoke('lote:progresso'),

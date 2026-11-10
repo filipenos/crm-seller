@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ProgressoLote, ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
 import DashboardPage from './pages/DashboardPage'
+import WorkPage from './pages/WorkPage'
 import OrdersPage from './pages/OrdersPage'
 import ProdutosPage from './pages/ProdutosPage'
 import ProducaoPage from './pages/ProducaoPage'
@@ -11,7 +12,7 @@ import DatabaseSetupPage from './pages/DatabaseSetupPage'
 import OrdersSyncPage from './pages/OrdersSyncPage'
 import PerformancePage from './pages/PerformancePage'
 
-type Page = 'home' | 'orders' | 'produtos' | 'performance' | 'producao' | 'activity' | 'settings'
+type Page = 'home' | 'work' | 'orders' | 'produtos' | 'performance' | 'producao' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
   const [database, setDatabase] = useState<{
@@ -107,6 +108,9 @@ export default function App(): React.JSX.Element {
           <button className={page === 'home' ? 'active' : ''} onClick={() => setPage('home')}>
             Início
           </button>
+          <button className={page === 'work' ? 'active' : ''} onClick={() => setPage('work')}>
+            Meu trabalho
+          </button>
           <button className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>
             Pedidos
           </button>
@@ -173,6 +177,7 @@ export default function App(): React.JSX.Element {
         {/* Fica aqui e não na listagem: a sincronização roda em qualquer página. */}
         {page !== 'orders' && <BarraProgresso />}
         {page === 'home' && <DashboardPage dataVersion={dataVersion} />}
+        {page === 'work' && <WorkPage dataVersion={dataVersion} />}
         {page === 'orders' && (syncActive
           ? <OrdersSyncPage progress={syncProgress} starting={syncStarting} />
           : <OrdersPage dataVersion={dataVersion} />)}
