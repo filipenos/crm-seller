@@ -25,3 +25,12 @@ export function visibleWorkColors(day: AgendaDia, filter: DayFilter, hideDone: b
       .filter((item) => item.tipo === 'LACOS' && item.cor)
       .map((item) => item.cor as string)))]
 }
+
+export function workColorQuantity(day: AgendaDia, color: string, filter: DayFilter, hideDone: boolean): number | null {
+  const pending = day.lacos.find((item) => item.nome === color)?.quantidade
+  const done = day.lacosFeitosPorCor.find((item) => item.nome === color)?.quantidade
+  const situacao = workFilterSituation(filter, hideDone)
+  if (situacao === 'fazer') return pending ?? null
+  if (situacao === 'feitos') return done ?? null
+  return pending === undefined && done === undefined ? null : (pending ?? 0) + (done ?? 0)
+}

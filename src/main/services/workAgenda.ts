@@ -114,13 +114,14 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     doneBowOrders: Set<string>
     doneBoxOrders: Set<string>
     bows: Map<string, number>
+    doneBowsByColor: Map<string, number>
     boxes: Map<string, number>
     doneBows: number
     doneBoxes: number
   }>()
   for (let offset = 0; offset < days; offset++) {
     byDay.set(addDays(hoje, offset), {
-      orders: new Map(), bowOrders: new Set(), boxOrders: new Set(), doneOrders: new Set(), doneBowOrders: new Set(), doneBoxOrders: new Set(), bows: new Map(), boxes: new Map(), doneBows: 0, doneBoxes: 0
+      orders: new Map(), bowOrders: new Set(), boxOrders: new Set(), doneOrders: new Set(), doneBowOrders: new Set(), doneBoxOrders: new Set(), bows: new Map(), doneBowsByColor: new Map(), boxes: new Map(), doneBows: 0, doneBoxes: 0
     })
   }
 
@@ -162,8 +163,10 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
         order.pendencias.push(`Cor ou quantidade de laços não identificada: ${row.item_name}`)
         continue
       }
-      if (feito) day.doneBows += amount * perKit
-      else add(day.bows, color, amount * perKit)
+      if (feito) {
+        day.doneBows += amount * perKit
+        add(day.doneBowsByColor, color, amount * perKit)
+      } else add(day.bows, color, amount * perKit)
     } else if (kind === 'CAIXAS') {
       day.boxOrders.add(row.order_sn)
       if (feito) day.doneBoxOrders.add(row.order_sn)
@@ -201,6 +204,7 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     pedidosLacosFeitos: item.doneBowOrders.size,
     pedidosCaixasFeitos: item.doneBoxOrders.size,
     lacosFeitos: item.doneBows,
+    lacosFeitosPorCor: quantities(item.doneBowsByColor),
     caixasFeitas: item.doneBoxes,
     lacos: quantities(item.bows),
     caixas: quantities(item.boxes)

@@ -404,6 +404,7 @@ export interface AgendaDia {
   pedidosLacosFeitos: number
   pedidosCaixasFeitos: number
   lacosFeitos: number
+  lacosFeitosPorCor: AgendaQuantidade[]
   caixasFeitas: number
   lacos: AgendaQuantidade[]
   caixas: AgendaQuantidade[]

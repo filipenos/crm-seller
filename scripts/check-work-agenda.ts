@@ -25,7 +25,7 @@ try {
   const { ensureDefaultComposition } = await import('../src/main/services/composition')
   const { workAgenda, setCurrentWorkOrders } = await import('../src/main/services/workAgenda')
   const { searchWorkOrders } = await import('../src/shared/workSearch')
-  const { filterWorkDayOrders, visibleWorkColors } = await import('../src/shared/workFilters')
+  const { filterWorkDayOrders, visibleWorkColors, workColorQuantity } = await import('../src/shared/workFilters')
   await ensureDefaultComposition()
   const { today } = dashboardDates()
   const insertOrder = async (sn: string, shipBy: number | null, status = 'NOVO', tab = 'A_ENVIAR', createdAt: number | null = null, labeled = false): Promise<void> => {
@@ -89,14 +89,20 @@ try {
   assert.equal(one.dias[0].pedidosLacosFeitos, 1)
   assert.equal(one.dias[0].pedidosCaixasFeitos, 3)
   assert.equal(one.dias[0].lacosFeitos, 20)
+  assert.deepEqual(one.dias[0].lacosFeitosPorCor, [{ nome: 'Azul Bebê', quantidade: 20 }])
+  assert.equal(workColorQuantity(one.dias[0], 'Azul Bebê', {}, false), 60)
+  assert.equal(workColorQuantity(one.dias[0], 'Azul Bebê', {}, true), 40)
+  assert.equal(workColorQuantity(one.dias[0], 'Azul Bebê', { situacao: 'feitos' }, false), 20)
   const doneOnlyColor = {
     ...one.dias[0],
+    lacosFeitosPorCor: [{ nome: 'Dourado', quantidade: 20 }],
     pedidos: one.dias[0].pedidos.map((order) => order.orderSn === 'done-bow'
       ? { ...order, producao: [{ tipo: 'LACOS' as const, cor: 'Dourado', feito: true }] }
       : order)
   }
   assert.equal(visibleWorkColors(doneOnlyColor, {}, true).includes('Dourado'), false)
   assert.equal(visibleWorkColors(doneOnlyColor, {}, false).includes('Dourado'), true)
+  assert.equal(workColorQuantity(doneOnlyColor, 'Dourado', {}, false), 20)
   assert.deepEqual(filterWorkDayOrders(doneOnlyColor.pedidos, { tipo: 'LACOS', cor: 'Dourado' }, true), [])
   assert.equal(one.dias[0].caixasFeitas, 15)
   assert.equal(one.dias[0].caixas.reduce((sum, box) => sum + box.quantidade, 0), 10)
