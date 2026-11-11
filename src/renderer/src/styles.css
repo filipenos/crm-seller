@@ -1233,9 +1233,23 @@ code {
 .work-pending { color: #9b6020; font-size: 12px; line-height: 1.4; }
 .work-expand { border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 8px 0 0; text-align: left; }
 .work-expand:hover { text-decoration: underline; }
+.work-current { padding: 16px; border: 1px solid #f3c4b7; border-radius: 10px; background: #fff8f5; }
+.work-current .work-section-head { margin-bottom: 4px; }
+.work-current-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; margin-top: 12px; }
+.work-current-order, .work-agenda-order { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.work-current-order { padding: 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); }
+.work-current-open { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 0; background: transparent; color: var(--text); text-align: left; overflow-wrap: anywhere; }
+.work-current-open:hover strong { color: var(--accent); }
+.work-current-open small { color: var(--muted); }
+.work-select-button { align-self: flex-start; padding: 5px 9px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-soft); color: #b53820; font-size: 12px; font-weight: 600; }
+.work-select-button:hover:not(:disabled) { background: #fbd9cf; }
+.work-select-button:disabled { opacity: .55; cursor: wait; }
+.work-agenda-order > button:first-child { width: 100%; }
 .work-orders { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .work-orders button { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; overflow-wrap: anywhere; }
 .work-orders button:hover { border-color: var(--accent); }
+.work-orders .work-select-button { padding: 5px 9px; border-color: var(--accent); background: var(--accent-soft); color: #b53820; }
+.work-orders .work-select-button:hover:not(:disabled) { background: #fbd9cf; }
 .work-orders small { color: var(--muted); }
 .work-orders small.work-pending { color: #9b6020; }
 .work-summaries { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

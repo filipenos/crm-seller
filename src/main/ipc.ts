@@ -55,7 +55,7 @@ import { countDumps, dumpPath, reprocessDumps } from './services/orderDump'
 import { reprocessarExtratosAsync } from './services/recebimentos'
 import { montarPainel, serieMensal } from './services/dashboard'
 import { managementReport } from './services/managementReport'
-import { workAgenda } from './services/workAgenda'
+import { setCurrentWorkOrders, workAgenda } from './services/workAgenda'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   definirTipoDoProdutoAsync,
@@ -263,6 +263,7 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   ipcMain.handle('painel:resumo', (_e, offsets?: PainelOffsets) => montarPainel(offsets))
   ipcMain.handle('relatorio:gerencial', (_e, period: PeriodoRelatorio) => managementReport(period))
   ipcMain.handle('trabalho:agenda', (_e, days: number) => workAgenda(days))
+  ipcMain.handle('trabalho:selecionar', (_e, orderSns: string[], selected: boolean) => setCurrentWorkOrders(orderSns, selected))
   ipcMain.handle('painel:serie', (_e, metrica: MetricaPainel, ano: number, mes: number) =>
     serieMensal(metrica, ano, mes)
   )

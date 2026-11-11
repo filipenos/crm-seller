@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { createServer, type Server } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -10,7 +10,7 @@ import * as z from 'zod/v4'
 import { getSettingsAsync } from './settings'
 import { montarPainel } from './dashboard'
 import { managementReport } from './managementReport'
-import { workAgenda } from './workAgenda'
+import { setCurrentWorkOrders, workAgenda } from './workAgenda'
 import { getOrderAsync, listOrdersAsync, setChildNameAsync, setNoteAsync, setInternalStatusAsync } from './orders'
 import { listarProdutosAsync } from './produtos'
 import { compositionSummary, createCompositionItem, updateCompositionItem, deleteCompositionItem, setCompositionPart, removeCompositionPart, adjustCompositionStock, createCompositionVariant, updateCompositionVariant, deleteCompositionVariant, createCompositionKitSize, updateCompositionKitSize, deleteCompositionKitSize, recordCompositionPurchase, updateCompositionPurchase, deleteCompositionPurchase, previewCompositionProduction, createCompositionProductionLot } from './composition'
@@ -52,6 +52,12 @@ function createTools(ready: () => Promise<void>): McpServer {
   const mcp = new McpServer({ name: 'crm-seller', version: app.getVersion() }, { instructions: 'Use estas ferramentas para consultar e operar o CRM Seller. A configuração do banco, contas e credenciais permanece no aplicativo. Não invente resultados de sincronização: consulte o progresso após iniciar.' })
   mcp.registerTool('visao_do_dia', { description: 'Resumo de vendas, valores e trabalho dos próximos dias.', inputSchema: z.object({ dias: z.number().int().min(1).max(10).default(7) }), annotations: { readOnlyHint: true } }, async ({ dias }) => run(ready, async () => { const [painel, agenda] = await Promise.all([montarPainel(), workAgenda(dias)]); return { painel, agenda } }))
   mcp.registerTool('agenda_trabalho', { description: 'Pedidos, laços e caixas a produzir por prazo interno de postagem.', inputSchema: z.object({ dias: z.number().int().min(1).max(10).default(7) }), annotations: { readOnlyHint: true } }, async ({ dias }) => run(ready, () => workAgenda(dias)))
+  mcp.registerTool('trabalho_atual', { description: 'Pedidos escolhidos para produzir agora, independentemente da data da agenda.', inputSchema: z.object({}), annotations: { readOnlyHint: true } }, async () => run(ready, async () => (await workAgenda(1)).selecionados))
+  mcp.registerTool('selecionar_trabalho', { description: 'Adiciona ou remove pedidos do trabalho atual. A seleção vale também no aplicativo.', inputSchema: z.object({ pedidos: z.array(z.string().regex(/^[\w-]{1,80}$/)).min(1).max(100), selecionar: z.boolean() }) }, async ({ pedidos, selecionar }) => run(ready, async () => {
+    const alterados = await setCurrentWorkOrders(pedidos, selecionar)
+    if (alterados > 0) for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) win.webContents.send('data:changed')
+    return { alterados }
+  }))
   mcp.registerTool('relatorio_gerencial', { description: 'Métricas de vendas, despachos, recebimentos, pendências e anúncios em um período.', inputSchema: z.object({ inicio: z.iso.date(), fim: z.iso.date() }), annotations: { readOnlyHint: true } }, async ({ inicio, fim }) => run(ready, () => managementReport({ inicio, fim })))
   mcp.registerTool('listar_pedidos', { description: 'Lista até 100 pedidos; filtre por termo, aba ou usuário.', inputSchema: z.object({ busca: z.string().max(120).optional(), aba: z.enum(['A_ENVIAR', 'ENVIADO', 'CONCLUIDO', 'CANCELADO', 'TODOS']).optional(), usuario: z.string().max(120).optional(), limite: z.number().int().min(1).max(100).default(30) }), annotations: { readOnlyHint: true } }, async ({ busca, aba, usuario, limite }) => run(ready, async () => (await listOrdersAsync({ search: busca, tab: aba, buyerUsername: usuario, limit: limite })).map(publicOrder)))
   mcp.registerTool('detalhar_pedido', { description: 'Mostra os dados de um pedido pelo ID da Shopee.', inputSchema: z.object({ pedido: z.string().min(1).max(80) }), annotations: { readOnlyHint: true } }, async ({ pedido }) => run(ready, async () => publicOrder(await getOrderAsync(pedido))))

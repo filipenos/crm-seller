@@ -27,7 +27,7 @@ As consultas cobrem visão do dia, agenda, relatório gerencial, pedidos, produt
 
 | Área | Ferramentas |
 | --- | --- |
-| Dia e relatórios | `visao_do_dia`, `agenda_trabalho`, `relatorio_gerencial` |
+| Dia e relatórios | `visao_do_dia`, `agenda_trabalho`, `trabalho_atual`, `selecionar_trabalho`, `relatorio_gerencial` |
 | Pedidos | `listar_pedidos`, `detalhar_pedido`, `definir_nome_crianca`, `anotar_pedido`, `definir_status_pedido`, `atualizar_rastreio_pedido`, `atualizar_pagamento_pedido` |
 | Catálogo e produção | `produtos`, `fluxos_producao`, `producao_do_pedido`, `avancar_producao` |
 | Composição | `composicao`, `criar_item_composicao`, `atualizar_item_composicao`, `remover_item_composicao`, `definir_parte_composicao`, `remover_parte_composicao`, `criar_variante_composicao`, `renomear_variante_composicao`, `remover_variante_composicao`, `criar_tamanho_kit`, `atualizar_tamanho_kit`, `remover_tamanho_kit`, `registrar_compra_composicao`, `atualizar_compra_composicao`, `remover_compra_composicao`, `prever_producao`, `registrar_lote_producao`, `ajustar_estoque_composicao` |
@@ -35,6 +35,7 @@ As consultas cobrem visão do dia, agenda, relatório gerencial, pedidos, produt
 | Shopee | `estado_sincronizacao`, `previa_sincronizacao_pendente`, `sincronizar_pedidos` |
 
 `sincronizar_pedidos` retorna assim que inicia a tarefa. Use `estado_sincronizacao` para acompanhar o progresso ou a falha. A sincronização usa a sessão Shopee do app; se ela cair, reconecte pelo app.
+A agenda e o trabalho atual compartilham a mesma seleção de pedidos no Turso.
 
 Configuração do banco, login da Shopee, credenciais e arquivos locais não são ferramentas MCP. Operações sensíveis continuam no app.
 

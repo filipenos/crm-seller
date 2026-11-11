@@ -409,9 +409,15 @@ export interface AgendaDia {
   caixas: AgendaQuantidade[]
 }
 
+export interface TrabalhoAtualPedido extends AgendaPedido {
+  prazoInterno: string | null
+  postarAte: number | null
+}
+
 export interface AgendaTrabalho {
   hoje: string
   dias: AgendaDia[]
+  selecionados: TrabalhoAtualPedido[]
   paraEntregar: { orderSn: string; buyerUsername: string | null; buyerName: string | null; childName: string | null; itens: string[]; etiquetaEm: number | null; postarAte: number | null }[]
   atrasados: number
   semPrazo: number

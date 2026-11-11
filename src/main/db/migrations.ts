@@ -714,6 +714,14 @@ const migrations: string[] = [
     (11, 'ADVANCE', 'Iniciar produção', 1),
     (12, 'ADVANCE', 'Marcar pronto', 1),
     (13, 'ADVANCE', 'Marcar embalado', 1);
+  `,
+  // 31 — pedidos escolhidos para o trabalho atual, independente do prazo.
+  `
+  CREATE TABLE current_work_orders (
+    order_sn TEXT PRIMARY KEY REFERENCES orders(order_sn) ON DELETE CASCADE,
+    selected_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_current_work_selected ON current_work_orders(selected_at);
   `
 ]
 

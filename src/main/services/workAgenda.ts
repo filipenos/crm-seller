@@ -1,7 +1,7 @@
 import { getAsyncDb } from '../db'
 import { dashboardDates } from '@shared/dashboardDays'
 import { inferProductKind, parseBowVariation } from '@shared/productVariation'
-import type { AgendaDia, AgendaPedido, AgendaQuantidade, AgendaTrabalho, InternalStatus, ProductKind } from '@shared/types'
+import type { AgendaDia, AgendaPedido, AgendaQuantidade, AgendaTrabalho, InternalStatus, ProductKind, TrabalhoAtualPedido } from '@shared/types'
 
 interface OrderItemRow {
   order_sn: string
@@ -26,6 +26,10 @@ interface OrderItemRow {
 interface BoxRow {
   name: string
   quantity: number | null
+}
+
+interface SelectedOrderRow extends Omit<OrderItemRow, 'ship_by_date'> {
+  ship_by_date: number | null
 }
 
 function addDays(day: string, days: number): string {
@@ -57,7 +61,7 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
   const { today: hoje } = dashboardDates()
   const lower = midnight(addDays(hoje, 1))
   const upper = midnight(addDays(hoje, days + 1))
-  const [rawItems, rawBoxes, rawCounts, rawToDeliver] = await getAsyncDb().queryBatch([
+  const [rawItems, rawBoxes, rawCounts, rawToDeliver, rawSelected] = await getAsyncDb().queryBatch([
     { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.created_at_shopee, o.ship_by_date, o.internal_status,
         o.tab, o.label_generated_at, o.ready_to_post,
         i.item_name, i.model_name, i.quantity, i.pecas, i.lacos, p.kind,
@@ -86,7 +90,19 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
         AND NOT EXISTS (SELECT 1 FROM order_events e
           WHERE e.order_sn = o.order_sn AND e.source = 'logistics'
             AND (LOWER(e.description) LIKE '%postado%' OR LOWER(e.description) LIKE '%coletado%'))
-      ORDER BY o.ship_by_date IS NULL, o.ship_by_date, o.created_at_shopee, o.order_sn, i.id` }
+      ORDER BY o.ship_by_date IS NULL, o.ship_by_date, o.created_at_shopee, o.order_sn, i.id` },
+    { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.created_at_shopee, o.ship_by_date,
+        o.internal_status, o.tab, o.label_generated_at, o.ready_to_post,
+        i.item_name, i.model_name, i.quantity, i.pecas, i.lacos, p.kind,
+        ps.code AS production_stage
+      FROM current_work_orders c JOIN orders o ON o.order_sn = c.order_sn
+      LEFT JOIN order_items i ON i.order_sn = o.order_sn
+      LEFT JOIN products p ON p.item_id = i.item_id
+      LEFT JOIN order_item_work w ON w.order_sn = i.order_sn
+        AND w.item_id = COALESCE(i.item_id, '') AND w.model_id = COALESCE(i.model_id, '')
+      LEFT JOIN production_stages ps ON ps.id = w.stage_id
+      WHERE o.tab = 'A_ENVIAR' AND o.label_generated_at IS NULL AND o.ready_to_post = 0
+      ORDER BY o.ship_by_date IS NULL, o.ship_by_date, c.selected_at, o.order_sn, i.id` }
   ])
   const boxRows = rawBoxes as BoxRow[]
   const baseBoxes = boxRows.reduce((total, box) => total + (box.quantity ?? 0), 0)
@@ -200,5 +216,52 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     if (row.item_name) order.itens.push(`${row.quantity ?? 1}× ${row.item_name}${row.model_name ? ` · ${row.model_name}` : ''}`)
   }
   const paraEntregar = [...deliveryOrders.values()]
-  return { hoje, dias, paraEntregar, atrasados: Number(counts?.atrasados ?? 0), semPrazo: Number(counts?.sem_prazo ?? 0) }
+  const currentOrders = new Map<string, TrabalhoAtualPedido>()
+  for (const row of rawSelected as SelectedOrderRow[]) {
+    let order = currentOrders.get(row.order_sn)
+    const embalado = row.production_stage === 'PACKED'
+    if (!order) {
+      const shipDay = row.ship_by_date === null ? null : new Date(row.ship_by_date - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      order = {
+        orderSn: row.order_sn, buyerUsername: row.buyer_username, buyerName: row.buyer_name,
+        childName: row.child_name, createdAtShopee: row.created_at_shopee, status: row.internal_status,
+        itens: [], pendencias: [], embalado, feito: embalado, producao: [],
+        prazoInterno: shipDay ? addDays(shipDay, -1) : null, postarAte: row.ship_by_date
+      }
+      currentOrders.set(row.order_sn, order)
+    } else {
+      order.feito = order.feito && embalado
+      order.embalado = order.embalado && embalado
+    }
+    if (row.item_name) {
+      order.itens.push(`${row.quantity ?? 1}× ${row.item_name}${row.model_name ? ` · ${row.model_name}` : ''}`)
+      const inferred = inferProductKind(row.item_name)
+      const kind = row.kind ?? (inferred === 'LACOS' ? 'LACOS' : row.pecas || piecesFromVariation(row.model_name) ? 'CAIXAS' : 'OUTRO')
+      order.producao.push({ tipo: kind, cor: kind === 'LACOS' ? parseBowVariation(row.model_name)?.color ?? null : null, feito: embalado })
+    } else {
+      order.pendencias.push('Pedido sem itens')
+      order.feito = false
+    }
+  }
+  const selecionados = [...currentOrders.values()].filter((order) => !order.feito)
+  return { hoje, dias, selecionados, paraEntregar, atrasados: Number(counts?.atrasados ?? 0), semPrazo: Number(counts?.sem_prazo ?? 0) }
+}
+
+export async function setCurrentWorkOrders(orderSns: string[], selected: boolean): Promise<number> {
+  if (!Array.isArray(orderSns) || orderSns.length < 1 || orderSns.length > 100 ||
+      orderSns.some((orderSn) => typeof orderSn !== 'string' || !/^[\w-]{1,80}$/.test(orderSn))) {
+    throw new Error('Selecione de 1 a 100 pedidos válidos.')
+  }
+  if (typeof selected !== 'boolean') throw new Error('Seleção de trabalho inválida.')
+  const unique = [...new Set(orderSns)]
+  const placeholders = unique.map(() => '?').join(', ')
+  if (selected) {
+    const statement = await getAsyncDb().prepare(`INSERT INTO current_work_orders (order_sn, selected_at)
+      SELECT order_sn, ? FROM orders WHERE order_sn IN (${placeholders}) AND tab = 'A_ENVIAR'
+        AND label_generated_at IS NULL AND ready_to_post = 0
+      ON CONFLICT(order_sn) DO NOTHING`)
+    return (await statement.run([Date.now(), ...unique])).changes
+  }
+  const statement = await getAsyncDb().prepare(`DELETE FROM current_work_orders WHERE order_sn IN (${placeholders})`)
+  return (await statement.run(unique)).changes
 }

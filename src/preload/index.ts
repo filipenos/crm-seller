@@ -147,7 +147,8 @@ const api = {
     gerencial: (period: PeriodoRelatorio): Promise<RelatorioGerencial> => ipcRenderer.invoke('relatorio:gerencial', period)
   },
   trabalho: {
-    agenda: (days: number): Promise<AgendaTrabalho> => ipcRenderer.invoke('trabalho:agenda', days)
+    agenda: (days: number): Promise<AgendaTrabalho> => ipcRenderer.invoke('trabalho:agenda', days),
+    selecionar: (orderSns: string[], selected: boolean): Promise<number> => ipcRenderer.invoke('trabalho:selecionar', orderSns, selected)
   },
   lote: {
     progresso: (): Promise<ProgressoLote> => ipcRenderer.invoke('lote:progresso'),

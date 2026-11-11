@@ -23,8 +23,9 @@ try {
     for (const statement of migrationStatements(index)) await client.execute(statement)
   }
   const { ensureDefaultComposition } = await import('../src/main/services/composition')
-  const { workAgenda } = await import('../src/main/services/workAgenda')
+  const { workAgenda, setCurrentWorkOrders } = await import('../src/main/services/workAgenda')
   const { searchWorkOrders } = await import('../src/shared/workSearch')
+  const { filterWorkDayOrders, visibleWorkColors } = await import('../src/shared/workFilters')
   await ensureDefaultComposition()
   const { today } = dashboardDates()
   const insertOrder = async (sn: string, shipBy: number | null, status = 'NOVO', tab = 'A_ENVIAR', createdAt: number | null = null, labeled = false): Promise<void> => {
@@ -65,6 +66,7 @@ try {
   await client.execute({ sql: `INSERT INTO order_events (event_key, order_sn, source, description, happened_at, created_at) VALUES (?, ?, 'logistics', 'Pedido postado', ?, ?)`, args: ['posted', 'already-posted', at(today), at(today)] })
 
   const one = await workAgenda(1)
+  assert.deepEqual(one.selecionados, [])
   assert.equal(one.dias.length, 1)
   assert.equal(one.dias[0].data, today)
   assert.equal(one.dias[0].postarAte, shift(today, 1))
@@ -87,6 +89,15 @@ try {
   assert.equal(one.dias[0].pedidosLacosFeitos, 1)
   assert.equal(one.dias[0].pedidosCaixasFeitos, 3)
   assert.equal(one.dias[0].lacosFeitos, 20)
+  const doneOnlyColor = {
+    ...one.dias[0],
+    pedidos: one.dias[0].pedidos.map((order) => order.orderSn === 'done-bow'
+      ? { ...order, producao: [{ tipo: 'LACOS' as const, cor: 'Dourado', feito: true }] }
+      : order)
+  }
+  assert.equal(visibleWorkColors(doneOnlyColor, {}, true).includes('Dourado'), false)
+  assert.equal(visibleWorkColors(doneOnlyColor, {}, false).includes('Dourado'), true)
+  assert.deepEqual(filterWorkDayOrders(doneOnlyColor.pedidos, { tipo: 'LACOS', cor: 'Dourado' }, true), [])
   assert.equal(one.dias[0].caixasFeitas, 15)
   assert.equal(one.dias[0].caixas.reduce((sum, box) => sum + box.quantidade, 0), 10)
   assert.deepEqual(one.dias[0].lacos, [
@@ -96,10 +107,19 @@ try {
   assert.equal(one.semPrazo, 1)
   const two = await workAgenda(2)
   assert.equal(two.dias[1].pedidos.length, 1)
+  assert.equal(await setCurrentWorkOrders(['box', 'bow'], true), 2)
+  assert.equal(await setCurrentWorkOrders(['later'], true), 1)
+  assert.equal(await setCurrentWorkOrders(['done-box'], true), 0)
+  assert.deepEqual((await workAgenda(1)).selecionados.map((order) => order.orderSn), ['bow', 'box', 'later'])
+  assert.equal(await setCurrentWorkOrders(['bow'], false), 1)
+  assert.deepEqual((await workAgenda(1)).selecionados.map((order) => order.orderSn), ['box', 'later'])
+  await assert.rejects(() => setCurrentWorkOrders(['invalid order'], true), /pedidos válidos/)
   assert.equal(two.dias[1].caixas.reduce((sum, box) => sum + box.quantidade, 0), 5)
   const byDeadline = searchWorkOrders(two, 'kit de caixas', false)
   assert.equal(byDeadline.at(-1)?.orderSn, 'later')
   assert.ok(byDeadline.every((order, index) => index === 0 || (byDeadline[index - 1].postarAte ?? Infinity) <= (order.postarAte ?? Infinity)))
+  await client.execute({ sql: 'UPDATE orders SET label_generated_at = ? WHERE order_sn = ?', args: [at(today), 'box'] })
+  assert.deepEqual((await workAgenda(1)).selecionados.map((order) => order.orderSn), ['later'])
   await assert.rejects(workAgenda(11), /1 a 10/)
   client.close()
   console.log('Agenda de trabalho validada.')
