@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ActionResult, AppSettings, UpdateStatus } from '@shared/types'
+import type { ActionResult, AppSettings, PendingSyncPreview, UpdateStatus } from '@shared/types'
 import StageEditor from '../components/StageEditor'
 import BarraProgresso from '../components/BarraProgresso'
 
@@ -34,9 +34,12 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
   const [checking, setChecking] = useState(false)
   const [probing, setProbing] = useState(false)
-  const [syncingAll, setSyncingAll] = useState(false)
-  const [syncAllResult, setSyncAllResult] = useState<string | null>(null)
-  const [dumpInfo, setDumpInfo] = useState<{ path: string; count: number } | null>(null)
+  const [syncingMode, setSyncingMode] = useState<'recent' | 'pending' | null>(null)
+  const [syncPages, setSyncPages] = useState('2')
+  const [syncInProgress, setSyncInProgress] = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [pendingPreview, setPendingPreview] = useState<PendingSyncPreview | null>(null)
   const [probeResult, setProbeResult] = useState<ActionResult | null>(null)
   const [tursoUrl, setTursoUrl] = useState('')
   const [tursoPlatformToken, setTursoPlatformToken] = useState('')
@@ -55,7 +58,6 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
     void window.api.settings.get().then(setSettings)
     void window.api.app.version().then(setVersion)
     void window.api.updates.status().then(setUpdateStatus)
-    void window.api.shopee.dumpInfo().then(setDumpInfo)
     void window.api.shopee.browserStatus().then((status) => setAuthMode(status.mode))
     void window.api.database.status().then((status) => {
       setTursoUrl(status.url ?? '')
@@ -64,7 +66,15 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
     return window.api.updates.onStatus(setUpdateStatus)
   }, [])
 
+  useEffect(() => {
+    void window.api.shopee.status().then((status) => setSyncInProgress(status.syncing))
+    return window.api.shopee.onStatusChanged((status) => setSyncInProgress(status.syncing))
+  }, [])
+
   if (!settings) return <div className="page" />
+
+  const pages = Number(syncPages)
+  const validPages = /^\d+$/.test(syncPages) && Number.isSafeInteger(pages) && pages >= 1 && pages <= 100
 
   const update = async (partial: Partial<AppSettings>): Promise<void> => {
     const next = await window.api.settings.update(partial)
@@ -275,122 +285,76 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
       <section className="settings-card">
         <h3>Sincronização</h3>
         <p className="muted">
-          Por padrão o app só sincroniza quando você clica em <b>Sincronizar</b>. As APIs da
-          Shopee são internas e sem cota publicada — ligue o automático só se precisar.
+          Sincronizar consulta as páginas escolhidas da aba Todos e completa rastreios e
+          recebimentos que ainda faltam. Sincronizar pendentes revisa os pedidos em aberto
+          do banco e as consultas de rastreio e repasse ainda necessárias.
         </p>
-        <p className="muted">
-          <b>Sincronizar</b> atualiza todos os pedidos em A Enviar e Enviado na Shopee, além dos
-          pedidos que continuam em aberto neste banco. Para importar o histórico inteiro, use o
-          botão abaixo.
-        </p>
-
-        <div className="action-buttons">
-          <button
-            disabled={syncingAll}
-            onClick={async () => {
-              setSyncingAll(true)
-              setSyncAllResult(null)
-              const r = await window.api.shopee.syncAll()
-              setSyncAllResult(
-                r.ok
-                  ? `${r.ordersUpserted} pedidos sincronizados (${r.newOrders} novos)`
-                  : `Erro: ${r.error}`
-              )
-              setSyncingAll(false)
-              void window.api.shopee.dumpInfo().then(setDumpInfo)
-            }}
-          >
-            {syncingAll ? 'Sincronizando tudo… (pode demorar)' : '⤓ Sincronizar tudo'}
-          </button>
-          {dumpInfo && dumpInfo.count > 0 && (
-            <>
-              <button
-                disabled={syncingAll}
-                title="Relê os JSON salvos e reaplica o parsing — sem consultar a Shopee"
-                onClick={async () => {
-                  const r = await window.api.shopee.reprocess()
-                  setSyncAllResult(`${r.aplicados} pedidos reprocessados do disco (sem rede)`)
-                }}
-              >
-                ♻ Reprocessar salvos ({dumpInfo.count})
-              </button>
-              <button onClick={() => window.api.shell.openPath(dumpInfo.path)}>
-                📂 Abrir pasta dos JSON
-              </button>
-            </>
-          )}
+        <div className="sync-pages-control">
+          <label htmlFor="sync-pages">Páginas da aba Todos</label>
+          <input id="sync-pages" type="number" min="1" max="100" step="1"
+            value={syncPages} onChange={(event) => setSyncPages(event.target.value)}
+            aria-invalid={!validPages} />
+          <small className="muted">Até 40 pedidos por página. Padrão: 2.</small>
+          {!validPages && <small className="field-error">Informe um número de 1 a 100.</small>}
         </div>
         <div className="action-buttons">
-          <button
-            title="Relê os extratos já guardados e reaplica a interpretação — sem rede"
-            onClick={async () => {
-              const r = await window.api.orders.reprocessarExtratos()
-              setSyncAllResult(
-                `${r.lidos} extratos relidos do disco · ${r.corrigidos} corrigidos (sem rede)`
-              )
-            }}
-          >
-            ♻ Reprocessar extratos salvos
+          <button disabled={syncingMode !== null || syncInProgress || !validPages} onClick={async () => {
+            setSyncingMode('recent')
+            setSyncResult(null)
+            try {
+              const result = await window.api.shopee.sync(pages)
+              setSyncResult(result.error ?? `${result.ordersUpserted} pedidos atualizados (${result.newOrders} novos)`)
+            } catch (error) {
+              setSyncResult(String(error))
+            } finally {
+              setSyncingMode(null)
+            }
+          }}>
+            {syncingMode === 'recent' ? 'Sincronizando…' : '↻ Sincronizar'}
+          </button>
+          <button disabled={syncingMode !== null || previewLoading || syncInProgress} onClick={async () => {
+            setSyncResult(null)
+            setPreviewLoading(true)
+            try {
+              setPendingPreview(await window.api.shopee.pendingPreview())
+            } catch (error) {
+              setSyncResult(String(error))
+            } finally {
+              setPreviewLoading(false)
+            }
+          }}>
+            {previewLoading ? 'Preparando prévia…' : 'Sincronizar pendentes'}
           </button>
         </div>
-        <BarraProgresso />
-        {syncAllResult && <small className="muted">{syncAllResult}</small>}
-        <small className="muted">
-          A carga completa percorre todas as páginas e grava o JSON cru de cada pedido em disco,
-          o que permite conferir dados sem consultar a Shopee de novo.
-        </small>
-
-        <div className="setting-row">
-          <label>
-            <input
-              type="checkbox"
-              checked={settings.syncTracking}
-              onChange={(e) => update({ syncTracking: e.target.checked })}
-            />{' '}
-            Sincronizar enviados (rastreio)
-          </label>
-          <small className="muted">
-            Consulta o rastreio de cada pedido enviado. É uma chamada por pedido, então é a etapa
-            mais demorada.
-          </small>
-        </div>
-        <div className="setting-row">
-          <label>
-            <input
-              type="checkbox"
-              checked={settings.syncPayments}
-              onChange={(e) => update({ syncPayments: e.target.checked })}
-            />{' '}
-            Sincronizar pagamentos
-          </label>
-          <small className="muted">
-            Busca o extrato de quem ainda não tem, e reconsulta os enviados cujo dinheiro não
-            caiu — os únicos que podem mudar.
-          </small>
-        </div>
-        <div className="setting-row">
-          <label>
-            <input
-              type="checkbox"
-              checked={settings.autoSyncEnabled}
-              onChange={(e) => update({ autoSyncEnabled: e.target.checked })}
-            />{' '}
-            Sincronizar automaticamente
-          </label>
-        </div>
-        {settings.autoSyncEnabled && (
-          <div className="setting-row">
-            <label>Intervalo (minutos)</label>
-            <input
-              type="number"
-              min={5}
-              max={240}
-              value={settings.syncIntervalMinutes}
-              onChange={(e) => update({ syncIntervalMinutes: Number(e.target.value) || 15 })}
-              style={{ width: 100 }}
-            />
+        {pendingPreview && <div className="sync-preview" role="dialog" aria-label="Prévia da sincronização de pendentes">
+          <h4>Antes de sincronizar pendentes</h4>
+          <p>O banco indica estas consultas:</p>
+          <ul>
+            <li><strong>{pendingPreview.status}</strong> pedidos em aberto para conferir o status</li>
+            <li><strong>{pendingPreview.labels}</strong> datas de etiqueta ainda faltando</li>
+            <li><strong>{pendingPreview.tracking}</strong> rastreios ainda sem entrega registrada</li>
+            <li><strong>{pendingPreview.payments}</strong> repasses a consultar</li>
+          </ul>
+          <small className="muted">As quantidades de rastreios e repasses podem mudar depois da conferência dos status.</small>
+          <div className="action-buttons">
+            <button className="primary" disabled={syncingMode !== null || syncInProgress} onClick={async () => {
+              setPendingPreview(null)
+              setSyncingMode('pending')
+              setSyncResult(null)
+              try {
+                const result = await window.api.shopee.syncPending()
+                setSyncResult(result.error ?? `${result.ordersUpserted} pedidos atualizados`)
+              } catch (error) {
+                setSyncResult(String(error))
+              } finally {
+                setSyncingMode(null)
+              }
+            }}>Confirmar sincronização</button>
+            <button disabled={syncingMode !== null} onClick={() => setPendingPreview(null)}>Cancelar</button>
           </div>
-        )}
+        </div>}
+        <BarraProgresso />
+        {syncResult && <small className="muted">{syncResult}</small>}
       </section>
 
       <section className="settings-card">

@@ -1,4 +1,5 @@
 import { getAsyncDb } from '../db'
+import { PRODUCT_SALES_SQL } from '@shared/dashboardDays'
 import type { ProductKind, Produto, ProdutoVariacao } from '@shared/types'
 import { inferProductKind, parseBowVariation } from '@shared/productVariation'
 
@@ -77,14 +78,14 @@ export async function listarProdutosAsync(): Promise<Produto[]> {
     ), vendas AS (
       SELECT v.item_id, COUNT(*) AS pedidos, SUM(v.kits) AS kits,
              SUM(v.caixas) AS caixas, SUM(v.lacos) AS lacos,
-             SUM(CASE WHEN n.produtos = 1 THEN o.total_amount ELSE 0 END) AS vendas,
-             SUM(CASE WHEN n.produtos = 1 THEN inc.valor_recebido ELSE 0 END) AS liquido,
-             SUM(CASE WHEN n.produtos = 1 AND inc.valor_recebido IS NULL THEN 1 ELSE 0 END) AS sem_liquido,
+             SUM(CASE WHEN n.produtos = 1 THEN ${PRODUCT_SALES_SQL} ELSE 0 END) AS vendas,
+             SUM(CASE WHEN n.produtos = 1 THEN i.valor_recebido ELSE 0 END) AS liquido,
+             SUM(CASE WHEN n.produtos = 1 AND i.valor_recebido IS NULL THEN 1 ELSE 0 END) AS sem_liquido,
              SUM(CASE WHEN n.produtos > 1 THEN 1 ELSE 0 END) AS sem_rateio,
              MAX(o.created_at_shopee) AS ultimo
         FROM por_pedido v JOIN orders o ON o.order_sn = v.order_sn
         JOIN itens_por_pedido n ON n.order_sn = v.order_sn
-        LEFT JOIN order_income inc ON inc.order_sn = v.order_sn
+        LEFT JOIN order_income i ON i.order_sn = v.order_sn
        GROUP BY v.item_id
     ), variacoes AS (
       SELECT item_id, COUNT(*) AS variacoes FROM product_variations GROUP BY item_id

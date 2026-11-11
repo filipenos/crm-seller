@@ -201,20 +201,6 @@ export interface StatusHistoryEntry {
 export interface AppSettings {
   ordersRootDir: string
   templatesDir: string
-  /**
-   * Sincronização automática. Desligada por padrão: são APIs internas da
-   * Shopee, sem cota publicada — sincronizar sozinho a cada poucos minutos é
-   * tráfego que ninguém pediu. Por padrão só o botão sincroniza.
-   */
-  autoSyncEnabled: boolean
-  /**
-   * Etapas que o botão Sincronizar executa depois de trazer os pedidos.
-   * Ligadas por padrão; desligar serve para uma sincronização rápida, só dos
-   * pedidos em aberto, sem as chamadas por pedido que levam minutos.
-   */
-  syncTracking: boolean
-  syncPayments: boolean
-  syncIntervalMinutes: number
 }
 
 export type UpdateState =
@@ -254,15 +240,25 @@ export interface SyncResult {
   error: string | null
 }
 
+export interface PendingSyncPreview {
+  status: number
+  labels: number
+  tracking: number
+  payments: number
+}
+
 export type TabCounts = Record<OrderTab, number>
 
 /** Progresso de uma operação longa (rastreios, extratos). */
-export type EtapaSync = 'pedidos' | 'etiquetas' | 'rastreios' | 'pagamentos'
+export type EtapaSync = 'pedidos' | 'gravando' | 'datas' | 'etiquetas' | 'rastreios' | 'historico' | 'pagamentos' | 'finalizando'
 
 export interface ProgressoLote {
   rodando: boolean
   feitos: number
   total: number
+  novos: number
+  rastreiosPendentes: number | null
+  recebimentosPendentes: number | null
   /** Etapa em curso, para a barra dizer o que está acontecendo. */
   rotulo: EtapaSync | ''
 }
@@ -334,6 +330,70 @@ export interface DiaPainel {
   semValorLiquido: number
 }
 
+export interface PeriodoRelatorio {
+  inicio: string
+  fim: string
+}
+
+export interface RelatorioDia {
+  data: string
+  pedidos: number
+  faturado: number
+  liquido: number
+  despachados: number
+  recebimentos: number
+  recebido: number
+  ads: number | null
+}
+
+export interface RelatorioGerencial {
+  periodo: PeriodoRelatorio
+  recorrentes: { usuario: string; pedidosPeriodo: number; pedidosTotal: number }[]
+  vendas: {
+    pedidos: number
+    brutoProdutos: number
+    cupons: number
+    faturado: number
+    liquido: number
+    semLiquido: number
+    semExtrato: number
+    taxas: number
+    caixas: number
+    lacos: number
+  }
+  movimento: {
+    etiquetas: number
+    despachados: number
+    entregues: number
+    recebimentos: number
+    recebido: number
+  }
+  coberturaLogistica: {
+    semEtiqueta: number
+    semPostagem: number
+    semEntrega: number
+  }
+  ads: {
+    diasComDados: number
+    diasNoPeriodo: number
+    sincronizadoEm: number | null
+    investimento: number
+    vendasAtribuidas: number
+    pedidosAtribuidos: number
+    impressoes: number
+    cliques: number
+    roas: number | null
+    liquidoMenosAds: number | null
+  }
+  pendenciasAtuais: {
+    aEnviar: number
+    aEntregar: number
+    aReceber: number
+    valorAReceber: number
+  }
+  dias: RelatorioDia[]
+}
+
 export interface AgendaQuantidade {
   nome: string
   quantidade: number
@@ -341,11 +401,15 @@ export interface AgendaQuantidade {
 
 export interface AgendaPedido {
   orderSn: string
+  buyerUsername: string | null
+  buyerName: string | null
+  childName: string | null
   createdAtShopee: number | null
   status: InternalStatus
   itens: string[]
   pendencias: string[]
   embalado: boolean
+  feito: boolean
 }
 
 export interface AgendaDia {
@@ -354,6 +418,11 @@ export interface AgendaDia {
   pedidos: AgendaPedido[]
   pedidosLacos: number
   pedidosCaixas: number
+  pedidosFeitos: number
+  pedidosLacosFeitos: number
+  pedidosCaixasFeitos: number
+  lacosFeitos: number
+  caixasFeitas: number
   lacos: AgendaQuantidade[]
   caixas: AgendaQuantidade[]
 }
@@ -361,6 +430,7 @@ export interface AgendaDia {
 export interface AgendaTrabalho {
   hoje: string
   dias: AgendaDia[]
+  paraEntregar: { orderSn: string; buyerUsername: string | null; buyerName: string | null; childName: string | null; itens: string[]; etiquetaEm: number | null; postarAte: number | null }[]
   atrasados: number
   semPrazo: number
 }
@@ -709,6 +779,7 @@ export interface OrderCounts {
 }
 
 export interface OrderFilters {
+  buyerUsername?: string
   internalStatus?: InternalStatus | 'TODOS'
   /** Aba; 'TODOS' não filtra (e nunca inclui cancelados, que têm página própria). */
   tab?: OrderTab | 'TODOS'

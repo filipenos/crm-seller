@@ -615,6 +615,17 @@ const migrations: string[] = [
     AND created_at_shopee IS NOT (
       SELECT created_at FROM exact WHERE exact.order_sn = orders.order_sn
     );
+  `,
+  // 27 — evita repetir consultas históricas de rastreio na Shopee.
+  `
+  CREATE TABLE report_tracking_audit (
+    order_sn TEXT PRIMARY KEY REFERENCES orders(order_sn) ON DELETE CASCADE,
+    checked_at INTEGER NOT NULL
+  );
+  `,
+  // 28 — o controle de rastreio pertence à sincronização, não ao relatório.
+  `
+  ALTER TABLE report_tracking_audit RENAME TO tracking_audit;
   `
 ]
 

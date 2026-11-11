@@ -156,26 +156,27 @@ export async function reprocessarExtratosAsync(): Promise<{ lidos: number; corri
 /**
  * Quem precisa ter o extrato consultado.
  *
- * Duas situações: pedido sem extrato nenhum, e pedido **enviado** cujo dinheiro
- * ainda não caiu — esse muda sozinho quando a Shopee libera, e é o único que
- * vale reconsultar. Concluído com valor é fato consumado e fica de fora.
+ * Pedido sem extrato ou enviado sem liberação precisa ser consultado. Um
+ * concluído sem liberação também pode estar com extrato antigo; rechecamos
+ * esse caso no máximo uma vez por dia.
  *
  * "A enviar" entra na primeira situação de propósito: mesmo sem pagamento, o
  * extrato traz a **hora real da criação** do pedido, e sem ela a data vem do
  * número — que está no fuso da Shopee e joga pedido da tarde para o dia
  * seguinte.
  */
-export async function pedidosParaAtualizarPagamentoAsync(): Promise<{
+export async function pedidosParaAtualizarPagamentoAsync(onlyFinal = false): Promise<{
   orderSn: string; orderId: string
 }[]> {
   const statement = await getAsyncDb().prepare(
     `SELECT o.order_sn, o.shopee_order_id FROM orders o
       LEFT JOIN order_income i ON i.order_sn = o.order_sn
-     WHERE o.tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
+     WHERE o.tab IN ${onlyFinal ? "('CONCLUIDO')" : "('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')"}
        AND o.shopee_order_id IS NOT NULL
-       AND (i.order_sn IS NULL OR (o.tab = 'ENVIADO' AND i.recebido_em IS NULL))
+       AND (i.order_sn IS NULL OR (o.tab = 'ENVIADO' AND i.recebido_em IS NULL)
+         OR (o.tab = 'CONCLUIDO' AND i.recebido_em IS NULL AND COALESCE(i.atualizado_em, 0) < ?))
      ORDER BY o.created_at_shopee ASC`
   )
-  return ((await statement.all([])) as { order_sn: string; shopee_order_id: string }[])
+  return ((await statement.all([Date.now() - 86_400_000])) as { order_sn: string; shopee_order_id: string }[])
     .map((row) => ({ orderSn: row.order_sn, orderId: row.shopee_order_id }))
 }

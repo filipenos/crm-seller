@@ -98,6 +98,6 @@ export default function DashboardPage({ dataVersion = 0 }: Props): React.JSX.Ele
     {painel.semPrazoPostagem > 0 && <p className="painel-observacao">{painel.semPrazoPostagem} pedidos a enviar estão sem prazo de postagem informado pela Shopee.</p>}
     <FaixaDias titulo="Ganhos dos pedidos etiquetados" descricao="Pedidos cuja etiqueta foi gerada no período" dias={painel.etiquetasRecentes} hoje={hoje}
       offset={visibleOffsets.etiquetas} loading={loading} onNavigate={(direction) => navigate('etiquetas', direction)} />
-    <p className="muted small">Líquido é o valor calculado pela Shopee após cupons, frete e taxas, antes dos custos de produção.</p>
+    <p className="muted small">Faturado considera os produtos após cupons, sem o frete pago pelo comprador. Líquido é o valor calculado pela Shopee após cupons, frete e taxas, antes dos custos de produção.</p>
   </div>
 }

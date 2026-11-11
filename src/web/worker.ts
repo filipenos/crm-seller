@@ -1,6 +1,7 @@
 import { createClient, type Client } from '@libsql/client/web'
 import { ORDER_TABS, type MetricaPainel, type Order, type OrderCounts, type OrderTab, type Painel, type PainelOffsets, type SerieMensal, type TabCounts } from '../shared/types'
-import { buildDailyDashboard, dashboardDates, dashboardPeriodBounds, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '../shared/dashboardDays'
+import { buildDailyDashboard, dashboardDates, dashboardPeriodBounds, DAILY_DASHBOARD_SQL, PRODUCT_SALES_SQL, type DailyDashboardRow } from '../shared/dashboardDays'
+import { buildManagementReport, reportQueries } from '../shared/managementReport'
 
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> }
@@ -49,7 +50,7 @@ async function dashboard(db: Client, url: URL): Promise<Painel> {
 async function monthlySeries(db: Client, metric: MetricaPainel, year: number, month: number): Promise<SerieMensal> {
   const expressions: Record<MetricaPainel, { from: string; where: string; value: string; date: string }> = {
     pedidos: { from: 'orders', where: "tab!='CANCELADO'", value: 'COUNT(*)', date: 'created_at_shopee' },
-    vendas: { from: 'orders', where: "tab!='CANCELADO'", value: 'COALESCE(SUM(total_amount),0)', date: 'created_at_shopee' },
+    vendas: { from: 'orders o LEFT JOIN order_income i ON i.order_sn=o.order_sn', where: "o.tab NOT IN ('CANCELADO','NAO_PAGO')", value: `COALESCE(SUM(${PRODUCT_SALES_SQL}),0)`, date: 'o.created_at_shopee' },
     recebido: { from: 'order_income', where: 'recebido_em IS NOT NULL', value: 'COALESCE(SUM(valor_recebido),0)', date: 'recebido_em' },
     despachados: { from: 'order_events', where: "source='logistics' AND LOWER(description) LIKE '%postado%'", value: 'COUNT(DISTINCT order_sn)', date: 'happened_at' },
     caixas: { from: 'order_items i JOIN orders o ON o.order_sn=i.order_sn', where: "o.tab!='CANCELADO' AND i.pecas IS NOT NULL", value: 'COALESCE(SUM(i.pecas*i.quantity),0)', date: 'o.created_at_shopee' }
@@ -67,9 +68,11 @@ async function orders(db: Client, url: URL): Promise<{ orders: Order[]; counts: 
   const requestedTab = url.searchParams.get('tab') ?? 'A_ENVIAR'
   if (requestedTab !== 'TODOS' && !ORDER_TABS.includes(requestedTab as OrderTab)) throw new Error('Aba inválida.')
   const search = (url.searchParams.get('search') ?? '').trim().slice(0, 100)
+  const buyerUsername = (url.searchParams.get('buyer') ?? '').trim().slice(0, 100)
   const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? 50) || 50))
-  const conditions = [requestedTab === 'TODOS' ? "o.tab!='CANCELADO'" : 'o.tab=?']
+  const conditions = [requestedTab === 'TODOS' ? buyerUsername ? '1=1' : "o.tab!='CANCELADO'" : 'o.tab=?']
   const args: Array<string | number> = requestedTab === 'TODOS' ? [] : [requestedTab]
+  if (buyerUsername) { conditions.push('o.buyer_username=?'); args.push(buyerUsername) }
   if (search) {
     conditions.push(`(LOWER(o.order_sn) LIKE LOWER(?) OR LOWER(COALESCE(o.buyer_username,'')) LIKE LOWER(?) OR
       LOWER(COALESCE(o.child_name,'')) LIKE LOWER(?) OR EXISTS (SELECT 1 FROM order_items si WHERE si.order_sn=o.order_sn AND (LOWER(si.item_name) LIKE LOWER(?) OR LOWER(COALESCE(si.model_name,'')) LIKE LOWER(?))))`)
@@ -141,6 +144,11 @@ async function api(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url)
   try {
     if (request.method === 'GET' && url.pathname === '/api/dashboard') return json(await dashboard(db, url))
+    if (request.method === 'GET' && url.pathname === '/api/report') {
+      const period = { inicio: url.searchParams.get('start') ?? '', fim: url.searchParams.get('end') ?? '' }
+      const rows = await db.batch(reportQueries(period).map(({ sql, parameters }) => ({ sql, args: parameters })), 'read')
+      return json(buildManagementReport(period, rows.map((result) => [...result.rows] as Row[])))
+    }
     if (request.method === 'GET' && url.pathname === '/api/dashboard/series') return json(await monthlySeries(db, url.searchParams.get('metric') as MetricaPainel, Number(url.searchParams.get('year')), Number(url.searchParams.get('month'))))
     if (request.method === 'GET' && url.pathname === '/api/orders') return json(await orders(db, url))
     if (request.method === 'GET' && url.pathname === '/api/production') return json(await production(db))

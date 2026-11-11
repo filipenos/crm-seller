@@ -1,6 +1,5 @@
 import { BrowserWindow } from 'electron'
 import type {
-  AppSettings,
   EtapaSync,
   ShopeeConnectionStatus,
   SyncResult,
@@ -9,27 +8,26 @@ import type {
 import {
   fetchOrderIncome,
   fetchLabelGeneratedAt,
-  fetchOpenOrders,
   fetchOrders,
+  fetchOrdersByIds,
   fetchProducts,
   fetchRatings,
-  fetchTrackingInfo
+  fetchTrackingInfo,
+  normalizeCard
 } from './client'
-import type { FetchOrdersOptions } from './client'
+import type { FetchOrdersOptions, NormalizedShopeeOrder } from './client'
+import { getAsyncDb } from '../../db'
 import { isConnected } from './session'
 import {
   getOrderAsync,
-  listOrdersAsync,
   listOpenShopeeOrderIdsAsync,
   listOrdersMissingLabelDateAsync,
   saveLabelDatesAsync,
-  setLogisticsStatusAsync,
   setRatingAsync,
   upsertShopeeOrderAsync
 } from '../orders'
 import { recordEventAsync } from '../events'
 import { pedidosParaAtualizarPagamentoAsync, salvarRecebimentoAsync } from '../recebimentos'
-import { getSettingsAsync } from '../settings'
 import { saveOrderDump } from '../orderDump'
 import {
   recomporCatalogoDosPedidosAsync,
@@ -37,9 +35,7 @@ import {
 } from '../produtos'
 import { baixarEstoqueDosDespachadosAsync } from '../receitas'
 import { assertCurrentShopeeAccount } from './accountBinding'
-
-/** Palavras que indicam entrega concluída num checkpoint de rastreio. */
-const DELIVERED_PATTERN = /entregue|delivered|entrega realizada/i
+import { listSentTrackingTargets, saveTrackingCheckpoints, syncHistoricalTracking, type TrackingTarget } from './trackingHistory'
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -53,8 +49,6 @@ const state: ShopeeConnectionStatus = {
   lastSyncError: null,
   syncing: false
 }
-
-let timer: NodeJS.Timeout | null = null
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -88,17 +82,92 @@ export async function syncRecentLabelDates(
   return { updated: dates.length, failed }
 }
 
-export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<SyncResult> {
+/** Uma leitura remota compara os cards com os pedidos já salvos. */
+async function changedOrders(orders: NormalizedShopeeOrder[]): Promise<NormalizedShopeeOrder[]> {
+  if (orders.length === 0) return []
+  const db = getAsyncDb()
+  const saved = new Map<string, { raw_json: string | null; tab: string | null }>()
+  for (let start = 0; start < orders.length; start += 100) {
+    const sns = orders.slice(start, start + 100).map((order) => order.orderSn)
+    const rows = await (await db.prepare(`SELECT order_sn,raw_json,tab FROM orders
+      WHERE order_sn IN (${sns.map(() => '?').join(',')})`)).all(sns) as {
+      order_sn: string; raw_json: string | null; tab: string | null
+    }[]
+    for (const row of rows) saved.set(row.order_sn, row)
+  }
+  return orders.filter((order) => {
+    const previous = saved.get(order.orderSn)
+    if (!previous?.raw_json || (order.shopeeTab && previous.tab !== order.shopeeTab)) return true
+    try {
+      const old = normalizeCard(JSON.parse(previous.raw_json))
+      if (!old) return true
+      const comparable = (value: NormalizedShopeeOrder): string =>
+        JSON.stringify({ ...value, rawJson: null, shopeeTab: null })
+      return comparable(old) !== comparable(order)
+    } catch {
+      return true
+    }
+  })
+}
+
+/** O card não traz a hora real da venda; o primeiro evento do extrato traz. */
+async function syncEstimatedSaleDates(
+  orders: NormalizedShopeeOrder[], shouldCancel: () => boolean
+): Promise<{ checked: number; corrected: number; failed: number }> {
+  const estimated = new Map(orders.filter((order) => order.createdAtEstimated && order.shopeeOrderId)
+    .map((order) => [order.orderSn, order.shopeeOrderId!] as const))
+  if (estimated.size === 0) return { checked: 0, corrected: 0, failed: 0 }
+  const candidates: { order_sn: string }[] = []
+  const sns = [...estimated.keys()]
+  for (let start = 0; start < sns.length; start += 100) {
+    const part = sns.slice(start, start + 100)
+    const rows = await (await getAsyncDb().prepare(`SELECT o.order_sn FROM orders o
+      LEFT JOIN order_income i ON i.order_sn=o.order_sn
+      WHERE o.order_sn IN (${part.map(() => '?').join(',')})
+        AND o.tab NOT IN ('CANCELADO','NAO_PAGO') AND i.order_sn IS NULL`)).all(part) as { order_sn: string }[]
+    candidates.push(...rows)
+  }
+  if (candidates.length === 0) return { checked: 0, corrected: 0, failed: 0 }
+  iniciaEtapa('datas', candidates.length)
+  let checked = 0
+  let corrected = 0
+  let failed = 0
+  for (const row of candidates) {
+    if (shouldCancel()) break
+    try {
+      const income = await fetchOrderIncome(row.order_sn, estimated.get(row.order_sn)!)
+      if (income?.criadoEm) {
+        await salvarRecebimentoAsync(income)
+        corrected++
+      } else {
+        failed++
+      }
+    } catch {
+      failed++
+    }
+    checked++
+    avancaEtapa()
+    await sleep(150)
+  }
+  return { checked, corrected, failed }
+}
+
+export async function syncAll(opts: { todasAsPaginas?: boolean; pendingOnly?: boolean; pages?: number } = {}): Promise<SyncResult> {
+  const pages = opts.pages ?? 2
+  if (!Number.isSafeInteger(pages) || pages < 1 || pages > 100) {
+    throw new Error('Informe entre 1 e 100 páginas para sincronizar.')
+  }
   if (state.syncing) {
     return {
       ok: false,
       ordersUpserted: 0,
       newOrders: 0,
-        eventsCreated: 0,
+      eventsCreated: 0,
       error: 'Sincronização já em andamento'
     }
   }
   state.syncing = true
+  Object.assign(lote, { novos: 0, rastreiosPendentes: null, recebimentosPendentes: null })
   broadcast('shopee:status-changed', await getConnectionStatus())
 
   const result: SyncResult = {
@@ -109,6 +178,8 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
     error: null
   }
   const errors: string[] = []
+  const touchedOrders = new Set<string>()
+  let ordersWithEstimatedDates: NormalizedShopeeOrder[] = []
 
   try {
     if (!(await isConnected())) {
@@ -118,18 +189,21 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
 
     // Pedidos
     try {
-      const localOpenIds = opts.todasAsPaginas ? [] : await listOpenShopeeOrderIdsAsync()
-      console.log(`[sync] pedidos: ${opts.todasAsPaginas ? 'histórico completo' : 'abas ativas e pedidos locais em aberto'}`)
+      console.log(`[sync] pedidos: ${opts.todasAsPaginas ? 'histórico completo' : opts.pendingOnly ? 'pendentes locais' : 'duas páginas recentes'}`)
       const orderOptions: FetchOrdersOptions = {
-        maxPages: null,
-        onCard: (orderId, card) => saveOrderDump(orderId, card),
-        onOrder: async (order) => {
+        maxPages: opts.todasAsPaginas ? null : pages,
+        onCard: opts.todasAsPaginas ? (orderId, card) => saveOrderDump(orderId, card) : undefined,
+        onOrder: opts.todasAsPaginas ? async (order) => {
           if (lote.cancelar) return
           const isNew = await upsertShopeeOrderAsync(order)
+          touchedOrders.add(order.orderSn)
           result.ordersUpserted++
-          if (isNew) result.newOrders++
+          if (isNew) {
+            result.newOrders++
+            lote.novos++
+          }
           await yieldToEventLoop()
-        },
+        } : undefined,
         shouldCancel: () => lote.cancelar,
         onProgress: (feitos, total) => {
           if (lote.rotulo !== 'pedidos') iniciaEtapa('pedidos', total ?? feitos)
@@ -138,15 +212,42 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
           emiteProgresso()
         }
       }
-      if (opts.todasAsPaginas) await fetchOrders(orderOptions)
-      else await fetchOpenOrders(localOpenIds, orderOptions)
+      if (opts.todasAsPaginas) {
+        await fetchOrders(orderOptions)
+      } else {
+        const orders = opts.pendingOnly
+          ? await fetchOrdersByIds(await listOpenShopeeOrderIdsAsync(), orderOptions)
+          : await fetchOrders(orderOptions)
+        ordersWithEstimatedDates = orders
+        for (const order of orders) touchedOrders.add(order.orderSn)
+        if (!lote.cancelar) {
+          const changed = await changedOrders(orders)
+          iniciaEtapa('gravando', changed.length)
+          for (const order of changed) {
+            if (lote.cancelar) break
+            const isNew = await upsertShopeeOrderAsync(order)
+            result.ordersUpserted++
+            if (isNew) { result.newOrders++; lote.novos++ }
+            avancaEtapa()
+            await yieldToEventLoop()
+          }
+        }
+      }
     } catch (err) {
       errors.push(String(err instanceof Error ? err.message : err))
     }
 
-    // A data de criação da logística é buscada uma vez por pedido recente.
-    // Os pedidos que já têm o checkpoint "Pedido em preparação" são preenchidos
-    // na migração; a consulta abaixo cobre os demais sem reler o histórico.
+    if (!opts.todasAsPaginas && !lote.cancelar) {
+      try {
+        const dates = await syncEstimatedSaleDates(ordersWithEstimatedDates, () => lote.cancelar)
+        if (dates.failed > 0) errors.push(`datas das vendas: ${dates.failed} pedidos sem hora confirmada`)
+      } catch (err) {
+        errors.push(`datas das vendas: ${String(err instanceof Error ? err.message : err)}`)
+      }
+    }
+
+    // A data da etiqueta não vem no card. Consulta somente pedidos recentes
+    // com etiqueta pronta e data ainda ausente.
     if (!lote.cancelar) {
       try {
         const labels = await syncRecentLabelDates((done, total) => {
@@ -161,98 +262,129 @@ export async function syncAll(opts: { todasAsPaginas?: boolean } = {}): Promise<
       }
     }
 
-    // Avaliações dos compradores
-    try {
-      const ratings = await fetchRatings()
-      for (const r of ratings) {
-        if (!(await getOrderAsync(r.orderSn))) continue
-        await setRatingAsync(r.orderSn, r.star, r.comment, r.ratedAt)
-        const stars = '★'.repeat(Math.max(1, Math.min(5, Math.round(r.star))))
-        if (
-          await recordEventAsync({
-            orderSn: r.orderSn,
-            source: 'rating',
-            description: `Pedido avaliado com ${stars} (${r.star})${r.comment ? `: “${r.comment}”` : ''}`,
-            happenedAt: r.ratedAt ?? Date.now(),
-            rawJson: r.rawJson
-          })
-        ) {
-          result.eventsCreated++
-        }
-      }
-    } catch (err) {
-      errors.push(`avaliações: ${String(err instanceof Error ? err.message : err)}`)
-    }
-
-    const config = await getSettingsAsync()
-
-    // Rastreio dos enviados: é o único grupo em movimento — "a enviar" nem saiu
-    // e "concluído" já chegou.
-    if (config.syncTracking && !lote.cancelar) {
+    // Avaliações dos compradores pertencem apenas à carga histórica.
+    if (opts.todasAsPaginas) {
       try {
-        const enviados = (await listOrdersAsync({ tab: 'ENVIADO' })).filter((o) => o.shopeeOrderId)
-        iniciaEtapa('rastreios', enviados.length)
-        for (const order of enviados) {
-          if (lote.cancelar) break
-          try {
-            const r = await refreshTracking(order.orderSn)
-            if (r.newEvents > 0) result.eventsCreated += r.newEvents
-          } catch (err) {
-            console.warn(`[sync] rastreio ${order.orderSn}:`, err)
+        const ratings = await fetchRatings()
+        for (const r of ratings) {
+          if (!(await getOrderAsync(r.orderSn))) continue
+          await setRatingAsync(r.orderSn, r.star, r.comment, r.ratedAt)
+          const stars = '★'.repeat(Math.max(1, Math.min(5, Math.round(r.star))))
+          if (
+            await recordEventAsync({
+              orderSn: r.orderSn,
+              source: 'rating',
+              description: `Pedido avaliado com ${stars} (${r.star})${r.comment ? `: “${r.comment}”` : ''}`,
+              happenedAt: r.ratedAt ?? Date.now(),
+              rawJson: r.rawJson
+            })
+          ) {
+            result.eventsCreated++
           }
-          avancaEtapa()
-          await sleep(300)
         }
       } catch (err) {
-        errors.push(`rastreios: ${String(err instanceof Error ? err.message : err)}`)
+        errors.push(`avaliações: ${String(err instanceof Error ? err.message : err)}`)
       }
     }
 
-    // Pagamento: quem não tem extrato, e os enviados cujo dinheiro ainda não
-    // caiu — esses mudam sozinhos quando a Shopee libera.
-    if (config.syncPayments && !lote.cancelar) {
-      try {
-        const pendentes = await pedidosParaAtualizarPagamentoAsync()
-        iniciaEtapa('pagamentos', pendentes.length)
-        for (const { orderSn, orderId } of pendentes) {
-          if (lote.cancelar) break
-          try {
-            const income = await fetchOrderIncome(orderSn, orderId)
-            if (income) {
-              await salvarRecebimentoAsync(income)
-              if (income.recebidoEm !== null) {
-                const valor =
-                  income.valorRecebido !== null ? ` (${BRL.format(income.valorRecebido)})` : ''
-                if (
-                  await recordEventAsync({
-                    orderSn,
-                    source: 'finance',
-                    description: `Pagamento liberado${valor}`,
-                    happenedAt: income.recebidoEm,
-                    rawJson: income.rawJson
-                  })
-                ) {
-                  result.eventsCreated++
+    if (!lote.cancelar) {
+
+      // Rastreio dos enviados: é o único grupo em movimento — "a enviar" nem saiu
+      // e "concluído" já chegou.
+      if (!lote.cancelar) {
+        try {
+          const enviados = (await listSentTrackingTargets()).filter((order) =>
+            opts.pendingOnly || opts.todasAsPaginas || touchedOrders.has(order.orderSn))
+          lote.rastreiosPendentes = enviados.length
+          iniciaEtapa('rastreios', enviados.length)
+          let failedTracking = 0
+          for (const order of enviados) {
+            if (lote.cancelar) break
+            const r = await refreshTrackingKnownOrder(order)
+            result.eventsCreated += r.newEvents
+            if (!r.ok) failedTracking++
+            avancaEtapa()
+            await sleep(300)
+          }
+          if (failedTracking > 0) errors.push(`rastreios: ${failedTracking} pedidos não puderam ser consultados`)
+        } catch (err) {
+          errors.push(`rastreios: ${String(err instanceof Error ? err.message : err)}`)
+        }
+      }
+
+      // Pedidos recentes já concluídos podem precisar do último rastreio.
+      // A rotina de pendentes cuida dos abertos; o histórico amplo fica separado.
+      if (!opts.pendingOnly && !lote.cancelar) {
+        try {
+          const history = await syncHistoricalTracking({
+            full: true,
+            orderSns: opts.todasAsPaginas ? undefined : touchedOrders,
+            shouldCancel: () => lote.cancelar,
+            onProgress: (done, total) => {
+              if (lote.rotulo !== 'historico') iniciaEtapa('historico', total)
+              lote.feitos = done
+              lote.total = total
+              emiteProgresso()
+            }
+          })
+          result.eventsCreated += history.newEvents
+          if (history.failed > 0) errors.push(`histórico: ${history.failed} pedidos não puderam ser consultados`)
+          if (history.halted) errors.push('histórico: interrompido após falhas consecutivas da Shopee')
+        } catch (err) {
+          errors.push(`histórico: ${String(err instanceof Error ? err.message : err)}`)
+        }
+      }
+
+      // Pagamento: sem extrato, enviados pendentes e concluídos com extrato antigo.
+      if (!lote.cancelar) {
+        try {
+          const pendentes = (await pedidosParaAtualizarPagamentoAsync(!opts.todasAsPaginas))
+            .filter((order) => opts.pendingOnly || opts.todasAsPaginas || touchedOrders.has(order.orderSn))
+          lote.recebimentosPendentes = pendentes.length
+          iniciaEtapa('pagamentos', pendentes.length)
+          let failedPayments = 0
+          for (const { orderSn, orderId } of pendentes) {
+            if (lote.cancelar) break
+            try {
+              const income = await fetchOrderIncome(orderSn, orderId)
+              if (income) {
+                await salvarRecebimentoAsync(income)
+                if (income.recebidoEm !== null) {
+                  const valor =
+                    income.valorRecebido !== null ? ` (${BRL.format(income.valorRecebido)})` : ''
+                  if (
+                    await recordEventAsync({
+                      orderSn,
+                      source: 'finance',
+                      description: `Pagamento liberado${valor}`,
+                      happenedAt: income.recebidoEm,
+                      rawJson: income.rawJson
+                    })
+                  ) {
+                    result.eventsCreated++
+                  }
                 }
               }
+            } catch {
+              failedPayments++
             }
-          } catch (err) {
-            console.warn(`[sync] extrato ${orderSn}:`, err)
+            avancaEtapa()
+            await sleep(300)
           }
-          avancaEtapa()
-          await sleep(300)
+          if (failedPayments > 0) errors.push(`pagamentos: ${failedPayments} pedidos não puderam ser consultados`)
+        } catch (err) {
+          errors.push(`pagamentos: ${String(err instanceof Error ? err.message : err)}`)
         }
-      } catch (err) {
-        errors.push(`pagamentos: ${String(err instanceof Error ? err.message : err)}`)
       }
     }
 
-    // O catálogo sai dos próprios pedidos (cada item traz o item_id), e a
-    // baixa de estoque acompanha quem já foi postado. Nenhum dos dois faz
-    // requisição, então rodam sempre, mesmo que as etapas acima falhem.
+    // As páginas já terminaram, mas ainda há trabalho no banco remoto.
+    iniciaEtapa('finalizando', 0)
+    // O catálogo sai dos próprios pedidos. A baixa de estoque depende dos
+    // eventos logísticos, que a sincronização rápida não consulta.
     try {
       await recomporCatalogoDosPedidosAsync()
-      await baixarEstoqueDosDespachadosAsync()
+      if (opts.todasAsPaginas) await baixarEstoqueDosDespachadosAsync()
     } catch (err) {
       console.warn('[sync] catálogo/estoque:', err)
     }
@@ -291,11 +423,16 @@ interface EstadoProgresso {
   rodando: boolean
   feitos: number
   total: number
+  novos: number
+  rastreiosPendentes: number | null
+  recebimentosPendentes: number | null
   rotulo: EtapaSync | ''
   cancelar: boolean
 }
 
-const lote: EstadoProgresso = { rodando: false, feitos: 0, total: 0, rotulo: '', cancelar: false }
+const lote: EstadoProgresso = { rodando: false, feitos: 0, total: 0,
+  novos: 0, rastreiosPendentes: null, recebimentosPendentes: null,
+  rotulo: '', cancelar: false }
 
 function iniciaEtapa(rotulo: EtapaSync, total: number): void {
   Object.assign(lote, { rodando: true, feitos: 0, total, rotulo })
@@ -308,7 +445,8 @@ function avancaEtapa(): void {
 }
 
 function encerraProgresso(): void {
-  Object.assign(lote, { rodando: false, feitos: 0, total: 0, rotulo: '', cancelar: false })
+  Object.assign(lote, { rodando: false, feitos: 0, total: 0, rotulo: '', cancelar: false,
+    novos: 0, rastreiosPendentes: null, recebimentosPendentes: null })
   emiteProgresso()
 }
 
@@ -317,7 +455,9 @@ function emiteProgresso(): void {
 }
 
 export function progressoLote(): Omit<EstadoProgresso, 'cancelar'> {
-  return { rodando: lote.rodando, feitos: lote.feitos, total: lote.total, rotulo: lote.rotulo }
+  return { rodando: lote.rodando, feitos: lote.feitos, total: lote.total, rotulo: lote.rotulo,
+    novos: lote.novos, rastreiosPendentes: lote.rastreiosPendentes,
+    recebimentosPendentes: lote.recebimentosPendentes }
 }
 
 export function cancelarLote(): void {
@@ -355,33 +495,9 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
     await assertCurrentShopeeAccount()
     const order = await getOrderAsync(orderSn)
     if (!order) throw new Error(`Pedido ${orderSn} não encontrado`)
-
-    const checkpoints = await fetchTrackingInfo(order.orderSn, order.shopeeOrderId)
-    if (checkpoints.length === 0) {
-      return { ok: true, newEvents: 0, latestStatus: order.logisticsStatus, error: null }
-    }
-    const latest = checkpoints.reduce((a, b) => (a.happenedAt > b.happenedAt ? a : b))
-    const delivered = checkpoints.find((c) => DELIVERED_PATTERN.test(c.description))
-    await setLogisticsStatusAsync(orderSn, latest.description, delivered?.happenedAt ?? null)
-    const label = checkpoints.find((c) => c.description.trim().toLocaleLowerCase('pt-BR') === 'pedido em preparação')
-    if (!order.labelGeneratedAt && label) await saveLabelDatesAsync([{ orderSn, generatedAt: label.happenedAt }])
-
-    let newEvents = 0
-    for (const c of checkpoints) {
-      if (
-        await recordEventAsync({
-          orderSn,
-          source: 'logistics',
-          description: c.description,
-          happenedAt: c.happenedAt,
-          rawJson: c.rawJson
-        })
-      ) {
-        newEvents++
-      }
-    }
-    broadcast('data:changed', null)
-    return { ok: true, newEvents, latestStatus: latest.description, error: null }
+    const result = await refreshTrackingKnownOrder(order)
+    if (result.ok) broadcast('data:changed', null)
+    return result
   } catch (err) {
     return {
       ok: false,
@@ -392,27 +508,17 @@ export async function refreshTracking(orderSn: string): Promise<TrackingRefreshR
   }
 }
 
-/**
- * Agendador da sincronização. Só liga quando o usuário pede explicitamente
- * (`autoSyncEnabled`); o padrão é sincronizar apenas pelo botão.
- */
-export function startSyncScheduler(settings: AppSettings): void {
-  stopSyncScheduler()
-  if (!settings.autoSyncEnabled) {
-    console.log('[sync] automático desligado — sincronize pelo botão')
-    return
-  }
-  const minutes = Math.max(1, settings.syncIntervalMinutes)
-  console.log(`[sync] automático ligado, a cada ${minutes} min`)
-  timer = setInterval(() => {
-    void syncAll()
-  }, minutes * 60 * 1000)
-}
-
-export function stopSyncScheduler(): void {
-  if (timer) {
-    clearInterval(timer)
-    timer = null
+async function refreshTrackingKnownOrder(order: TrackingTarget): Promise<TrackingRefreshResult> {
+  try {
+    const checkpoints = await fetchTrackingInfo(order.orderSn, order.shopeeOrderId)
+    if (checkpoints.length === 0) {
+      return { ok: true, newEvents: 0, latestStatus: order.logisticsStatus, error: null }
+    }
+    const saved = await saveTrackingCheckpoints(order.orderSn, checkpoints)
+    return { ok: true, newEvents: saved.newEvents, latestStatus: saved.latestStatus, error: null }
+  } catch (err) {
+    return { ok: false, newEvents: 0, latestStatus: null,
+      error: String(err instanceof Error ? err.message : err) }
   }
 }
 

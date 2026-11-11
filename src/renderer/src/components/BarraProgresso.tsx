@@ -20,8 +20,13 @@ export default function BarraProgresso(): React.JSX.Element | null {
   const pct = p.total > 0 ? Math.round((p.feitos / p.total) * 100) : 0
   const rotulos: Record<string, string> = {
     pedidos: 'Sincronizando pedidos',
+    gravando: 'Conferindo pedidos no banco',
+    datas: 'Conferindo datas das vendas',
+    etiquetas: 'Atualizando datas das etiquetas',
     rastreios: 'Sincronizando rastreios',
-    pagamentos: 'Sincronizando pagamentos'
+    historico: 'Completando histórico logístico',
+    pagamentos: 'Sincronizando pagamentos',
+    finalizando: 'Finalizando sincronização'
   }
   const rotulo = rotulos[p.rotulo] ?? 'Sincronizando'
 
@@ -31,7 +36,7 @@ export default function BarraProgresso(): React.JSX.Element | null {
         <div className="barra-preenchida" style={{ width: `${pct}%` }} />
       </div>
       <span>
-        {rotulo}: {p.feitos} de {p.total}
+        {rotulo}{p.total > 0 ? `: ${p.feitos} de ${p.total}` : '…'}
       </span>
       <button className="dismiss" onClick={() => void window.api.lote.cancelar()}>
         Parar

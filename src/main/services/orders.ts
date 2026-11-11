@@ -249,6 +249,10 @@ function montaBusca(termo: string): { sql: string; params: unknown[] } {
 export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order[]> {
   const conditions: string[] = []
   const params: unknown[] = []
+  if (filters.buyerUsername) {
+    conditions.push('o.buyer_username = ?')
+    params.push(filters.buyerUsername)
+  }
   if (filters.internalStatus && filters.internalStatus !== 'TODOS') {
     conditions.push('internal_status = ?')
     params.push(filters.internalStatus)
@@ -269,7 +273,7 @@ export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order
   if (filters.tab && filters.tab !== 'TODOS') {
     conditions.push('o.tab = ?')
     params.push(filters.tab)
-  } else {
+  } else if (!filters.buyerUsername) {
     conditions.push("o.tab != 'CANCELADO'")
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
@@ -342,7 +346,8 @@ export async function listOpenShopeeOrderIdsAsync(): Promise<string[]> {
 export async function listOrdersMissingLabelDateAsync(limit = 40): Promise<{ orderSn: string; orderId: string }[]> {
   const rows = (await (await getAsyncDb().prepare(
     `SELECT order_sn, shopee_order_id FROM orders
-      WHERE tab IN ('ENVIADO', 'CONCLUIDO') AND shopee_order_id IS NOT NULL
+      WHERE (tab IN ('ENVIADO', 'CONCLUIDO') OR (tab = 'A_ENVIAR' AND ready_to_post = 1))
+        AND shopee_order_id IS NOT NULL
         AND label_generated_at IS NULL AND created_at_shopee >= ?
       ORDER BY created_at_shopee DESC LIMIT ?`
   )).all([Date.now() - 45 * 86_400_000, limit])) as { order_sn: string; shopee_order_id: string }[]
@@ -439,19 +444,6 @@ export async function setNoteAsync(orderSn: string, note: string): Promise<Order
 export async function setFolderPathAsync(orderSn: string, folderPath: string): Promise<void> {
   const statement = await getAsyncDb().prepare('UPDATE orders SET folder_path = ? WHERE order_sn = ?')
   await statement.run([folderPath, orderSn])
-}
-
-/** Guarda o último checkpoint do rastreio, que é detalhe do pedido. */
-export async function setLogisticsStatusAsync(
-  orderSn: string,
-  status: string,
-  deliveredAt: number | null
-): Promise<void> {
-  const statement = await getAsyncDb().prepare(
-    `UPDATE orders SET logistics_status = ?, delivered_at = COALESCE(?, delivered_at)
-      WHERE order_sn = ?`
-  )
-  await statement.run([status, deliveredAt, orderSn])
 }
 
 export async function setRatingAsync(

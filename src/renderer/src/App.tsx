@@ -11,17 +11,20 @@ import BarraProgresso from './components/BarraProgresso'
 import DatabaseSetupPage from './pages/DatabaseSetupPage'
 import OrdersSyncPage from './pages/OrdersSyncPage'
 import PerformancePage from './pages/PerformancePage'
+import ManagementReportPage from './pages/ManagementReportPage'
 
-type Page = 'home' | 'work' | 'orders' | 'produtos' | 'performance' | 'producao' | 'activity' | 'settings'
+type Page = 'home' | 'work' | 'orders' | 'produtos' | 'performance' | 'report' | 'producao' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
   const [database, setDatabase] = useState<{
     configured: boolean
+    ready?: boolean
     url: string | null
     error?: string
     shopeeShopId?: string | null
   } | null>(null)
   const [page, setPage] = useState<Page>('home')
+  const [ordersBuyer, setOrdersBuyer] = useState<string | null>(null)
   const [status, setStatus] = useState<ShopeeConnectionStatus | null>(null)
   const [lastSync, setLastSync] = useState<SyncResult | null>(null)
   const [dataVersion, setDataVersion] = useState(0)
@@ -44,7 +47,7 @@ export default function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    if (!database?.configured) return
+    if (!database?.configured || database.ready === false) return
     void refreshStatus()
     void refreshUnseen()
     const offStatus = window.api.shopee.onStatusChanged(setStatus)
@@ -65,9 +68,23 @@ export default function App(): React.JSX.Element {
       offProgress()
       offUpdate()
     }
-  }, [database?.configured, refreshStatus, refreshUnseen])
+  }, [database?.configured, database?.ready, refreshStatus, refreshUnseen])
 
   if (!database) return <div className="app-loading">Abrindo CRM Seller…</div>
+  if (database.configured && database.ready === false) {
+    return <main className="database-setup"><div className="database-setup-card">
+      <div className="database-setup-icon">☁</div>
+      <h1>Não foi possível conectar ao Turso</h1>
+      <p className="muted">Sua configuração continua salva neste computador. Verifique a conexão e tente novamente.</p>
+      {database.error && <div className="database-setup-error">⚠ {database.error}</div>}
+      <button onClick={() => {
+        setDatabase(null)
+        void window.api.database.status().then(setDatabase).catch((reason) => {
+          setDatabase({ configured: true, ready: false, url: database.url, error: String(reason) })
+        })
+      }}>Tentar novamente</button>
+    </div></main>
+  }
   if (!database.configured || !database.shopeeShopId) {
     return (
       <DatabaseSetupPage
@@ -111,7 +128,7 @@ export default function App(): React.JSX.Element {
           <button className={page === 'work' ? 'active' : ''} onClick={() => setPage('work')}>
             Meu trabalho
           </button>
-          <button className={page === 'orders' ? 'active' : ''} onClick={() => setPage('orders')}>
+          <button className={page === 'orders' ? 'active' : ''} onClick={() => { setOrdersBuyer(null); setPage('orders') }}>
             Pedidos
           </button>
           <button className={page === 'produtos' ? 'active' : ''} onClick={() => setPage('produtos')}>
@@ -119,6 +136,9 @@ export default function App(): React.JSX.Element {
           </button>
           <button className={page === 'performance' ? 'active' : ''} onClick={() => setPage('performance')}>
             Desempenho
+          </button>
+          <button className={page === 'report' ? 'active' : ''} onClick={() => setPage('report')}>
+            Relatório gerencial
           </button>
           <button className={page === 'producao' ? 'active' : ''} onClick={() => setPage('producao')}>
             Composição
@@ -180,9 +200,10 @@ export default function App(): React.JSX.Element {
         {page === 'work' && <WorkPage dataVersion={dataVersion} />}
         {page === 'orders' && (syncActive
           ? <OrdersSyncPage progress={syncProgress} starting={syncStarting} />
-          : <OrdersPage dataVersion={dataVersion} />)}
+          : <OrdersPage dataVersion={dataVersion} initialBuyerUsername={ordersBuyer} />)}
         {page === 'produtos' && <ProdutosPage dataVersion={dataVersion} />}
         {page === 'performance' && <PerformancePage />}
+        {page === 'report' && <ManagementReportPage onOpenBuyer={(username) => { setOrdersBuyer(username); setPage('orders') }} />}
         {page === 'producao' && <ProducaoPage dataVersion={dataVersion} />}
         {page === 'activity' && (
           <ActivityPage dataVersion={dataVersion} onSeen={() => void refreshUnseen()} />

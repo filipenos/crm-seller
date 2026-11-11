@@ -43,30 +43,71 @@ try {
 
   await upsertShopeeOrderAsync({ orderSn, shopeeStatus: 'Não pago' })
   assert.equal((await client.execute({ sql: 'SELECT tab FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.tab, 'NAO_PAGO')
+  await upsertShopeeOrderAsync({ orderSn, shopeeStatus: 'Cancelado', shopeeTab: 'CANCELADO' })
+  assert.equal((await client.execute({ sql: 'SELECT tab FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.tab, 'CANCELADO')
 
   const { recomporCatalogoDosPedidosAsync, listarProdutosAsync } = await import('../src/main/services/produtos')
   await upsertShopeeOrderAsync({
-    orderSn: 'TEST-BOW-1', shopeeStatus: 'Enviado', shopeeTab: 'ENVIADO', totalAmount: 29.8,
+    orderSn: 'TEST-BOW-1', shopeeOrderId: '999', shopeeStatus: 'Enviado',
+    shopeeTab: 'ENVIADO', totalAmount: 29.8,
     items: [{ itemName: 'Kit Laço de Cetim', modelName: 'Variação: Azul Bebê,20',
       itemId: 'bow-1', modelId: 'bow-blue-20', quantity: 2, lacos: 20,
       imageUrl: null, itemSku: null }]
   })
   await recomporCatalogoDosPedidosAsync()
   await client.execute({
-    sql: 'INSERT INTO order_income (order_sn, valor_recebido, atualizado_em) VALUES (?, ?, ?)',
-    args: ['TEST-BOW-1', 22.4, Date.now()]
+    sql: 'INSERT INTO order_income (order_sn, valor_produtos, desconto_cupons, valor_recebido, atualizado_em) VALUES (?, ?, ?, ?, ?)',
+    args: ['TEST-BOW-1', 28, -2, 22.4, Date.now()]
   })
   const bow = (await listarProdutosAsync()).find((product) => product.itemId === 'bow-1')
   assert.equal(bow?.tipo, 'LACOS')
   assert.equal(bow?.kitsVendidos, 2)
   assert.equal(bow?.lacosVendidos, 40)
   assert.equal(bow?.caixasVendidas, 0)
-  assert.equal(bow?.vendas, 29.8)
+  assert.equal(bow?.vendas, 26)
   assert.equal(bow?.liquido, 22.4)
   assert.equal(bow?.pedidosSemLiquido, 0)
+  const { pedidosParaAtualizarPagamentoAsync } = await import('../src/main/services/recebimentos')
+  await upsertShopeeOrderAsync({ orderSn: 'OLD-PAYOUT', shopeeOrderId: '456', shopeeTab: 'CONCLUIDO' })
+  await upsertShopeeOrderAsync({ orderSn: 'NEW-PAYOUT', shopeeOrderId: '789', shopeeTab: 'CONCLUIDO' })
+  for (const [sn, updated] of [['OLD-PAYOUT', Date.now() - 2 * 86_400_000], ['NEW-PAYOUT', Date.now()]] as const) {
+    await client.execute({ sql: 'INSERT INTO order_income (order_sn, atualizado_em) VALUES (?, ?)', args: [sn, updated] })
+  }
+  const incomeCandidates = await pedidosParaAtualizarPagamentoAsync()
+  const finalIncomeCandidates = await pedidosParaAtualizarPagamentoAsync(true)
+  assert.ok(incomeCandidates.some((order) => order.orderSn === 'OLD-PAYOUT'))
+  assert.ok(finalIncomeCandidates.some((order) => order.orderSn === 'OLD-PAYOUT'))
+  assert.ok(!finalIncomeCandidates.some((order) => order.orderSn === 'TEST-BOW-1'))
+  const { pendingSyncPreview } = await import('../src/main/services/shopee/pendingPreview')
+  const preview = await pendingSyncPreview()
+  assert.equal(preview.status, 1)
+  assert.equal(preview.tracking, 1)
+  assert.equal(preview.payments, 1)
+  assert.equal(preview.labels, 0)
+  await upsertShopeeOrderAsync({ orderSn: 'READY-LABEL', shopeeOrderId: '1001',
+    shopeeTab: 'A_ENVIAR', logisticsCode: 1, createdAtShopee: Date.now() })
+  const { listOrdersMissingLabelDateAsync } = await import('../src/main/services/orders')
+  assert.ok((await listOrdersMissingLabelDateAsync()).some((order) => order.orderSn === 'READY-LABEL'))
+  assert.equal((await pendingSyncPreview()).labels, 1)
+  assert.ok(!incomeCandidates.some((order) => order.orderSn === 'NEW-PAYOUT'))
   assert.deepEqual(bow?.variacoesDetalhe.map((variation) =>
     [variation.cor, variation.quantidadePorKit, variation.kitsVendidos, variation.lacosVendidos]
   ), [['Azul Bebê', 20, 2, 40]])
+
+  const estimatedNextDay = Date.parse('2026-11-11T00:00:00-03:00')
+  const actualSaleTime = Date.parse('2026-11-10T16:30:00-03:00')
+  await upsertShopeeOrderAsync({ orderSn: 'TEST-DATE', shopeeTab: 'A_ENVIAR',
+    createdAtShopee: estimatedNextDay, createdAtEstimated: true })
+  const { parseOrderIncome } = await import('../src/main/services/shopee/client')
+  const { salvarRecebimentoAsync } = await import('../src/main/services/recebimentos')
+  const income = parseOrderIncome({ order_info: { order_sn: 'TEST-DATE' },
+    tracking_info_list: [{ ctime: Math.floor(actualSaleTime / 1000) }] }, 'TEST-DATE')
+  assert.equal(income?.criadoEm, actualSaleTime)
+  await salvarRecebimentoAsync(income!)
+  const correctedDay = (await client.execute(
+    "SELECT date(created_at_shopee/1000,'unixepoch','-3 hours') AS dia FROM orders WHERE order_sn='TEST-DATE'"
+  )).rows[0]?.dia
+  assert.equal(correctedDay, '2026-11-10')
   client.close()
   console.log('Atualização de pedidos validada.')
 } finally {

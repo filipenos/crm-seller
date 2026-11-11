@@ -1,5 +1,5 @@
 import { getAsyncDb } from '../db'
-import { buildDailyDashboard, dashboardDates, dashboardPeriodBounds, DEFAULT_PAINEL_OFFSETS, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '@shared/dashboardDays'
+import { buildDailyDashboard, dashboardDates, dashboardPeriodBounds, DEFAULT_PAINEL_OFFSETS, DAILY_DASHBOARD_SQL, PRODUCT_SALES_SQL, type DailyDashboardRow } from '@shared/dashboardDays'
 import type { MetricaPainel, Painel, PainelOffsets, SerieMensal } from '@shared/types'
 
 /** Três séries de sete dias em uma única leitura remota do Turso. */
@@ -37,11 +37,11 @@ export async function serieMensal(
              GROUP BY dia`
     },
     vendas: {
-      sql: `SELECT strftime('%d', created_at_shopee / 1000, 'unixepoch', '-3 hours') AS dia,
-                   COALESCE(SUM(total_amount), 0) AS v
-              FROM orders
-             WHERE tab != 'CANCELADO'
-               AND strftime('%Y-%m', created_at_shopee / 1000, 'unixepoch', '-3 hours') = ?
+      sql: `SELECT strftime('%d', o.created_at_shopee / 1000, 'unixepoch', '-3 hours') AS dia,
+                   COALESCE(SUM(${PRODUCT_SALES_SQL}), 0) AS v
+              FROM orders o LEFT JOIN order_income i ON i.order_sn = o.order_sn
+             WHERE o.tab NOT IN ('CANCELADO', 'NAO_PAGO')
+               AND strftime('%Y-%m', o.created_at_shopee / 1000, 'unixepoch', '-3 hours') = ?
              GROUP BY dia`
     },
     recebido: {
@@ -53,11 +53,13 @@ export async function serieMensal(
              GROUP BY dia`
     },
     despachados: {
-      sql: `SELECT strftime('%d', happened_at / 1000, 'unixepoch', '-3 hours') AS dia,
-                   COUNT(DISTINCT order_sn) AS v
-              FROM order_events
-             WHERE source = 'logistics' AND LOWER(description) LIKE '%postado%'
-               AND strftime('%Y-%m', happened_at / 1000, 'unixepoch', '-3 hours') = ?
+      sql: `SELECT strftime('%d', first_at / 1000, 'unixepoch', '-3 hours') AS dia,
+                   COUNT(*) AS v
+              FROM (SELECT order_sn, MIN(happened_at) AS first_at FROM order_events
+                     WHERE source = 'logistics'
+                       AND (LOWER(description) LIKE '%postado%' OR LOWER(description) LIKE '%coletado%')
+                     GROUP BY order_sn)
+             WHERE strftime('%Y-%m', first_at / 1000, 'unixepoch', '-3 hours') = ?
              GROUP BY dia`
     }
   }

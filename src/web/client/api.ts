@@ -1,4 +1,4 @@
-import type { MetricaPainel, Order, OrderCounts, OrderTab, Painel, PainelOffsets, SerieMensal } from '../../shared/types'
+import type { MetricaPainel, Order, OrderCounts, OrderTab, Painel, PainelOffsets, PeriodoRelatorio, RelatorioGerencial, SerieMensal } from '../../shared/types'
 
 export interface WebProductionData {
   items: Array<{ id: number; name: string; kind: string; unit: string; sellable: number; stock_controlled: number; reference_cost: number | null; waste_percent: number; stock: number; average_cost: number | null; parts: number }>
@@ -20,9 +20,13 @@ export const api = {
     serie: (metric: MetricaPainel, year: number, month: number): Promise<SerieMensal> =>
       get(`/api/dashboard/series?metric=${encodeURIComponent(metric)}&year=${year}&month=${month}`)
   },
+  relatorio: {
+    gerencial: (period: PeriodoRelatorio): Promise<RelatorioGerencial> =>
+      get(`/api/report?start=${encodeURIComponent(period.inicio)}&end=${encodeURIComponent(period.fim)}`)
+  },
   web: {
-    orders: (tab: OrderTab | 'TODOS', search: string, limit: number): Promise<{ orders: Order[]; counts: OrderCounts }> =>
-      get(`/api/orders?tab=${encodeURIComponent(tab)}&search=${encodeURIComponent(search)}&limit=${limit}`),
+    orders: (tab: OrderTab | 'TODOS', search: string, limit: number, buyerUsername?: string | null): Promise<{ orders: Order[]; counts: OrderCounts }> =>
+      get(`/api/orders?tab=${encodeURIComponent(tab)}&search=${encodeURIComponent(search)}&limit=${limit}${buyerUsername ? `&buyer=${encodeURIComponent(buyerUsername)}` : ''}`),
     production: (): Promise<WebProductionData> => get('/api/production')
   }
 }

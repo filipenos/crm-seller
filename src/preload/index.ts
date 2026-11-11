@@ -19,6 +19,9 @@ import type {
   OrderCounts,
   Painel,
   PainelOffsets,
+  PeriodoRelatorio,
+  PendingSyncPreview,
+  RelatorioGerencial,
   MetricaPainel,
   SerieMensal,
   ProgressoLote,
@@ -40,6 +43,7 @@ const api = {
   database: {
     status: (): Promise<{
       configured: boolean
+      ready?: boolean
       url: string | null
       error?: string
       shopeeShopId?: string | null
@@ -68,7 +72,9 @@ const api = {
     bind: (): Promise<string> => ipcRenderer.invoke('shopee:bind'),
     disconnect: (): Promise<void> => ipcRenderer.invoke('shopee:disconnect'),
     status: (): Promise<ShopeeConnectionStatus> => ipcRenderer.invoke('shopee:status'),
-    sync: (): Promise<SyncResult> => ipcRenderer.invoke('shopee:sync'),
+    sync: (pages = 2): Promise<SyncResult> => ipcRenderer.invoke('shopee:sync', pages),
+    pendingPreview: (): Promise<PendingSyncPreview> => ipcRenderer.invoke('shopee:pendingPreview'),
+    syncPending: (): Promise<SyncResult> => ipcRenderer.invoke('shopee:syncPending'),
     probe: (): Promise<ActionResult> => ipcRenderer.invoke('shopee:probe'),
     syncAll: (): Promise<SyncResult> => ipcRenderer.invoke('shopee:syncAll'),
     orderTotal: (): Promise<number | null> => ipcRenderer.invoke('shopee:orderTotal'),
@@ -112,6 +118,9 @@ const api = {
     resumo: (offsets?: PainelOffsets): Promise<Painel> => ipcRenderer.invoke('painel:resumo', offsets),
     serie: (metrica: MetricaPainel, ano: number, mes: number): Promise<SerieMensal> =>
       ipcRenderer.invoke('painel:serie', metrica, ano, mes)
+  },
+  relatorio: {
+    gerencial: (period: PeriodoRelatorio): Promise<RelatorioGerencial> => ipcRenderer.invoke('relatorio:gerencial', period)
   },
   trabalho: {
     agenda: (days: number): Promise<AgendaTrabalho> => ipcRenderer.invoke('trabalho:agenda', days)

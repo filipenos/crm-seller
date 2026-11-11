@@ -12,12 +12,14 @@ function prazoApertado(shipByDate: number): boolean {
 
 interface Props {
   dataVersion: number
+  initialBuyerUsername?: string | null
 }
 
-export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
+export default function OrdersPage({ dataVersion, initialBuyerUsername }: Props): React.JSX.Element {
   const [orders, setOrders] = useState<Order[]>([])
   // Entra direto no que precisa de trabalho hoje, não na base inteira.
-  const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>('A_ENVIAR')
+  const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>(initialBuyerUsername ? 'TODOS' : 'A_ENVIAR')
+  const [buyerUsername, setBuyerUsername] = useState(initialBuyerUsername ?? null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [counts, setCounts] = useState<OrderCounts | null>(null)
@@ -36,7 +38,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     setOrders([])
     setLoading(true)
     void window.api.orders
-      .list({ tab: tabFilter, search: debouncedSearch, limit })
+      .list({ tab: tabFilter, buyerUsername: buyerUsername ?? undefined, search: debouncedSearch, limit })
       .then((nextOrders) => {
         if (current) setOrders(nextOrders)
       })
@@ -46,7 +48,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
     return () => {
       current = false
     }
-  }, [tabFilter, debouncedSearch, limit, dataVersion])
+  }, [tabFilter, buyerUsername, debouncedSearch, limit, dataVersion])
 
   useEffect(() => {
     void window.api.orders.tabCounts().then(setCounts)
@@ -55,7 +57,7 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
   const refresh = (): void => {
     setLoading(true)
     void window.api.orders
-      .list({ tab: tabFilter, search: debouncedSearch, limit })
+      .list({ tab: tabFilter, buyerUsername: buyerUsername ?? undefined, search: debouncedSearch, limit })
       .then(setOrders)
       .finally(() => setLoading(false))
     void window.api.orders.tabCounts().then(setCounts)
@@ -103,13 +105,14 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
           }}
         />
       </header>
+      {buyerUsername && <div className="orders-buyer-filter">Pedidos de <b>{buyerUsername}</b><button type="button" onClick={() => { setBuyerUsername(null); setTabFilter('A_ENVIAR'); setLimit(PAGE_SIZE) }}>Limpar filtro</button></div>}
 
       <div className="status-tabs">
         <button
           className={tabFilter === 'TODOS' ? 'active' : ''}
           onClick={() => changeTab('TODOS')}
         >
-          Todos ({total})
+          Todos{buyerUsername ? '' : ` (${total})`}
         </button>
         {MAIN_TABS.map((t) => (
           <button
@@ -117,14 +120,14 @@ export default function OrdersPage({ dataVersion }: Props): React.JSX.Element {
             className={tabFilter === t ? 'active' : ''}
             onClick={() => changeTab(t)}
           >
-            {ORDER_TAB_LABELS[t]} ({counts?.tabs[t] ?? 0})
+            {ORDER_TAB_LABELS[t]}{buyerUsername ? '' : ` (${counts?.tabs[t] ?? 0})`}
           </button>
         ))}
         <button
           className={tabFilter === 'CANCELADO' ? 'active' : ''}
           onClick={() => changeTab('CANCELADO')}
         >
-          {ORDER_TAB_LABELS.CANCELADO} ({counts?.tabs.CANCELADO ?? 0})
+          {ORDER_TAB_LABELS.CANCELADO}{buyerUsername ? '' : ` (${counts?.tabs.CANCELADO ?? 0})`}
         </button>
       </div>
 

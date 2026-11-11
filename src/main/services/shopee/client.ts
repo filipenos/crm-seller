@@ -641,6 +641,24 @@ export async function fetchOrders(
   return orders
 }
 
+/** Relê somente pedidos locais ainda abertos, sem percorrer todas as abas. */
+export async function fetchOrdersByIds(
+  orderIds: string[], options: FetchOrdersOptions
+): Promise<NormalizedShopeeOrder[]> {
+  if (orderIds.length === 0) {
+    options.onProgress?.(0, 0)
+    return []
+  }
+  const cds = await getSpcCds()
+  const [reference] = await fetchOrderIndex(cds, 1)
+  if (!reference) throw new Error('Não foi possível identificar a loja para consultar pedidos pendentes.')
+  const refs = [...new Set(orderIds)].filter((id) => /^\d+$/.test(id)).map((id) => ({
+    order_id: Number(id), shop_id: reference.shop_id, region_id: reference.region_id
+  })).filter((ref) => Number.isSafeInteger(ref.order_id))
+  const cards = await fetchOrderCards(cds, refs, options)
+  return cards.map(normalizeCard).filter((order): order is NormalizedShopeeOrder => order !== null)
+}
+
 /** Abas ativas da Shopee, mais pedidos locais que ainda precisam de estado final. */
 export async function fetchOpenOrders(
   localOpenOrderIds: string[],

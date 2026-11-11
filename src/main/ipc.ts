@@ -8,6 +8,7 @@ import type {
   MetricaPainel,
   OrderFilters,
   PainelOffsets,
+  PeriodoRelatorio,
   PeriodoDesempenho,
   ProductKind,
   StageActionKind
@@ -55,14 +56,15 @@ import {
   refreshIncome,
   refreshTracking,
   sincronizarProdutos,
-  startSyncScheduler,
   syncAll
 } from './services/shopee/sync'
+import { pendingSyncPreview } from './services/shopee/pendingPreview'
 import { probeShopeeApis } from './services/shopee/probe'
 import { fetchOrderTotal, normalizeCard } from './services/shopee/client'
 import { countDumps, dumpPath, reprocessDumps } from './services/orderDump'
 import { reprocessarExtratosAsync } from './services/recebimentos'
 import { montarPainel, serieMensal } from './services/dashboard'
+import { managementReport } from './services/managementReport'
 import { workAgenda } from './services/workAgenda'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
@@ -138,7 +140,8 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
       return { ...status, shopeeShopId: await getBoundShopeeShopIdAsync() }
     } catch (reason) {
       return {
-        configured: false,
+        configured: true,
+        ready: false,
         url: status.url,
         error: String(reason instanceof Error ? reason.message : reason)
       }
@@ -160,11 +163,7 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
 
   // Settings
   ipcMain.handle('settings:get', () => getSettingsAsync())
-  ipcMain.handle('settings:update', async (_e, partial: Partial<AppSettings>) => {
-    const settings = await updateSettingsAsync(partial)
-    startSyncScheduler(settings) // re-aplica intervalo sem nova consulta bloqueante
-    return settings
-  })
+  ipcMain.handle('settings:update', (_e, partial: Partial<AppSettings>) => updateSettingsAsync(partial))
   ipcMain.handle('dialog:pickDirectory', async (_e, title: string) => {
     const result = await dialog.showOpenDialog({ title, properties: ['openDirectory', 'createDirectory'] })
     return result.canceled ? null : result.filePaths[0]
@@ -209,7 +208,9 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
     }
   })
   ipcMain.handle('shopee:status', () => getConnectionStatus())
-  ipcMain.handle('shopee:sync', () => syncAll())
+  ipcMain.handle('shopee:sync', (_e, pages?: number) => syncAll({ pages }))
+  ipcMain.handle('shopee:pendingPreview', () => pendingSyncPreview())
+  ipcMain.handle('shopee:syncPending', () => syncAll({ pendingOnly: true }))
   // Carga completa: percorre todas as páginas e grava o JSON cru de cada pedido.
   ipcMain.handle('shopee:syncAll', () => syncAll({ todasAsPaginas: true }))
   ipcMain.handle('shopee:orderTotal', () => fetchOrderTotal())
@@ -238,6 +239,7 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   ipcMain.handle('orders:awaitingPaymentCount', () => countAwaitingPaymentAsync())
   ipcMain.handle('orders:tabCounts', () => countByTabAsync())
   ipcMain.handle('painel:resumo', (_e, offsets?: PainelOffsets) => montarPainel(offsets))
+  ipcMain.handle('relatorio:gerencial', (_e, period: PeriodoRelatorio) => managementReport(period))
   ipcMain.handle('trabalho:agenda', (_e, days: number) => workAgenda(days))
   ipcMain.handle('painel:serie', (_e, metrica: MetricaPainel, ano: number, mes: number) =>
     serieMensal(metrica, ano, mes)

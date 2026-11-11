@@ -4,10 +4,8 @@ import { closeDb, prepareTursoDatabaseAsync } from './db'
 import { registerIpcHandlers } from './ipc'
 import { garantirCadastroDeFabricacaoAsync } from './services/seed'
 import { recomporCatalogoDosPedidosAsync } from './services/produtos'
-import { startSyncScheduler, stopSyncScheduler } from './services/shopee/sync'
 import { initUpdater, stopUpdater } from './services/updates'
 import { hasTursoConfig, readTursoConfig } from './db/config'
-import { getSettingsAsync } from './services/settings'
 import { ensureDefaultComposition } from './services/composition'
 import { startBrowserBridge, stopBrowserBridge } from './services/shopee/browserBridge'
 
@@ -27,7 +25,6 @@ async function startServices(reset = false): Promise<void> {
     await garantirCadastroDeFabricacaoAsync()
     await ensureDefaultComposition()
     await recomporCatalogoDosPedidosAsync()
-    startSyncScheduler(await getSettingsAsync())
     initUpdater()
   })()
   try {
@@ -54,6 +51,12 @@ function createMainWindow(): void {
     }
   })
 
+  // A Shopee mantém uma janela oculta para as APIs. Ela não deve impedir que
+  // fechar a janela principal encerre o aplicativo no Windows e no Linux.
+  win.once('closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
@@ -78,13 +81,8 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-
 app.on('will-quit', () => {
   stopBrowserBridge()
-  stopSyncScheduler()
   stopUpdater()
   closeDb()
 })

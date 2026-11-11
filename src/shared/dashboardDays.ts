@@ -2,6 +2,9 @@ import type { DiaPainel, Painel, PainelOffsets } from './types'
 
 export const DEFAULT_PAINEL_OFFSETS: PainelOffsets = { vendas: 0, previstas: 0, etiquetas: 0 }
 
+/** Receita dos produtos após cupons; total_amount também inclui frete pago pelo comprador. */
+export const PRODUCT_SALES_SQL = 'COALESCE(i.valor_produtos + COALESCE(i.desconto_cupons, 0), o.total_amount, 0)'
+
 export function validatePainelOffsets(value: PainelOffsets): PainelOffsets {
   for (const offset of [value.vendas, value.previstas, value.etiquetas]) {
     if (!Number.isInteger(offset) || Math.abs(offset) > 3650) throw new Error('Período do painel inválido.')
@@ -11,7 +14,7 @@ export function validatePainelOffsets(value: PainelOffsets): PainelOffsets {
 
 export const DAILY_DASHBOARD_SQL = `
   SELECT 'vendas' AS grupo, date(o.created_at_shopee / 1000, 'unixepoch', '-3 hours') AS dia,
-    COUNT(*) AS pedidos, COALESCE(SUM(o.total_amount), 0) AS total,
+    COUNT(*) AS pedidos, COALESCE(SUM(${PRODUCT_SALES_SQL}), 0) AS total,
     COALESCE(SUM(i.valor_recebido), 0) AS liquido,
     SUM(CASE WHEN i.valor_recebido IS NULL THEN 1 ELSE 0 END) AS sem_liquido
   FROM orders o LEFT JOIN order_income i ON i.order_sn = o.order_sn
@@ -19,21 +22,23 @@ export const DAILY_DASHBOARD_SQL = `
   GROUP BY dia
   UNION ALL
   SELECT 'previstas', date(o.ship_by_date / 1000, 'unixepoch', '-3 hours', '-1 day'),
-    COUNT(*), COALESCE(SUM(o.total_amount), 0), COALESCE(SUM(i.valor_recebido), 0),
+    COUNT(*), COALESCE(SUM(${PRODUCT_SALES_SQL}), 0), COALESCE(SUM(i.valor_recebido), 0),
     SUM(CASE WHEN i.valor_recebido IS NULL THEN 1 ELSE 0 END)
   FROM orders o LEFT JOIN order_income i ON i.order_sn = o.order_sn
-  WHERE o.tab = 'A_ENVIAR' AND o.ship_by_date >= ?3 AND o.ship_by_date < ?4
+  WHERE o.tab = 'A_ENVIAR' AND o.ready_to_post = 0 AND o.label_generated_at IS NULL
+    AND o.ship_by_date >= ?3 AND o.ship_by_date < ?4
   GROUP BY date(o.ship_by_date / 1000, 'unixepoch', '-3 hours', '-1 day')
   UNION ALL
   SELECT 'etiquetas', date(o.label_generated_at / 1000, 'unixepoch', '-3 hours'),
-    COUNT(*), COALESCE(SUM(o.total_amount), 0), COALESCE(SUM(i.valor_recebido), 0),
+    COUNT(*), COALESCE(SUM(${PRODUCT_SALES_SQL}), 0), COALESCE(SUM(i.valor_recebido), 0),
     SUM(CASE WHEN i.valor_recebido IS NULL THEN 1 ELSE 0 END)
   FROM orders o LEFT JOIN order_income i ON i.order_sn = o.order_sn
   WHERE o.tab NOT IN ('CANCELADO', 'NAO_PAGO') AND o.label_generated_at >= ?5 AND o.label_generated_at < ?6
   GROUP BY date(o.label_generated_at / 1000, 'unixepoch', '-3 hours')
   UNION ALL
   SELECT 'sem_prazo', NULL, COUNT(*), 0, 0, 0 FROM orders
-  WHERE tab = 'A_ENVIAR' AND ship_by_date IS NULL
+  WHERE tab = 'A_ENVIAR' AND ready_to_post = 0 AND label_generated_at IS NULL
+    AND ship_by_date IS NULL
 `
 
 export interface DailyDashboardRow {
