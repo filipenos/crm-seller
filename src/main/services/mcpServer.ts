@@ -16,7 +16,7 @@ import { listarProdutosAsync } from './produtos'
 import { compositionSummary, createCompositionItem, updateCompositionItem, deleteCompositionItem, setCompositionPart, removeCompositionPart, adjustCompositionStock, createCompositionVariant, updateCompositionVariant, deleteCompositionVariant, createCompositionKitSize, updateCompositionKitSize, deleteCompositionKitSize, recordCompositionPurchase, updateCompositionPurchase, deleteCompositionPurchase, previewCompositionProduction, createCompositionProductionLot } from './composition'
 import { listarInsumosAsync, listarComprasAsync, listarMovimentosAsync, ajustarEstoqueAsync, criarInsumoAsync, atualizarInsumoAsync, criarVarianteAsync, renomearVarianteAsync, registrarCompraAsync } from './insumos'
 import { listProductionFlows, listOrderProduction, actOnProductionItem } from './production'
-import { getConnectionStatus, progressoLote, syncAll, refreshIncome, refreshTracking } from './shopee/sync'
+import { getConnectionStatus, isSyncing, progressoLote, syncAll, refreshIncome, refreshTracking } from './shopee/sync'
 import { pendingSyncPreview } from './shopee/pendingPreview'
 import { INTERNAL_STATUSES, UNIDADES, type Order, type ProductionActionKind } from '@shared/types'
 import { mcpAccessStatus } from './mcpAccess'
@@ -100,7 +100,7 @@ function createTools(ready: () => Promise<void>): McpServer {
   mcp.registerTool('estado_sincronizacao', { description: 'Conexão com Shopee e progresso da sincronização em andamento.', inputSchema: z.object({}), annotations: { readOnlyHint: true } }, async () => run(ready, async () => ({ conexao: await getConnectionStatus(), progresso: progressoLote(), tarefa: syncJob })))
   mcp.registerTool('previa_sincronizacao_pendente', { description: 'Mostra o que será atualizado ao sincronizar pendências.', inputSchema: z.object({}), annotations: { readOnlyHint: true } }, async () => run(ready, () => pendingSyncPreview()))
   mcp.registerTool('sincronizar_pedidos', { description: 'Inicia sincronização de pedidos em segundo plano. Consulte estado_sincronizacao para acompanhar.', inputSchema: z.object({ paginas: z.number().int().min(1).max(100).default(2), apenasPendentes: z.boolean().default(false) }) }, async ({ paginas, apenasPendentes }) => run(ready, async () => {
-    if (syncJob?.state === 'running' || progressoLote().rodando) return { iniciado: false, motivo: 'Já existe uma sincronização em andamento.' }
+    if (isSyncing() || syncJob?.state === 'running' || progressoLote().rodando) return { iniciado: false, motivo: 'Já existe uma sincronização em andamento.' }
     syncJob = { state: 'running', startedAt: Date.now() }
     void syncAll(apenasPendentes ? { pendingOnly: true } : { pages: paginas }).then((outcome) => {
       if (syncJob) syncJob = { ...syncJob, state: outcome.ok ? 'done' : 'error', finishedAt: Date.now(), error: outcome.ok ? undefined : 'Falha na sincronização. Consulte o aplicativo.' }

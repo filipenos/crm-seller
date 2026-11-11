@@ -415,6 +415,10 @@ export async function syncAll(opts: { todasAsPaginas?: boolean; pendingOnly?: bo
   return result
 }
 
+export function isSyncing(): boolean {
+  return state.syncing
+}
+
 /**
  * Estado das operações longas (rastreios / extratos). Guardado aqui porque
  * elas rodam por minutos: a UI precisa saber onde está e poder mandar parar.
