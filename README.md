@@ -1,5 +1,7 @@
 # CRM Seller
 
+Integração com ChatGPT e clientes MCP: consulte [docs/mcp-chatgpt.md](docs/mcp-chatgpt.md).
+
 CRM para Windows, macOS e Linux que gerencia pedidos personalizados vendidos
 na Shopee. Electron + Node + React + Turso: o banco pertence ao usuário e o app
 se conecta diretamente a ele, sem manter outro SQLite com os dados localmente.

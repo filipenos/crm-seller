@@ -783,6 +783,21 @@ select:focus {
   margin-bottom: 6px;
 }
 
+.mcp-install-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.mcp-install-controls span { font-size: 13px; font-weight: 600; }
+.mcp-installed { color: #15803d; }
+.mcp-not-installed { color: var(--muted); }
+.mcp-install-controls button {
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 14px;
+  font-weight: 600;
+}
+.mcp-install-controls button:hover:not(:disabled) { background: #d94225; color: #fff; }
+.mcp-install-controls button:disabled { opacity: .55; cursor: default; }
+
 .saved-tag {
   color: #16a34a;
   font-weight: 600;

@@ -9,6 +9,7 @@ function defaults(): AppSettings {
   return {
     ordersRootDir: join(docs, 'CRM Seller', 'Pedidos'),
     templatesDir: join(docs, 'CRM Seller', 'Templates'),
+    mcpLanEnabled: false,
   }
 }
 
@@ -26,7 +27,8 @@ export async function getSettingsAsync(): Promise<AppSettings> {
   const value = stored as Partial<AppSettings>
   const result = { ...defaults(), ...value }
   if (typeof result.ordersRootDir !== 'string' || typeof result.templatesDir !== 'string' ||
-    !isAbsolute(result.ordersRootDir) || !isAbsolute(result.templatesDir)) throw new Error('Configuração local de pastas inválida.')
+    !isAbsolute(result.ordersRootDir) || !isAbsolute(result.templatesDir) ||
+    typeof result.mcpLanEnabled !== 'boolean') throw new Error('Configuração local inválida.')
   return result
 }
 
@@ -37,6 +39,7 @@ export async function updateSettingsAsync(partial: Partial<AppSettings>): Promis
       throw new Error('Escolha uma pasta válida neste computador.')
     }
   }
+  if (typeof next.mcpLanEnabled !== 'boolean') throw new Error('Configuração MCP inválida.')
   const path = settingsPath()
   const temp = `${path}.${randomUUID()}.tmp`
   await writeFile(temp, JSON.stringify(next), { mode: 0o600 })

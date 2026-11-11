@@ -29,7 +29,7 @@ function describeUpdate(status: UpdateStatus | null): string {
 }
 
 export default function SettingsPage({ onStatusChange }: Props): React.JSX.Element {
-  const [tab, setTab] = useState<'general' | 'templates' | 'stages'>('general')
+  const [tab, setTab] = useState<'general' | 'templates' | 'stages' | 'mcp'>('general')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [artThemes, setArtThemes] = useState<ArtTheme[]>([])
   const [newThemeName, setNewThemeName] = useState('')
@@ -59,9 +59,18 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const [disconnecting, setDisconnecting] = useState(false)
   const [shopeeNotice, setShopeeNotice] = useState<string | null>(null)
   const [authMode, setAuthMode] = useState<'app' | 'chrome'>('app')
+  const [mcp, setMcp] = useState<{ localUrl: string; localRunning: boolean; lanUrls: string[]; lanEnabled: boolean; lanRunning: boolean; lanToken: string | null } | null>(null)
+  const [mcpError, setMcpError] = useState<string | null>(null)
+  const [showMcpToken, setShowMcpToken] = useState(false)
+  const [mcpInstallation, setMcpInstallation] = useState<{ configPath: string; installed: boolean } | null>(null)
+  const [installingMcp, setInstallingMcp] = useState(false)
+  const [mcpInstallError, setMcpInstallError] = useState<string | null>(null)
+  const [mcpInstallDone, setMcpInstallDone] = useState(false)
 
   useEffect(() => {
     void window.api.settings.get().then(setSettings)
+    void window.api.mcp.status().then(setMcp).catch(() => setMcpError('Não foi possível consultar o servidor MCP.'))
+    void window.api.mcp.installationStatus().then(setMcpInstallation).catch(() => setMcpInstallError('Não foi possível verificar a instalação no ChatGPT.'))
     void window.api.art.list().then(setArtThemes).catch((reason) => setThemeError(String(reason)))
     void window.api.app.version().then(setVersion)
     void window.api.updates.status().then(setUpdateStatus)
@@ -109,7 +118,35 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
         <button type="button" className={tab === 'general' ? 'active' : ''} aria-current={tab === 'general' ? 'page' : undefined} onClick={() => setTab('general')}>Geral</button>
         <button type="button" className={tab === 'templates' ? 'active' : ''} aria-current={tab === 'templates' ? 'page' : undefined} onClick={() => setTab('templates')}>Templates</button>
         <button type="button" className={tab === 'stages' ? 'active' : ''} aria-current={tab === 'stages' ? 'page' : undefined} onClick={() => setTab('stages')}>Etapas</button>
+        <button type="button" className={tab === 'mcp' ? 'active' : ''} aria-current={tab === 'mcp' ? 'page' : undefined} onClick={() => setTab('mcp')}>ChatGPT / MCP</button>
       </nav>
+
+      {tab === 'mcp' && <section className="settings-card">
+        <h3>Integração com ChatGPT e outros clientes MCP</h3>
+        <p className="muted">Para usar no ChatGPT deste computador, clique em instalar e reinicie o ChatGPT. O CRM Seller precisa permanecer aberto durante o uso.</p>
+        <div className="setting-row mcp-install"><label>Instalação no ChatGPT</label><div className="mcp-install-controls"><span className={mcpInstallation?.installed ? 'mcp-installed' : 'mcp-not-installed'}>{mcpInstallation ? (mcpInstallation.installed ? '✓ Instalado' : 'Não instalado') : 'Verificando…'}</span><button type="button" disabled={installingMcp || !mcpInstallation || mcpInstallation.installed} onClick={async () => {
+          setInstallingMcp(true)
+          setMcpInstallError(null)
+          try { setMcpInstallation(await window.api.mcp.installChatgpt()); setMcpInstallDone(true) }
+          catch (error) { setMcpInstallError(String(error).replace(/^Error invoking remote method '[^']+': Error: /, '')) }
+          finally { setInstallingMcp(false) }
+        }}>{installingMcp ? 'Instalando…' : 'Instalar neste computador'}</button></div></div>
+        {mcpInstallation && <div className="setting-row"><label>Arquivo de configuração</label><input readOnly value={mcpInstallation.configPath} /></div>}
+        {mcpInstallDone && <p className="aviso">Instalado. Feche e abra o ChatGPT para carregar as ferramentas.</p>}
+        {mcpInstallError && <p className="aviso alerta">{mcpInstallError}</p>}
+        <p className="muted">Para outro computador, configure nele o endereço de rede mostrado abaixo. A instalação acima vale somente para este computador.</p>
+        <div className="setting-row"><label>Endereço local</label><input readOnly value={mcp?.localUrl ?? 'Carregando…'} /></div>
+        {mcp && !mcp.localRunning && <p className="aviso alerta">O servidor MCP local não está ativo. Reinicie o aplicativo.</p>}
+        <label className="work-hide-done"><input type="checkbox" checked={settings.mcpLanEnabled} onChange={async (event) => {
+          setMcpError(null)
+          try { await update({ mcpLanEnabled: event.target.checked }); setMcp(await window.api.mcp.status()) }
+          catch { setMcpError('Não foi possível alterar o acesso pela rede local.') }
+        }} /> Permitir acesso pela rede local</label>
+        {mcp?.lanUrls.map((url) => <div className="setting-row" key={url}><label>Endereço na rede</label><input readOnly value={url} /></div>)}
+        {mcp?.lanEnabled && !mcp.lanRunning && <p className="aviso alerta">A porta da rede local não abriu. Confira se ela está livre e reinicie o aplicativo.</p>}
+        {mcp?.lanEnabled && <div className="setting-row"><label>Chave da rede local</label><input readOnly type={showMcpToken ? 'text' : 'password'} value={mcp.lanToken ?? ''} /><button type="button" onClick={() => setShowMcpToken(!showMcpToken)}>{showMcpToken ? 'Ocultar' : 'Mostrar'}</button><small className="muted">Informe esta chave apenas aos clientes MCP autorizados na rede. Ela não é o token do Turso.</small></div>}
+        {mcpError && <p className="aviso alerta">{mcpError}</p>}
+      </section>}
 
       {tab === 'general' && <>
       <section className="settings-card">

@@ -8,6 +8,7 @@ import { initUpdater, stopUpdater } from './services/updates'
 import { hasTursoConfig, readTursoConfig } from './db/config'
 import { ensureDefaultComposition } from './services/composition'
 import { startBrowserBridge, stopBrowserBridge } from './services/shopee/browserBridge'
+import { startMcpServer, stopMcpServer } from './services/mcpServer'
 
 // Idioma fixo do Chromium/Electron: controles nativos, calendário, menus do
 // sistema e mensagens internas não devem variar com o idioma do computador.
@@ -69,6 +70,9 @@ app.whenReady().then(() => {
     console.error('Ponte local com Chrome indisponível:', error instanceof Error ? error.message : error)
   })
   registerIpcHandlers(startServices)
+  void startMcpServer(() => startServices()).catch(() => {
+    console.error('Servidor MCP local indisponível.')
+  })
   if (hasTursoConfig()) {
     void startServices().catch((error) => {
       console.error('Falha ao inicializar o Turso:', error instanceof Error ? error.message : error)
@@ -83,6 +87,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   stopBrowserBridge()
+  stopMcpServer()
   stopUpdater()
   closeDb()
 })

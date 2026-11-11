@@ -85,6 +85,11 @@ const api = {
     pickDirectory: (title: string): Promise<string | null> =>
       ipcRenderer.invoke('dialog:pickDirectory', title)
   },
+  mcp: {
+    status: (): Promise<{ localUrl: string; localRunning: boolean; lanUrls: string[]; lanEnabled: boolean; lanRunning: boolean; lanToken: string | null }> => ipcRenderer.invoke('mcp:status'),
+    installationStatus: (): Promise<{ configPath: string; installed: boolean }> => ipcRenderer.invoke('mcp:installationStatus'),
+    installChatgpt: (): Promise<{ configPath: string; installed: boolean }> => ipcRenderer.invoke('mcp:installChatgpt')
+  },
   shopee: {
     connect: (): Promise<void> => ipcRenderer.invoke('shopee:connect'),
     setup: (): Promise<string> => ipcRenderer.invoke('shopee:setup'),

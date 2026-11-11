@@ -123,6 +123,8 @@ import {
 import { resumoDesempenho, sincronizarDesempenho } from './services/performance'
 import { copyArtThemes, createArtTheme, deleteArtTheme, generateArtPdf, generateOrderArtPdf, importArtFont, importArtPdfs, importArtTheme, importOrderArtFont, invalidateArtThemeRoot, listArtThemes, loadArtFont, loadArtPdf, loadOrderArt, loadOrderArtFont, loadOrderArtPdf, openLatestOrderArtPdf, saveOrderArt, updateArtTheme } from './services/artEditor'
 import type { ArtTheme } from '@shared/artEditor'
+import { mcpStatus, refreshMcpLan } from './services/mcpServer'
+import { chatgptMcpInstallation, installChatgptMcp } from './services/chatgptMcpInstall'
 
 export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promise<void>): void {
   ipcMain.handle('art:list', () => listArtThemes())
@@ -178,8 +180,12 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
     if (before && partial.templatesDir) await copyArtThemes(before.templatesDir, partial.templatesDir)
     const next = await updateSettingsAsync(partial)
     if (partial.templatesDir !== undefined) invalidateArtThemeRoot()
+    if (partial.mcpLanEnabled !== undefined) await refreshMcpLan(() => onDatabaseReady())
     return next
   })
+  ipcMain.handle('mcp:status', () => mcpStatus())
+  ipcMain.handle('mcp:installationStatus', () => chatgptMcpInstallation())
+  ipcMain.handle('mcp:installChatgpt', () => installChatgptMcp())
   ipcMain.handle('dialog:pickDirectory', async (_e, title: string) => {
     const result = await dialog.showOpenDialog({ title, properties: ['openDirectory', 'createDirectory'] })
     return result.canceled ? null : result.filePaths[0]

@@ -181,6 +181,7 @@ export interface StatusHistoryEntry {
 export interface AppSettings {
   ordersRootDir: string
   templatesDir: string
+  mcpLanEnabled: boolean
 }
 
 export type UpdateState =
