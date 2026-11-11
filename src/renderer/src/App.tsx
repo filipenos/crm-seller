@@ -12,8 +12,9 @@ import DatabaseSetupPage from './pages/DatabaseSetupPage'
 import OrdersSyncPage from './pages/OrdersSyncPage'
 import PerformancePage from './pages/PerformancePage'
 import ManagementReportPage from './pages/ManagementReportPage'
+import ArtEditorPage from './pages/ArtEditorPage'
 
-type Page = 'home' | 'work' | 'orders' | 'produtos' | 'performance' | 'report' | 'producao' | 'activity' | 'settings'
+type Page = 'home' | 'work' | 'orders' | 'produtos' | 'performance' | 'report' | 'producao' | 'art' | 'activity' | 'settings'
 
 export default function App(): React.JSX.Element {
   const [database, setDatabase] = useState<{
@@ -25,6 +26,8 @@ export default function App(): React.JSX.Element {
   } | null>(null)
   const [page, setPage] = useState<Page>('home')
   const [ordersBuyer, setOrdersBuyer] = useState<string | null>(null)
+  const [artOrderSn, setArtOrderSn] = useState<string | null>(null)
+  const [artReturnPage, setArtReturnPage] = useState<'orders' | 'work'>('orders')
   const [status, setStatus] = useState<ShopeeConnectionStatus | null>(null)
   const [lastSync, setLastSync] = useState<SyncResult | null>(null)
   const [dataVersion, setDataVersion] = useState(0)
@@ -143,6 +146,9 @@ export default function App(): React.JSX.Element {
           <button className={page === 'producao' ? 'active' : ''} onClick={() => setPage('producao')}>
             Composição
           </button>
+          <button className={page === 'art' ? 'active' : ''} onClick={() => { setArtOrderSn(null); setPage('art') }}>
+            Editor de artes
+          </button>
           <button
             className={page === 'activity' ? 'active' : ''}
             onClick={() => setPage('activity')}
@@ -197,14 +203,15 @@ export default function App(): React.JSX.Element {
         {/* Fica aqui e não na listagem: a sincronização roda em qualquer página. */}
         {page !== 'orders' && <BarraProgresso />}
         {page === 'home' && <DashboardPage dataVersion={dataVersion} />}
-        {page === 'work' && <WorkPage dataVersion={dataVersion} />}
+        {page === 'work' && <WorkPage dataVersion={dataVersion} onEditArt={(orderSn) => { setArtOrderSn(orderSn); setArtReturnPage('work'); setPage('art') }} />}
         {page === 'orders' && (syncActive
           ? <OrdersSyncPage progress={syncProgress} starting={syncStarting} />
-          : <OrdersPage dataVersion={dataVersion} initialBuyerUsername={ordersBuyer} />)}
+          : <OrdersPage dataVersion={dataVersion} initialBuyerUsername={ordersBuyer} onEditArt={(orderSn) => { setArtOrderSn(orderSn); setArtReturnPage('orders'); setPage('art') }} />)}
         {page === 'produtos' && <ProdutosPage dataVersion={dataVersion} />}
         {page === 'performance' && <PerformancePage />}
         {page === 'report' && <ManagementReportPage onOpenBuyer={(username) => { setOrdersBuyer(username); setPage('orders') }} />}
         {page === 'producao' && <ProducaoPage dataVersion={dataVersion} />}
+        {page === 'art' && <ArtEditorPage orderSn={artOrderSn} onBack={artOrderSn ? () => { setArtOrderSn(null); setPage(artReturnPage) } : undefined} />}
         {page === 'activity' && (
           <ActivityPage dataVersion={dataVersion} onSeen={() => void refreshUnseen()} />
         )}

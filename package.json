@@ -1,6 +1,6 @@
 {
   "name": "crm-seller",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "CRM local para pedidos personalizados (Shopee)",
   "main": "out/main/index.js",
   "author": "Filipe Peixoto <filipenos@gmail.com>",
@@ -21,6 +21,9 @@
     "test:report": "esbuild scripts/check-management-report.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.cache/crm-seller-check-report.mjs && node node_modules/.cache/crm-seller-check-report.mjs",
     "test:tracking": "esbuild scripts/check-tracking-history.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-tracking.mjs && NODE_ENV=test node node_modules/.cache/crm-seller-check-tracking.mjs",
     "test:work": "esbuild scripts/check-work-agenda.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-work.mjs && NODE_ENV=test node node_modules/.cache/crm-seller-check-work.mjs",
+    "test:art": "esbuild scripts/check-art-geometry.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/crm-seller-check-art.mjs && node node_modules/.cache/crm-seller-check-art.mjs",
+    "test:settings": "esbuild scripts/check-local-settings.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-settings-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-settings.mjs && node node_modules/.cache/crm-seller-check-settings.mjs",
+    "test:production": "esbuild scripts/check-production-flow.ts --bundle --platform=node --format=esm --packages=external --alias:@shared=./src/shared --alias:electron=./scripts/electron-test-stub.ts --outfile=node_modules/.cache/crm-seller-check-production.mjs && NODE_ENV=test node node_modules/.cache/crm-seller-check-production.mjs",
     "check:db-access": "node scripts/check-db-access.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:win": "electron-vite build && electron-builder --win",
@@ -30,7 +33,10 @@
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
+    "@pdf-lib/fontkit": "^1.1.1",
     "electron-updater": "^6.8.9",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

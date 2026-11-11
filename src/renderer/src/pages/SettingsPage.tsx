@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ActionResult, AppSettings, PendingSyncPreview, UpdateStatus } from '@shared/types'
 import StageEditor from '../components/StageEditor'
 import BarraProgresso from '../components/BarraProgresso'
+import type { ArtTheme } from '@shared/artEditor'
 
 interface Props {
   onStatusChange: () => void
@@ -28,7 +29,12 @@ function describeUpdate(status: UpdateStatus | null): string {
 }
 
 export default function SettingsPage({ onStatusChange }: Props): React.JSX.Element {
+  const [tab, setTab] = useState<'general' | 'templates' | 'stages'>('general')
   const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [artThemes, setArtThemes] = useState<ArtTheme[]>([])
+  const [newThemeName, setNewThemeName] = useState('')
+  const [themeBusy, setThemeBusy] = useState(false)
+  const [themeError, setThemeError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [version, setVersion] = useState('')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
@@ -56,6 +62,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
 
   useEffect(() => {
     void window.api.settings.get().then(setSettings)
+    void window.api.art.list().then(setArtThemes).catch((reason) => setThemeError(String(reason)))
     void window.api.app.version().then(setVersion)
     void window.api.updates.status().then(setUpdateStatus)
     void window.api.shopee.browserStatus().then((status) => setAuthMode(status.mode))
@@ -79,6 +86,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
   const update = async (partial: Partial<AppSettings>): Promise<void> => {
     const next = await window.api.settings.update(partial)
     setSettings(next)
+    if (partial.templatesDir !== undefined) setArtThemes(await window.api.art.list())
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -97,7 +105,13 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
         <h1>Configurações</h1>
         {saved && <span className="saved-tag">✓ salvo</span>}
       </header>
+      <nav className="settings-tabs" aria-label="Seções das configurações">
+        <button type="button" className={tab === 'general' ? 'active' : ''} aria-current={tab === 'general' ? 'page' : undefined} onClick={() => setTab('general')}>Geral</button>
+        <button type="button" className={tab === 'templates' ? 'active' : ''} aria-current={tab === 'templates' ? 'page' : undefined} onClick={() => setTab('templates')}>Templates</button>
+        <button type="button" className={tab === 'stages' ? 'active' : ''} aria-current={tab === 'stages' ? 'page' : undefined} onClick={() => setTab('stages')}>Etapas</button>
+      </nav>
 
+      {tab === 'general' && <>
       <section className="settings-card">
         <h3>Banco de dados Turso</h3>
         <p className="muted">
@@ -244,18 +258,15 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
         {shopeeNotice && <small className="muted">{shopeeNotice}</small>}
         {shopeeBindError && <small className="muted">⚠ {shopeeBindError}</small>}
       </section>
+      </>}
 
-      <section className="settings-card">
-        <h3>Etapas de produção</h3>
-        <p className="muted">
-          Seu fluxo enquanto o pedido está <b>conosco</b> — depois de postado no ponto de coleta,
-          quem descreve o pedido é o rastreio da Shopee. Cada etapa pode ter ações, que viram
-          botões no pedido.
-        </p>
+      {tab === 'stages' && <section className="settings-card">
+        <h3>Fluxos de produção</h3>
+        <p className="muted">Caixas e laços têm etapas próprias por item. A etiqueta da Shopee não altera a produção.</p>
         <StageEditor />
-      </section>
+      </section>}
 
-      <section className="settings-card">
+      {tab === 'general' && <section className="settings-card">
         <h3>Pastas</h3>
         <div className="setting-row">
           <label>Pasta raiz dos pedidos</label>
@@ -267,21 +278,47 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
           </div>
           <small className="muted">Cada pedido vira uma subpasta: “PEDIDO - NomeDaCriança”.</small>
         </div>
-        <div className="setting-row">
-          <label>Pasta de templates</label>
-          <div className="field-row">
-            <input readOnly value={settings.templatesDir} />
-            <button onClick={() => pickDir('templatesDir', 'Pasta de templates')}>
-              Escolher…
-            </button>
-          </div>
-          <small className="muted">
-            Todo o conteúdo desta pasta é copiado para a pasta de cada pedido. Arquivos com{' '}
-            <code>{'{NOME}'}</code> no nome são renomeados com o nome da criança.
-          </small>
-        </div>
-      </section>
+      </section>}
 
+      {tab === 'templates' && <>
+      <section className="settings-card">
+        <h3>Pasta de templates</h3>
+        <div className="field-row">
+          <input readOnly value={settings.templatesDir} />
+          <button onClick={() => pickDir('templatesDir', 'Pasta de templates')}>Escolher…</button>
+        </div>
+        <small className="muted">Os temas ficam nesta pasta do computador. O app não importa temas antigos sozinho.</small>
+      </section>
+      <section className="settings-card">
+        <h3>Templates de artes</h3>
+        <p className="muted">Cadastre o nome do tema. O app cria uma subpasta em <b>{settings.templatesDir}</b>. Depois, importe os PDFs no Editor de artes e vincule o tema ao produto.</p>
+        <div className="field-row">
+          <input aria-label="Nome do novo tema" value={newThemeName} placeholder="Ex.: Carros" onChange={(event) => setNewThemeName(event.target.value)} />
+          <button disabled={themeBusy || !newThemeName.trim()} onClick={async () => {
+            setThemeBusy(true); setThemeError(null)
+            try {
+              const theme = await window.api.art.create(newThemeName)
+              setArtThemes((current) => [...current, theme].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
+              setNewThemeName('')
+            } catch (reason) { setThemeError(String(reason instanceof Error ? reason.message : reason)) }
+            finally { setThemeBusy(false) }
+          }}>{themeBusy ? 'Criando…' : 'Criar tema'}</button>
+        </div>
+        {themeError && <small className="field-error">{themeError}</small>}
+        {artThemes.length > 0 && <div className="template-list">{artThemes.map((theme) => <div key={theme.id}><b>{theme.name}</b><small className="muted">{theme.pages.length} arte(s) · {theme.id}</small><button className="danger" disabled={themeBusy} onClick={async () => {
+          if (!window.confirm(`Apagar o template “${theme.name}” e seus ${theme.pages.length} PDF(s) deste computador? Ele será enviado à lixeira. Produtos vinculados a este tema precisarão dele novamente para gerar artes aqui.`)) return
+          setThemeBusy(true); setThemeError(null)
+          try {
+            await window.api.art.delete(theme.id)
+            setArtThemes((current) => current.filter((item) => item.id !== theme.id))
+            if (localStorage.getItem('art-editor-theme-id') === theme.id) localStorage.removeItem('art-editor-theme-id')
+          } catch (reason) { setThemeError(String(reason instanceof Error ? reason.message : reason)) }
+          finally { setThemeBusy(false) }
+        }}>Apagar</button></div>)}</div>}
+      </section>
+      </>}
+
+      {tab === 'general' && <>
       <section className="settings-card">
         <h3>Sincronização</h3>
         <p className="muted">
@@ -416,6 +453,7 @@ export default function SettingsPage({ onStatusChange }: Props): React.JSX.Eleme
         </div>
         <small className="muted">{describeUpdate(updateStatus)}</small>
       </section>
+      </>}
     </div>
   )
 }

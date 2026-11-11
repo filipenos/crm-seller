@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { LinhaFabricacao, ProductKind, Produto, ProdutoVariacao } from '@shared/types'
+import type { ArtTheme } from '@shared/artEditor'
 
 interface Props {
   dataVersion: number
@@ -25,6 +26,7 @@ function vendasPorCor(variacoes: ProdutoVariacao[]): { cor: string; kits: number
 export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element {
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [linhas, setLinhas] = useState<LinhaFabricacao[]>([])
+  const [themes, setThemes] = useState<ArtTheme[]>([])
   const [sincronizando, setSincronizando] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -34,12 +36,14 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
   const carregar = async (): Promise<void> => {
     setLoading(true)
     try {
-      const [novosProdutos, novasLinhas] = await Promise.all([
+      const [novosProdutos, novasLinhas, novosTemas] = await Promise.all([
         window.api.produtos.list(),
-        window.api.fabricacao.linhas()
+        window.api.fabricacao.linhas(),
+        window.api.art.list()
       ])
       setProdutos(novosProdutos)
       setLinhas(novasLinhas)
+      setThemes(novosTemas)
     } finally {
       setLoading(false)
     }
@@ -83,6 +87,16 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
     finally { setSalvando(null) }
   }
 
+  const mudarTemplate = async (itemId: string, key: string): Promise<void> => {
+    setSalvando(itemId)
+    try {
+      const templateKey = key || null
+      await window.api.produtos.setTemplate(itemId, templateKey)
+      setProdutos((current) => current.map((product) => product.itemId === itemId ? { ...product, templateKey } : product))
+    } catch (error) { setAviso(String(error)) }
+    finally { setSalvando(null) }
+  }
+
   const totalCaixas = produtos.reduce((s, p) => s + p.caixasVendidas, 0)
   const totalLacos = produtos.reduce((s, p) => s + p.lacosVendidos, 0)
 
@@ -113,6 +127,7 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
             <th className="num">Líquido</th>
             <th className="num">Custo/caixa</th>
             <th>Composição atual</th>
+            <th>Tema da arte</th>
           </tr>
         </thead>
           {produtos.map((p) => (<tbody key={p.itemId}>
@@ -172,8 +187,13 @@ export default function ProdutosPage({ dataVersion }: Props): React.JSX.Element 
                     ))}
                 </select>}
               </td>
+              <td>{p.tipo === 'CAIXAS' && <select aria-label={`Tema de ${p.nome}`} value={p.templateKey ?? ''} disabled={salvando === p.itemId} onChange={(event) => void mudarTemplate(p.itemId, event.target.value)}>
+                <option value="">Sem tema</option>
+                {p.templateKey && !themes.some((theme) => theme.id === p.templateKey) && <option value={p.templateKey}>Tema indisponível neste computador</option>}
+                {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+              </select>}</td>
             </tr>
-            {expandido === p.itemId && <tr><td colSpan={8}>
+            {expandido === p.itemId && <tr><td colSpan={9}>
               <table className="tabela"><thead><tr><th>Cor</th><th className="num">Kits vendidos</th><th className="num">Laços vendidos</th></tr></thead><tbody>
                 {vendasPorCor(p.variacoesDetalhe).map((v) => <tr key={v.cor}>
                   <td>{v.cor}</td>

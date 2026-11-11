@@ -53,6 +53,12 @@ try {
   await insertItem('done-box', 'Kit de caixas', '5 peças', 1, 5, null, 'boxes')
   await insertOrder('done-bow', at(shift(today, 1)), 'ENVIADO', 'ENVIADO', null, true)
   await insertItem('done-bow', 'Kit de laços', 'Azul Bebê,20', 1, null, 20, 'bows')
+  for (const [sn, itemId, stageId] of [
+    ['packed', 'boxes', 10]
+  ] as const) {
+    await client.execute({ sql: `INSERT INTO order_item_work (order_sn, item_id, model_id, stage_id, updated_at)
+      VALUES (?, ?, '', ?, ?)`, args: [sn, itemId, stageId, at(today)] })
+  }
   await insertOrder('older-label', at(shift(today, -1)), 'NOVO', 'A_ENVIAR', null, true)
   await client.execute({ sql: 'UPDATE orders SET label_generated_at = ? WHERE order_sn = ?', args: [at(shift(today, -2)), 'older-label'] })
   await insertOrder('already-posted', at(shift(today, 1)), 'NOVO', 'A_ENVIAR', null, true)
@@ -66,20 +72,22 @@ try {
   assert.deepEqual(one.dias[0].pedidos.map((order) => order.orderSn), ['bow', 'box', 'already-posted', 'done-bow', 'done-box', 'packed', 'sent'])
   assert.equal(one.dias[0].pedidos[0].createdAtShopee, at(shift(today, -3)))
   assert.equal(one.dias[0].pedidos.find((order) => order.orderSn === 'box')?.buyerUsername, 'cliente_teste')
-  assert.equal(one.dias[0].pedidosFeitos, 4)
+  assert.equal(one.dias[0].pedidosFeitos, 5)
+  assert.equal(one.dias[0].pedidos.find((order) => order.orderSn === 'done-box')?.feito, true)
+  assert.equal(one.dias[0].pedidos.find((order) => order.orderSn === 'sent')?.feito, true)
   assert.deepEqual(one.paraEntregar.map((order) => order.orderSn), ['older-label', 'done-box'])
   assert.equal(one.paraEntregar[1].buyerUsername, 'cliente_entrega')
   assert.deepEqual(searchWorkOrders(one, 'joao', false).map((order) => order.orderSn), ['box'])
   assert.deepEqual(searchWorkOrders(one, 'azul bebê', false).map((order) => order.orderSn), ['bow', 'done-bow'])
-  assert.deepEqual(searchWorkOrders(one, 'cliente_entrega', true).map((order) => order.orderSn), ['done-box'])
-  assert.deepEqual(searchWorkOrders(one, 'done-box', true).map((order) => order.origem), ['entrega'])
-  assert.deepEqual(searchWorkOrders(one, 'box', true).map((order) => order.orderSn), ['box', 'done-box'])
+  assert.deepEqual(searchWorkOrders(one, 'cliente_entrega', true).map((order) => order.orderSn), [])
+  assert.deepEqual(searchWorkOrders(one, 'done-box', true).map((order) => order.origem), [])
+  assert.deepEqual(searchWorkOrders(one, 'box', true).map((order) => order.orderSn), ['box'])
   assert.equal(one.dias[0].pedidosLacos, 2)
-  assert.equal(one.dias[0].pedidosCaixas, 3)
+  assert.equal(one.dias[0].pedidosCaixas, 4)
   assert.equal(one.dias[0].pedidosLacosFeitos, 1)
-  assert.equal(one.dias[0].pedidosCaixasFeitos, 2)
+  assert.equal(one.dias[0].pedidosCaixasFeitos, 3)
   assert.equal(one.dias[0].lacosFeitos, 20)
-  assert.equal(one.dias[0].caixasFeitas, 10)
+  assert.equal(one.dias[0].caixasFeitas, 15)
   assert.equal(one.dias[0].caixas.reduce((sum, box) => sum + box.quantidade, 0), 10)
   assert.deepEqual(one.dias[0].lacos, [
     { nome: 'Azul Bebê', quantidade: 40 }, { nome: 'Rosa', quantidade: 10 }

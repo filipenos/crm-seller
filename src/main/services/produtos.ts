@@ -40,6 +40,7 @@ function pecasDaVariacao(nome: string | null): number | null {
 
 interface ProdutoRow {
   item_id: string
+  template_key: string | null
   name: string
   image_url: string | null
   price: number | null
@@ -90,7 +91,7 @@ export async function listarProdutosAsync(): Promise<Produto[]> {
     ), variacoes AS (
       SELECT item_id, COUNT(*) AS variacoes FROM product_variations GROUP BY item_id
     )
-    SELECT p.item_id, p.name, p.kind, p.image_url, p.price, p.stock, p.active, p.line_id,
+    SELECT p.item_id, p.name, p.kind, p.template_key, p.image_url, p.price, p.stock, p.active, p.line_id,
            l.name AS linha, p.synced_at, COALESCE(vr.variacoes, 0) AS variacoes,
            COALESCE(v.pedidos, 0) AS pedidos, v.kits, v.caixas, v.lacos,
            v.vendas, v.liquido, COALESCE(v.sem_liquido, 0) AS sem_liquido,
@@ -164,7 +165,7 @@ export async function listarProdutosAsync(): Promise<Produto[]> {
   }
 
   return rows.map((r) => ({
-    itemId: r.item_id, nome: r.name, tipo: r.kind, imagemUrl: r.image_url, preco: r.price,
+    itemId: r.item_id, templateKey: r.template_key, nome: r.name, tipo: r.kind, imagemUrl: r.image_url, preco: r.price,
     estoqueShopee: r.stock, ativo: r.active === null ? null : r.active === 1,
     linhaId: r.line_id, linhaNome: r.linha, sincronizadoEm: r.synced_at,
     variacoes: r.variacoes, pedidos: r.pedidos, kitsVendidos: r.kits ?? 0,
@@ -238,4 +239,10 @@ export async function definirLinhaDoProdutoAsync(
 ): Promise<void> {
   const statement = await getAsyncDb().prepare('UPDATE products SET line_id = ? WHERE item_id = ?')
   await statement.run([linhaId, itemId])
+}
+
+export async function setProductTemplate(itemId: string, templateKey: string | null): Promise<void> {
+  if (!itemId.trim()) throw new Error('Produto inválido.')
+  if (templateKey !== null && !/^[a-z0-9][a-z0-9-]{0,79}$/.test(templateKey)) throw new Error('Tema inválido.')
+  await getAsyncDb().batch([{ sql: 'UPDATE products SET template_key = ? WHERE item_id = ?', parameters: [templateKey, itemId] }])
 }

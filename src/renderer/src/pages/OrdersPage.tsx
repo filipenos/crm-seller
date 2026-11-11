@@ -13,9 +13,10 @@ function prazoApertado(shipByDate: number): boolean {
 interface Props {
   dataVersion: number
   initialBuyerUsername?: string | null
+  onEditArt: (orderSn: string) => void
 }
 
-export default function OrdersPage({ dataVersion, initialBuyerUsername }: Props): React.JSX.Element {
+export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditArt }: Props): React.JSX.Element {
   const [orders, setOrders] = useState<Order[]>([])
   // Entra direto no que precisa de trabalho hoje, não na base inteira.
   const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>(initialBuyerUsername ? 'TODOS' : 'A_ENVIAR')
@@ -298,6 +299,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername }: Props)
             )
           }
           onToast={showToast}
+          onEditArt={(orderSn) => { setSelected(null); onEditArt(orderSn) }}
         />
       )}
       {toast && <div className="toast">{toast}</div>}

@@ -11,8 +11,9 @@ import type {
   PeriodoRelatorio,
   PeriodoDesempenho,
   ProductKind,
-  StageActionKind
 } from '@shared/types'
+import type { ProductionActionKind } from '@shared/types'
+import { actOnProductionItem, listOrderProduction, listProductionFlows, updateProductionAction, updateProductionStage } from './services/production'
 import { getSettingsAsync, updateSettingsAsync } from './services/settings'
 import { closeDb, prepareTursoDatabaseAsync } from './db'
 import { publicTursoConfig, writeTursoConfig } from './db/config'
@@ -31,19 +32,8 @@ import {
   setChildNameAsync,
   setInternalStatusAsync,
   setNoteAsync,
-  setOrderStageAsync,
   upsertShopeeOrderAsync
 } from './services/orders'
-import {
-  addActionAsync,
-  createStageAsync,
-  deleteStageAsync,
-  listStagesAsync,
-  nextStageIdAsync,
-  removeActionAsync,
-  reorderStagesAsync,
-  updateStageAsync
-} from './services/stages'
 import { createOrderFolder, ensureFolderName, openOrderFolder } from './services/folders'
 import { disconnect, openLoginWindow, openLoginWindowAndWait } from './services/shopee/session'
 import { getShopeeAuthMode, setShopeeAuthMode } from './services/shopee/authMode'
@@ -69,6 +59,7 @@ import { workAgenda } from './services/workAgenda'
 import { checkForUpdates, getUpdateStatus, installUpdate } from './services/updates'
 import {
   definirTipoDoProdutoAsync,
+  setProductTemplate,
   definirLinhaDoProdutoAsync,
   listarProdutosAsync,
   recomporCatalogoDosPedidosAsync
@@ -130,8 +121,27 @@ import {
   updateCompositionVariant
 } from './services/composition'
 import { resumoDesempenho, sincronizarDesempenho } from './services/performance'
+import { copyArtThemes, createArtTheme, deleteArtTheme, generateArtPdf, generateOrderArtPdf, importArtFont, importArtPdfs, importArtTheme, importOrderArtFont, invalidateArtThemeRoot, listArtThemes, loadArtFont, loadArtPdf, loadOrderArt, loadOrderArtFont, loadOrderArtPdf, openLatestOrderArtPdf, saveOrderArt, updateArtTheme } from './services/artEditor'
+import type { ArtTheme } from '@shared/artEditor'
 
 export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promise<void>): void {
+  ipcMain.handle('art:list', () => listArtThemes())
+  ipcMain.handle('art:create', (_e, name: string) => createArtTheme(name))
+  ipcMain.handle('art:delete', (_e, id: string) => deleteArtTheme(id))
+  ipcMain.handle('art:import', () => importArtTheme())
+  ipcMain.handle('art:importPdfs', (_e, id: string) => importArtPdfs(id))
+  ipcMain.handle('art:loadPdf', (_e, id: string, file: string) => loadArtPdf(id, file))
+  ipcMain.handle('art:loadFont', (_e, id: string) => loadArtFont(id))
+  ipcMain.handle('art:importFont', (_e, id: string) => importArtFont(id))
+  ipcMain.handle('art:update', (_e, theme: ArtTheme) => updateArtTheme(theme))
+  ipcMain.handle('art:generate', (_e, id: string, name: string, age: string) => generateArtPdf(id, name, age))
+  ipcMain.handle('art:orderLoad', (_e, orderSn: string) => loadOrderArt(orderSn))
+  ipcMain.handle('art:orderLoadPdf', (_e, orderSn: string, key: string, file: string) => loadOrderArtPdf(orderSn, key, file))
+  ipcMain.handle('art:orderLoadFont', (_e, orderSn: string, key: string) => loadOrderArtFont(orderSn, key))
+  ipcMain.handle('art:orderImportFont', (_e, orderSn: string, key: string) => importOrderArtFont(orderSn, key))
+  ipcMain.handle('art:orderSave', (_e, orderSn: string, theme: ArtTheme, name: string, age: string) => saveOrderArt(orderSn, theme, name, age))
+  ipcMain.handle('art:orderGenerate', (_e, orderSn: string, key: string) => generateOrderArtPdf(orderSn, key))
+  ipcMain.handle('art:orderOpenLatest', (_e, orderSn: string, key: string) => openLatestOrderArtPdf(orderSn, key))
   ipcMain.handle('database:status', async () => {
     const status = publicTursoConfig()
     if (!status.configured) return status
@@ -163,7 +173,13 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
 
   // Settings
   ipcMain.handle('settings:get', () => getSettingsAsync())
-  ipcMain.handle('settings:update', (_e, partial: Partial<AppSettings>) => updateSettingsAsync(partial))
+  ipcMain.handle('settings:update', async (_e, partial: Partial<AppSettings>) => {
+    const before = partial.templatesDir !== undefined ? await getSettingsAsync() : null
+    if (before && partial.templatesDir) await copyArtThemes(before.templatesDir, partial.templatesDir)
+    const next = await updateSettingsAsync(partial)
+    if (partial.templatesDir !== undefined) invalidateArtThemeRoot()
+    return next
+  })
   ipcMain.handle('dialog:pickDirectory', async (_e, title: string) => {
     const result = await dialog.showOpenDialog({ title, properties: ['openDirectory', 'createDirectory'] })
     return result.canceled ? null : result.filePaths[0]
@@ -257,25 +273,12 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
     await ensureFolderName(orderSn)
     return order
   })
-  ipcMain.handle('orders:setStage', (_e, orderSn: string, stageId: number) =>
-    setOrderStageAsync(orderSn, stageId)
-  )
   ipcMain.handle('orders:setNote', (_e, orderSn: string, note: string) => setNoteAsync(orderSn, note))
-  // Etapas de produção cadastráveis
-  ipcMain.handle('stages:list', () => listStagesAsync())
-  ipcMain.handle('stages:create', (_e, name: string, color: string | null) =>
-    createStageAsync(name, color)
-  )
-  ipcMain.handle('stages:update', (_e, id: number, patch: { name?: string; color?: string | null }) =>
-    updateStageAsync(id, patch)
-  )
-  ipcMain.handle('stages:delete', (_e, id: number) => deleteStageAsync(id))
-  ipcMain.handle('stages:reorder', (_e, orderedIds: number[]) => reorderStagesAsync(orderedIds))
-  ipcMain.handle('stages:addAction', (_e, stageId: number, kind: StageActionKind, label: string) =>
-    addActionAsync(stageId, kind, label)
-  )
-  ipcMain.handle('stages:removeAction', (_e, actionId: number) => removeActionAsync(actionId))
-  ipcMain.handle('stages:next', (_e, currentStageId: number | null) => nextStageIdAsync(currentStageId))
+  ipcMain.handle('production:flows', () => listProductionFlows())
+  ipcMain.handle('production:order', (_e, orderSn: string) => listOrderProduction(orderSn))
+  ipcMain.handle('production:act', (_e, orderSn: string, itemId: string, modelId: string, kind: ProductionActionKind) => actOnProductionItem(orderSn, itemId, modelId, kind))
+  ipcMain.handle('production:updateStage', (_e, id: number, patch: { name?: string; color?: string | null }) => updateProductionStage(id, patch))
+  ipcMain.handle('production:updateAction', (_e, id: number, label: string) => updateProductionAction(id, label))
   ipcMain.handle('orders:statusHistory', (_e, orderSn: string) => getStatusHistoryAsync(orderSn))
   ipcMain.handle('orders:createFolder', (_e, orderSn: string) => createOrderFolder(orderSn))
   ipcMain.handle('orders:openFolder', (_e, orderSn: string) => openOrderFolder(orderSn))
@@ -320,6 +323,9 @@ export function registerIpcHandlers(onDatabaseReady: (reset?: boolean) => Promis
   )
   ipcMain.handle('produtos:setTipo', (_e, itemId: string, tipo: ProductKind) =>
     definirTipoDoProdutoAsync(itemId, tipo)
+  )
+  ipcMain.handle('produtos:setTemplate', (_e, itemId: string, templateKey: string | null) =>
+    setProductTemplate(itemId, templateKey)
   )
   ipcMain.handle('desempenho:resumo', (_e, period?: PeriodoDesempenho) => resumoDesempenho(period))
   ipcMain.handle('desempenho:sincronizar', (_e, period?: PeriodoDesempenho) => sincronizarDesempenho(period))

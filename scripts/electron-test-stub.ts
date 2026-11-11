@@ -24,3 +24,11 @@ export const BrowserWindow = class {
 export const session = {
   fromPartition(): never { throw new Error('O teste isolado não deve acessar sessões.') }
 }
+
+export const dialog = {
+  showOpenDialog(): never { throw new Error('O teste isolado não deve abrir diálogos.') }
+}
+
+export const shell = {
+  openPath(): never { throw new Error('O teste isolado não deve abrir arquivos.') }
+}

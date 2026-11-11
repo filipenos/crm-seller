@@ -626,6 +626,94 @@ const migrations: string[] = [
   // 28 — o controle de rastreio pertence à sincronização, não ao relatório.
   `
   ALTER TABLE report_tracking_audit RENAME TO tracking_audit;
+  `,
+  // 29 — vínculo do anúncio com a pasta local do tema.
+  `
+  ALTER TABLE products ADD COLUMN template_key TEXT;
+  `,
+  // 30 — produção por item, com fluxos separados de caixas e laços.
+  `
+  UPDATE orders SET stage_id = NULL;
+  DELETE FROM stage_actions;
+  DELETE FROM workflow_stages;
+
+  CREATE TABLE production_flows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    product_kind TEXT NOT NULL UNIQUE
+  );
+  CREATE TABLE production_stages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    flow_id INTEGER NOT NULL REFERENCES production_flows(id) ON DELETE CASCADE,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    color TEXT,
+    UNIQUE(flow_id, code)
+  );
+  CREATE INDEX idx_production_stages_flow ON production_stages(flow_id, position);
+  CREATE TABLE production_stage_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage_id INTEGER NOT NULL REFERENCES production_stages(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    UNIQUE(stage_id, kind)
+  );
+  CREATE TABLE order_item_work (
+    order_sn TEXT NOT NULL REFERENCES orders(order_sn) ON DELETE CASCADE,
+    item_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    stage_id INTEGER NOT NULL REFERENCES production_stages(id),
+    art_generated_at INTEGER,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(order_sn, item_id, model_id)
+  );
+  CREATE TABLE order_item_work_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_sn TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    from_stage TEXT,
+    to_stage TEXT NOT NULL,
+    happened_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_order_item_work_events_order ON order_item_work_events(order_sn, happened_at);
+
+  INSERT INTO production_flows (id, code, name, product_kind) VALUES
+    (1, 'boxes', 'Kit de caixas', 'CAIXAS'),
+    (2, 'bows', 'Kit de laços', 'LACOS');
+  INSERT INTO production_stages (id, flow_id, code, name, position, color) VALUES
+    (1, 1, 'WAITING_DATA', 'Aguardando dados', 1, '#f59e0b'),
+    (2, 1, 'DATA_RECEIVED', 'Dados recebidos', 2, '#3b82f6'),
+    (3, 1, 'ART_REVIEW', 'Arte em revisão', 3, '#8b5cf6'),
+    (4, 1, 'ART_APPROVED', 'Arte aprovada', 4, '#0ea5e9'),
+    (5, 1, 'PRINTING', 'Imprimindo', 5, '#06b6d4'),
+    (6, 1, 'PRINTED', 'Impresso', 6, '#14b8a6'),
+    (7, 1, 'CUT', 'Cortado', 7, '#22c55e'),
+    (8, 1, 'FOLDED', 'Dobrado', 8, '#65a30d'),
+    (9, 1, 'GLUED', 'Colado', 9, '#84cc16'),
+    (10, 1, 'PACKED', 'Embalado', 10, '#16a34a'),
+    (11, 2, 'TO_PRODUCE', 'A produzir', 1, '#f59e0b'),
+    (12, 2, 'PRODUCING', 'Produzindo', 2, '#3b82f6'),
+    (13, 2, 'READY', 'Pronto', 3, '#14b8a6'),
+    (14, 2, 'PACKED', 'Embalado', 4, '#16a34a');
+  INSERT INTO production_stage_actions (stage_id, kind, label, position) VALUES
+    (1, 'RECEIVE_DATA', 'Dados recebidos', 1),
+    (2, 'GENERATE_ART', 'Gerar arte', 1),
+    (3, 'EDIT_ART', 'Editar arte', 1),
+    (3, 'APPROVE_ART', 'Aprovar arte', 2),
+    (4, 'PRINT_ART', 'Abrir para imprimir', 1),
+    (5, 'RETRY_PRINT', 'Abrir PDF novamente', 1),
+    (5, 'CONFIRM_PRINT', 'Impressão concluída', 2),
+    (6, 'ADVANCE', 'Marcar cortado', 1),
+    (7, 'ADVANCE', 'Marcar dobrado', 1),
+    (8, 'ADVANCE', 'Marcar colado', 1),
+    (9, 'ADVANCE', 'Marcar embalado', 1),
+    (11, 'ADVANCE', 'Iniciar produção', 1),
+    (12, 'ADVANCE', 'Marcar pronto', 1),
+    (13, 'ADVANCE', 'Marcar embalado', 1);
   `
 ]
 

@@ -67,18 +67,18 @@ export async function createOrderFolder(orderSn: string): Promise<ActionResult> 
   try {
     await mkdir(folderPath, { recursive: true })
 
-    if (existsSync(settings.templatesDir)) {
-      const templates = await readdir(settings.templatesDir)
-      for (const name of templates) {
-        const target = join(folderPath, name)
-        if (!existsSync(target)) {
-          await cp(join(settings.templatesDir, name), target, { recursive: true })
-        }
-      }
-      if (order.childName) {
-        await applyNamePlaceholders(folderPath, order.childName)
+    const themeKeys = new Set(order.items.map((item) => item.templateKey).filter((key): key is string => Boolean(key)))
+    for (const key of themeKeys) {
+      if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(key)) continue
+      const source = join(settings.templatesDir, key)
+      if (!existsSync(source)) throw new Error(`O tema "${key}" não está disponível na pasta de templates deste computador.`)
+      const target = join(folderPath, 'Artes', key)
+      if (!existsSync(target)) {
+        await mkdir(join(folderPath, 'Artes'), { recursive: true })
+        await cp(source, target, { recursive: true })
       }
     }
+    if (order.childName) await applyNamePlaceholders(folderPath, order.childName)
 
     await writeFile(join(folderPath, 'pedido-info.txt'), buildInfoFile(order), 'utf-8')
     await setFolderPathAsync(orderSn, folderPath)

@@ -122,16 +122,17 @@ async function loadItemsAsync(orderSns: string[]): Promise<Map<string, OrderItem
   const map = new Map<string, OrderItem[]>()
   if (orderSns.length === 0) return map
   const statement = await getAsyncDb().prepare(
-    `SELECT * FROM order_items WHERE order_sn IN (${orderSns.map(() => '?').join(',')})`
+    `SELECT i.*, p.template_key FROM order_items i LEFT JOIN products p ON p.item_id = i.item_id
+      WHERE i.order_sn IN (${orderSns.map(() => '?').join(',')})`
   )
   const rows = (await statement.all(orderSns)) as {
-    id: number; order_sn: string; item_name: string; model_name: string | null
+    id: number; order_sn: string; item_name: string; model_name: string | null; template_key: string | null
     quantity: number; image_url: string | null; item_sku: string | null; pecas: number | null; lacos: number | null
   }[]
   for (const r of rows) {
     const list = map.get(r.order_sn) ?? []
     list.push({
-      id: r.id, orderSn: r.order_sn, itemName: r.item_name, modelName: r.model_name,
+      id: r.id, templateKey: r.template_key, orderSn: r.order_sn, itemName: r.item_name, modelName: r.model_name,
       quantity: r.quantity, imageUrl: r.image_url, itemSku: r.item_sku, pecas: r.pecas, lacos: r.lacos
     })
     map.set(r.order_sn, list)
@@ -379,34 +380,6 @@ export async function getOrderAsync(orderSn: string): Promise<Order | null> {
     incomeStatement.get([orderSn]) as Promise<Parameters<typeof rowToRecebimento>[0] | undefined>
   ])
   return rowToOrder(row, items.get(orderSn) ?? [], incomeRow ? rowToRecebimento(incomeRow) : null)
-}
-
-/**
- * Move o pedido de etapa de produção. O histórico guarda o **nome** da etapa,
- * não o id: renomear ou apagar a etapa depois não pode reescrever o passado.
- */
-export async function setOrderStageAsync(orderSn: string, stageId: number): Promise<Order | null> {
-  const db = getAsyncDb()
-  const currentStatement = await db.prepare(
-    `SELECT o.stage_id, s.name AS stage_name FROM orders o
-      LEFT JOIN workflow_stages s ON s.id = o.stage_id WHERE o.order_sn = ?`
-  )
-  const targetStatement = await db.prepare('SELECT name FROM workflow_stages WHERE id = ?')
-  const [current, target] = await Promise.all([
-    currentStatement.get([orderSn]) as Promise<{ stage_id: number | null; stage_name: string | null } | undefined>,
-    targetStatement.get([stageId]) as Promise<{ name: string } | undefined>
-  ])
-  if (!current) return null
-  if (!target) throw new Error(`Etapa ${stageId} não existe`)
-  if (current.stage_id !== stageId) {
-    const update = await db.prepare('UPDATE orders SET stage_id = ? WHERE order_sn = ?')
-    const history = await db.prepare(
-      'INSERT INTO status_history (order_sn, from_status, to_status, changed_at) VALUES (?, ?, ?, ?)'
-    )
-    await update.run([stageId, orderSn])
-    await history.run([orderSn, current.stage_name, target.name, Date.now()])
-  }
-  return getOrderAsync(orderSn)
 }
 
 export async function setInternalStatusAsync(

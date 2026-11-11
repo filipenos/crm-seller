@@ -53,37 +53,6 @@ export function isWithUs(tab: OrderTab): boolean {
   return tab === 'A_ENVIAR'
 }
 
-/**
- * Ações que uma etapa pode oferecer. O conjunto é fechado porque cada uma
- * dispara código do app; o que é cadastrável é *quais* aparecem em cada etapa,
- * com que rótulo e em que ordem.
- */
-export const STAGE_ACTION_KINDS = ['CRIAR_PASTA', 'ABRIR_PASTA', 'AVANCAR'] as const
-
-export type StageActionKind = (typeof STAGE_ACTION_KINDS)[number]
-
-export const STAGE_ACTION_LABELS: Record<StageActionKind, string> = {
-  CRIAR_PASTA: 'Criar pasta do pedido',
-  ABRIR_PASTA: 'Abrir pasta do pedido',
-  AVANCAR: 'Avançar para a próxima etapa'
-}
-
-export interface StageAction {
-  id: number
-  stageId: number
-  label: string
-  kind: StageActionKind
-  position: number
-}
-
-export interface WorkflowStage {
-  id: number
-  name: string
-  position: number
-  color: string | null
-  actions: StageAction[]
-}
-
 /** Extrato financeiro do pedido, com as taxas separadas. */
 export interface Recebimento {
   valorProdutos: number | null
@@ -118,8 +87,19 @@ export function calcularPercentualTaxas(recebimento: Recebimento): number | null
   return Math.round((recebimento.totalTaxas / baseTaxas) * 100)
 }
 
+export type ProductionActionKind = 'RECEIVE_DATA' | 'GENERATE_ART' | 'EDIT_ART' | 'APPROVE_ART' | 'PRINT_ART' | 'RETRY_PRINT' | 'CONFIRM_PRINT' | 'ADVANCE'
+export interface ProductionAction { id: number; kind: ProductionActionKind; label: string; position: number }
+export interface ProductionStage { id: number; code: string; name: string; position: number; color: string | null; actions: ProductionAction[] }
+export interface ProductionFlow { id: number; code: string; name: string; productKind: string; stages: ProductionStage[] }
+export interface ProductionItem {
+  orderSn: string; itemId: string; modelId: string; itemName: string; modelName: string | null
+  quantity: number; templateKey: string | null; flowCode: string; flowName: string
+  stage: ProductionStage; artGeneratedAt: number | null
+}
+
 export interface OrderItem {
   id: number
+  templateKey: string | null
   orderSn: string
   itemName: string
   modelName: string | null
@@ -410,6 +390,7 @@ export interface AgendaPedido {
   pendencias: string[]
   embalado: boolean
   feito: boolean
+  producao: { tipo: ProductKind; cor: string | null; feito: boolean }[]
 }
 
 export interface AgendaDia {
@@ -451,6 +432,7 @@ export interface ProdutoVariacao {
 /** Produto do catálogo, com o que os pedidos já sabem dele. */
 export interface Produto {
   itemId: string
+  templateKey: string | null
   nome: string
   tipo: ProductKind
   imagemUrl: string | null

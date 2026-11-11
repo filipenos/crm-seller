@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AgendaDia, AgendaQuantidade, AgendaTrabalho } from '@shared/types'
-import { INTERNAL_STATUS_LABELS } from '@shared/types'
+import type { AgendaDia, AgendaPedido, AgendaQuantidade, AgendaTrabalho } from '@shared/types'
 import { dashboardDates } from '@shared/dashboardDays'
 import { searchWorkOrders } from '@shared/workSearch'
 import OrderDetail from '../components/OrderDetail'
 
-interface Props { dataVersion: number }
+interface Props { dataVersion: number; onEditArt: (orderSn: string) => void }
 
 const DATE = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
 const SHORT_DATE = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
@@ -30,6 +29,17 @@ function orderLabel(orderSn: string, buyerUsername: string | null): string {
   return buyerUsername ? `${orderSn} (${buyerUsername})` : orderSn
 }
 
+type DayFilter = { tipo?: 'LACOS' | 'CAIXAS'; cor?: string; situacao?: 'todos' | 'feitos' | 'fazer' }
+
+function filterDayOrders(orders: AgendaPedido[], filter: DayFilter, hideDone: boolean): AgendaPedido[] {
+  const situacao = filter.situacao ?? (hideDone ? 'fazer' : 'todos')
+  return orders.filter((order) => {
+    if (situacao === 'feitos' && !order.feito) return false
+    if (situacao === 'fazer' && order.feito) return false
+    return !filter.tipo || order.producao.some((item) => item.tipo === filter.tipo && (!filter.cor || item.cor === filter.cor))
+  })
+}
+
 function summarize(days: AgendaDia[], key: 'lacos' | 'caixas'): AgendaQuantidade[] {
   const values = new Map<string, number>()
   for (const day of days) {
@@ -48,7 +58,7 @@ function Summary({ title, items }: { title: string; items: AgendaQuantidade[] })
   </section>
 }
 
-export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
+export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.Element {
   const [days, setDays] = useState(7)
   const [agenda, setAgenda] = useState<AgendaTrabalho | null>(null)
   const [loading, setLoading] = useState(true)
@@ -62,6 +72,12 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
   const [showTodayOrders, setShowTodayOrders] = useState(false)
   const [showDeliveries, setShowDeliveries] = useState(false)
   const [search, setSearch] = useState('')
+  const [dayFilters, setDayFilters] = useState<Record<string, DayFilter>>({})
+
+  function changeDayFilter(day: string, change: DayFilter): void {
+    setDayFilters((current) => ({ ...current, [day]: { ...current[day], ...change } }))
+    setExpanded(day)
+  }
 
   useEffect(() => {
     const nextMidnight = dashboardDates().bounds[2]
@@ -89,6 +105,7 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
   const todayPending = todayWork?.pedidos.filter((order) => !order.feito) ?? []
   const labeledToday = agenda?.paraEntregar.filter((order) => order.etiquetaEm !== null && order.etiquetaEm >= dashboardDates().bounds[1] && order.etiquetaEm < dashboardDates().bounds[2]) ?? []
   const labeledEarlier = (agenda?.paraEntregar.length ?? 0) - labeledToday.length
+  const deliveries = hideDone ? [] : agenda?.paraEntregar ?? []
   const searching = search.trim().length > 0
   const results = useMemo(() => agenda ? searchWorkOrders(agenda, search, hideDone) : [], [agenda, search, hideDone])
 
@@ -123,10 +140,10 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
           {todayPending.length > 0 && <button className="work-expand" type="button" aria-expanded={showTodayOrders} onClick={() => setShowTodayOrders(!showTodayOrders)}>{showTodayOrders ? 'Ocultar pedidos' : 'Ver pedidos'} →</button>}
           {showTodayOrders && <div className="work-orders">{todayPending.map((order) => <button type="button" key={order.orderSn} onClick={() => setSelected(order.orderSn)}><span className="mono">{orderLabel(order.orderSn, order.buyerUsername)}</span><small>{order.itens.join(' · ')}</small></button>)}</div>}
         </section>
-        <section className="work-today-card"><h2>Etiquetados para entregar</h2><strong>{agenda.paraEntregar.length} {agenda.paraEntregar.length === 1 ? 'pedido' : 'pedidos'}</strong>
-          <p>Etiquetas de hoje: {labeledToday.length} · Anteriores ou sem data: {labeledEarlier}</p>
-          {agenda.paraEntregar.length > 0 && <button className="work-expand" type="button" aria-expanded={showDeliveries} onClick={() => setShowDeliveries(!showDeliveries)}>{showDeliveries ? 'Ocultar pedidos' : 'Ver pedidos'} →</button>}
-          {showDeliveries && <div className="work-orders">{agenda.paraEntregar.map((order) => <button type="button" key={order.orderSn} onClick={() => setSelected(order.orderSn)}><span className="mono">{orderLabel(order.orderSn, order.buyerUsername)}</span><small>Etiqueta: {order.etiquetaEm ? new Date(order.etiquetaEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'data não informada'}{order.postarAte ? ` · Postar até ${new Date(order.postarAte).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}</small></button>)}</div>}
+        <section className="work-today-card"><h2>Etiquetados para entregar</h2><strong>{deliveries.length} {deliveries.length === 1 ? 'pedido' : 'pedidos'}</strong>
+          <p>{hideDone ? 'Ocultos enquanto “Ocultar já feitos” estiver ativo.' : `Etiquetas de hoje: ${labeledToday.length} · Anteriores ou sem data: ${labeledEarlier}`}</p>
+          {deliveries.length > 0 && <button className="work-expand" type="button" aria-expanded={showDeliveries} onClick={() => setShowDeliveries(!showDeliveries)}>{showDeliveries ? 'Ocultar pedidos' : 'Ver pedidos'} →</button>}
+          {showDeliveries && <div className="work-orders">{deliveries.map((order) => <button type="button" key={order.orderSn} onClick={() => setSelected(order.orderSn)}><span className="mono">{orderLabel(order.orderSn, order.buyerUsername)}</span><small>Etiqueta: {order.etiquetaEm ? new Date(order.etiquetaEm).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'data não informada'}{order.postarAte ? ` · Postar até ${new Date(order.postarAte).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` : ''}</small></button>)}</div>}
         </section>
       </div>
       <div className="work-stats">
@@ -135,24 +152,27 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
         <div><small>Caixas necessárias</small><strong>{total(boxes).toLocaleString('pt-BR')}</strong><span>{boxes.length} modelos</span></div>
       </div>
       <div className="work-section-head"><h2>Agenda de produção</h2><span>{displayDate(agenda.hoje)} a {displayDate(agenda.dias.at(-1)?.data ?? agenda.hoje)}</span></div>
-      <div className="work-days">{agenda.dias.filter((day) => !hideDone || day.pedidos.length > day.pedidosFeitos).map((day) => {
-        const visibleOrders = hideDone ? day.pedidos.filter((order) => !order.feito) : day.pedidos
+      <div className="work-days">{agenda.dias.filter((day) => !hideDone || Object.keys(dayFilters[day.data] ?? {}).length > 0 || day.pedidos.length > day.pedidosFeitos).map((day) => {
+        const filter = dayFilters[day.data] ?? {}
+        const visibleOrders = filterDayOrders(day.pedidos, filter, hideDone)
+        const colors = [...new Set(day.pedidos.flatMap((order) => order.producao.filter((item) => item.tipo === 'LACOS' && item.cor).map((item) => item.cor as string)))]
         const pending = visibleOrders.filter((order) => order.pendencias.length > 0).length
         return <article className={`work-day ${day.data === agenda.hoje ? 'today' : ''}`} key={day.data}>
           <div className="work-day-head"><h3>{day.data === agenda.hoje ? 'Hoje' : displayDay(day.data)}</h3>
             <span>{hideDone ? pedidosLabel(visibleOrders.length) + ' por fazer' : `${pedidosLabel(day.pedidos.length)} · ${day.pedidosFeitos} feitos · ${day.pedidos.length - day.pedidosFeitos} por fazer`}</span>
             <span>Shopee: postar até {displayDate(day.postarAte)}</span>
           </div>
-          <div className="work-day-group"><b>Laços · {pedidosLabel(hideDone ? day.pedidosLacos - day.pedidosLacosFeitos : day.pedidosLacos)} · {hideDone ? total(day.lacos) : total(day.lacos) + day.lacosFeitos} laços</b>{!hideDone && <span>{day.pedidosLacosFeitos} pedidos e {day.lacosFeitos} laços feitos · {total(day.lacos)} laços por fazer</span>}<span>{day.lacos.length ? day.lacos.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhum laço pendente'}</span></div>
-          <div className="work-day-group"><b>Caixas · {pedidosLabel(hideDone ? day.pedidosCaixas - day.pedidosCaixasFeitos : day.pedidosCaixas)} · {hideDone ? total(day.caixas) : total(day.caixas) + day.caixasFeitas} caixas</b>{!hideDone && <span>{day.pedidosCaixasFeitos} pedidos e {day.caixasFeitas} caixas feitas · {total(day.caixas)} caixas por fazer</span>}<span>{day.caixas.length ? day.caixas.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhuma caixa pendente'}</span></div>
+          <div className="work-day-group"><button type="button" className={`work-filter-button ${filter.tipo === 'LACOS' && !filter.cor ? 'active' : ''}`} onClick={() => changeDayFilter(day.data, { tipo: 'LACOS', cor: undefined })}>Laços · {pedidosLabel(hideDone ? day.pedidosLacos - day.pedidosLacosFeitos : day.pedidosLacos)} · {hideDone ? total(day.lacos) : total(day.lacos) + day.lacosFeitos} laços</button>{!hideDone && <span>{day.pedidosLacosFeitos} pedidos e {day.lacosFeitos} laços feitos · {total(day.lacos)} laços por fazer</span>}<div className="work-filter-colors">{colors.length ? colors.map((color) => <button type="button" className={`work-filter-button ${filter.cor === color ? 'active' : ''}`} key={color} onClick={() => changeDayFilter(day.data, { tipo: 'LACOS', cor: color })}>{color}{day.lacos.find((item) => item.nome === color)?.quantidade ? ` ${day.lacos.find((item) => item.nome === color)?.quantidade}` : ''}</button>) : <span>Nenhum laço neste dia</span>}</div></div>
+          <div className="work-day-group"><button type="button" className={`work-filter-button ${filter.tipo === 'CAIXAS' ? 'active' : ''}`} onClick={() => changeDayFilter(day.data, { tipo: 'CAIXAS', cor: undefined })}>Caixas · {pedidosLabel(hideDone ? day.pedidosCaixas - day.pedidosCaixasFeitos : day.pedidosCaixas)} · {hideDone ? total(day.caixas) : total(day.caixas) + day.caixasFeitas} caixas</button>{!hideDone && <span>{day.pedidosCaixasFeitos} pedidos e {day.caixasFeitas} caixas feitas · {total(day.caixas)} caixas por fazer</span>}<span>{day.caixas.length ? day.caixas.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhuma caixa pendente'}</span></div>
+          <div className="work-day-filters"><span>Mostrar:</span>{(['todos', 'fazer', 'feitos'] as const).map((situacao) => <button type="button" key={situacao} className={`work-filter-button ${(filter.situacao ?? (hideDone ? 'fazer' : 'todos')) === situacao ? 'active' : ''}`} onClick={() => changeDayFilter(day.data, { situacao })}>{situacao === 'todos' ? 'Todos' : situacao === 'fazer' ? 'A fazer' : 'Feitos'}</button>)}{Object.keys(filter).length > 0 && <button type="button" className="work-filter-clear" onClick={() => { setDayFilters((current) => { const next = { ...current }; delete next[day.data]; return next }); setExpanded(day.data) }}>Limpar filtro</button>}</div>
           {pending > 0 && <div className="work-pending">{pending} pedido(s) precisam de dados para calcular a produção</div>}
-          {visibleOrders.length > 0 && <button className="work-expand" type="button" aria-expanded={expanded === day.data}
+          <button className="work-expand" type="button" aria-expanded={expanded === day.data}
             onClick={() => setExpanded(expanded === day.data ? null : day.data)}>
             {expanded === day.data ? 'Ocultar pedidos' : 'Ver pedidos e detalhes'} →
-          </button>}
-          {expanded === day.data && <div className="work-orders">{visibleOrders.map((order) =>
+          </button>
+          {expanded === day.data && <div className="work-orders">{visibleOrders.length === 0 && <p className="muted">Nenhum pedido corresponde ao filtro deste dia.</p>}{visibleOrders.map((order) =>
             <button type="button" key={order.orderSn} onClick={() => setSelected(order.orderSn)}>
-              <span className="mono">{orderLabel(order.orderSn, order.buyerUsername)}</span><small>Entrada: {order.createdAtShopee ? new Date(order.createdAtShopee).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : 'não informada'} · {INTERNAL_STATUS_LABELS[order.status]}{order.feito ? ' · etiqueta gerada' : order.embalado ? ' · embalado' : ''}</small>
+              <span className="mono">{orderLabel(order.orderSn, order.buyerUsername)}</span><small>Entrada: {order.createdAtShopee ? new Date(order.createdAtShopee).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : 'não informada'} · {order.feito ? 'trabalho feito' : 'produção pendente'}</small>
               {order.itens.map((item, index) => <small key={index}>{item}</small>)}
               {order.pendencias.map((item, index) => <small className="work-pending" key={index}>{item}</small>)}
             </button>)}
@@ -165,6 +185,7 @@ export default function WorkPage({ dataVersion }: Props): React.JSX.Element {
     </>}
     {toast && <div className="toast">{toast}</div>}
     {selected && <OrderDetail orderSn={selected} onClose={() => setSelected(null)}
-      onOrderChange={() => setRefresh((value) => value + 1)} onToast={setToast} />}
+      onOrderChange={() => setRefresh((value) => value + 1)} onToast={setToast}
+      onEditArt={(orderSn) => { setSelected(null); onEditArt(orderSn) }} />}
   </div>
 }

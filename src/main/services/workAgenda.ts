@@ -20,6 +20,7 @@ interface OrderItemRow {
   pecas: number | null
   lacos: number | null
   kind: ProductKind | null
+  production_stage: string | null
 }
 
 interface BoxRow {
@@ -59,9 +60,13 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
   const [rawItems, rawBoxes, rawCounts, rawToDeliver] = await getAsyncDb().queryBatch([
     { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.created_at_shopee, o.ship_by_date, o.internal_status,
         o.tab, o.label_generated_at, o.ready_to_post,
-        i.item_name, i.model_name, i.quantity, i.pecas, i.lacos, p.kind
+        i.item_name, i.model_name, i.quantity, i.pecas, i.lacos, p.kind,
+        ps.code AS production_stage
       FROM orders o LEFT JOIN order_items i ON i.order_sn = o.order_sn
       LEFT JOIN products p ON p.item_id = i.item_id
+      LEFT JOIN order_item_work w ON w.order_sn = i.order_sn
+        AND w.item_id = COALESCE(i.item_id, '') AND w.model_id = COALESCE(i.model_id, '')
+      LEFT JOIN production_stages ps ON ps.id = w.stage_id
       WHERE o.tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
         AND o.ship_by_date >= ? AND o.ship_by_date < ?
       ORDER BY o.ship_by_date, o.created_at_shopee IS NULL, o.created_at_shopee, o.order_sn, i.id`, parameters: [lower, upper] },
@@ -107,20 +112,21 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     const shipDay = new Date(row.ship_by_date - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
     const day = byDay.get(addDays(shipDay, -1))
     if (!day) continue
-    const embalado = ['EMBALADO', 'ENVIADO', 'CONCLUIDO'].includes(row.internal_status)
-    const feito = row.label_generated_at !== null || row.ready_to_post === 1 || row.tab === 'ENVIADO' || row.tab === 'CONCLUIDO'
+    const embalado = row.production_stage === 'PACKED'
+    const feito = embalado || row.label_generated_at !== null || row.ready_to_post === 1 || row.tab !== 'A_ENVIAR'
     let order = day.orders.get(row.order_sn)
     if (!order) {
-      order = { orderSn: row.order_sn, buyerUsername: row.buyer_username, buyerName: row.buyer_name, childName: row.child_name, createdAtShopee: row.created_at_shopee, status: row.internal_status, itens: [], pendencias: [], embalado, feito }
+      order = { orderSn: row.order_sn, buyerUsername: row.buyer_username, buyerName: row.buyer_name, childName: row.child_name, createdAtShopee: row.created_at_shopee, status: row.internal_status, itens: [], pendencias: [], embalado, feito, producao: [] }
       day.orders.set(row.order_sn, order)
-      if (feito) day.doneOrders.add(row.order_sn)
+    } else {
+      order.feito = order.feito && feito
+      order.embalado = order.embalado && embalado
     }
     if (!row.item_name) {
       if (!order.pendencias.includes('Pedido sem itens')) order.pendencias.push('Pedido sem itens')
       continue
     }
     order.itens.push(`${row.quantity ?? 1}× ${row.item_name}${row.model_name ? ` · ${row.model_name}` : ''}`)
-    if (embalado && !feito) continue
     const amount = row.quantity ?? 0
     if (!Number.isFinite(amount) || amount <= 0) {
       order.pendencias.push(`Quantidade não informada: ${row.item_name}`)
@@ -129,11 +135,13 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     const inferred = inferProductKind(row.item_name)
     const kind = row.kind ?? (inferred === 'LACOS' ? 'LACOS'
       : row.pecas || piecesFromVariation(row.model_name) ? 'CAIXAS' : 'OUTRO')
+    const bowColor = kind === 'LACOS' ? parseBowVariation(row.model_name)?.color ?? null : null
+    order.producao.push({ tipo: kind, cor: bowColor, feito })
     if (kind === 'LACOS') {
       day.bowOrders.add(row.order_sn)
       if (feito) day.doneBowOrders.add(row.order_sn)
       const perKit = row.lacos ?? parseBowVariation(row.model_name)?.size ?? null
-      const color = parseBowVariation(row.model_name)?.color
+      const color = bowColor
       if (perKit === null || perKit <= 0 || !color) {
         order.pendencias.push(`Cor ou quantidade de laços não identificada: ${row.item_name}`)
         continue
@@ -161,6 +169,10 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     } else {
       order.pendencias.push(`Produto sem composição de produção: ${row.item_name}`)
     }
+  }
+
+  for (const day of byDay.values()) {
+    for (const order of day.orders.values()) if (order.feito) day.doneOrders.add(order.orderSn)
   }
 
   const dias: AgendaDia[] = [...byDay].map(([data, item]) => ({

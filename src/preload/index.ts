@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ArtTheme } from '../shared/artEditor'
 import type {
   ActionResult,
   AgendaTrabalho,
@@ -26,9 +27,10 @@ import type {
   SerieMensal,
   ProgressoLote,
   ShopeeConnectionStatus,
-  StageActionKind,
+  ProductionActionKind,
+  ProductionFlow,
+  ProductionItem,
   StatusHistoryEntry,
-  WorkflowStage,
   SyncResult,
   TrackingRefreshResult,
   UpdateStatus,
@@ -40,6 +42,25 @@ import type {
 } from '../shared/types'
 
 const api = {
+  art: {
+    list: (): Promise<ArtTheme[]> => ipcRenderer.invoke('art:list'),
+    create: (name: string): Promise<ArtTheme> => ipcRenderer.invoke('art:create', name),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('art:delete', id),
+    import: (): Promise<ArtTheme | null> => ipcRenderer.invoke('art:import'),
+    importPdfs: (id: string): Promise<ArtTheme | null> => ipcRenderer.invoke('art:importPdfs', id),
+    loadPdf: (id: string, file: string): Promise<Uint8Array> => ipcRenderer.invoke('art:loadPdf', id, file),
+    loadFont: (id: string): Promise<Uint8Array | null> => ipcRenderer.invoke('art:loadFont', id),
+    importFont: (id: string): Promise<ArtTheme | null> => ipcRenderer.invoke('art:importFont', id),
+    update: (theme: ArtTheme): Promise<ArtTheme> => ipcRenderer.invoke('art:update', theme),
+    generate: (id: string, name: string, age: string): Promise<string> => ipcRenderer.invoke('art:generate', id, name, age),
+    orderLoad: (orderSn: string): Promise<{ themes: ArtTheme[]; name: string }> => ipcRenderer.invoke('art:orderLoad', orderSn),
+    orderLoadPdf: (orderSn: string, key: string, file: string): Promise<Uint8Array> => ipcRenderer.invoke('art:orderLoadPdf', orderSn, key, file),
+    orderLoadFont: (orderSn: string, key: string): Promise<Uint8Array | null> => ipcRenderer.invoke('art:orderLoadFont', orderSn, key),
+    orderImportFont: (orderSn: string, key: string): Promise<ArtTheme | null> => ipcRenderer.invoke('art:orderImportFont', orderSn, key),
+    orderSave: (orderSn: string, theme: ArtTheme, name: string, age: string): Promise<ArtTheme> => ipcRenderer.invoke('art:orderSave', orderSn, theme, name, age),
+    orderGenerate: (orderSn: string, key: string): Promise<string> => ipcRenderer.invoke('art:orderGenerate', orderSn, key),
+    orderOpenLatest: (orderSn: string, key: string): Promise<string> => ipcRenderer.invoke('art:orderOpenLatest', orderSn, key)
+  },
   database: {
     status: (): Promise<{
       configured: boolean
@@ -97,8 +118,6 @@ const api = {
       ipcRenderer.invoke('orders:setStatus', orderSn, status),
     setChildName: (orderSn: string, name: string): Promise<Order | null> =>
       ipcRenderer.invoke('orders:setChildName', orderSn, name),
-    setStage: (orderSn: string, stageId: number): Promise<Order | null> =>
-      ipcRenderer.invoke('orders:setStage', orderSn, stageId),
     setNote: (orderSn: string, note: string): Promise<Order | null> =>
       ipcRenderer.invoke('orders:setNote', orderSn, note),
     statusHistory: (orderSn: string): Promise<StatusHistoryEntry[]> =>
@@ -134,21 +153,12 @@ const api = {
       return () => ipcRenderer.removeListener('lote:progresso', listener)
     }
   },
-  stages: {
-    list: (): Promise<WorkflowStage[]> => ipcRenderer.invoke('stages:list'),
-    create: (name: string, color: string | null): Promise<WorkflowStage[]> =>
-      ipcRenderer.invoke('stages:create', name, color),
-    update: (id: number, patch: { name?: string; color?: string | null }): Promise<WorkflowStage[]> =>
-      ipcRenderer.invoke('stages:update', id, patch),
-    remove: (id: number): Promise<WorkflowStage[]> => ipcRenderer.invoke('stages:delete', id),
-    reorder: (orderedIds: number[]): Promise<WorkflowStage[]> =>
-      ipcRenderer.invoke('stages:reorder', orderedIds),
-    addAction: (stageId: number, kind: StageActionKind, label: string): Promise<WorkflowStage[]> =>
-      ipcRenderer.invoke('stages:addAction', stageId, kind, label),
-    removeAction: (actionId: number): Promise<WorkflowStage[]> =>
-      ipcRenderer.invoke('stages:removeAction', actionId),
-    next: (currentStageId: number | null): Promise<number | null> =>
-      ipcRenderer.invoke('stages:next', currentStageId)
+  production: {
+    flows: (): Promise<ProductionFlow[]> => ipcRenderer.invoke('production:flows'),
+    order: (orderSn: string): Promise<ProductionItem[]> => ipcRenderer.invoke('production:order', orderSn),
+    act: (orderSn: string, itemId: string, modelId: string, kind: ProductionActionKind): Promise<ProductionItem[]> => ipcRenderer.invoke('production:act', orderSn, itemId, modelId, kind),
+    updateStage: (id: number, patch: { name?: string; color?: string | null }): Promise<ProductionFlow[]> => ipcRenderer.invoke('production:updateStage', id, patch),
+    updateAction: (id: number, label: string): Promise<ProductionFlow[]> => ipcRenderer.invoke('production:updateAction', id, label)
   },
   events: {
     list: (opts: { onlyUnseen?: boolean; limit?: number }): Promise<OrderEvent[]> =>
@@ -172,7 +182,9 @@ const api = {
     setLinha: (itemId: string, linhaId: number | null): Promise<void> =>
       ipcRenderer.invoke('produtos:setLinha', itemId, linhaId),
     setTipo: (itemId: string, tipo: ProductKind): Promise<void> =>
-      ipcRenderer.invoke('produtos:setTipo', itemId, tipo)
+      ipcRenderer.invoke('produtos:setTipo', itemId, tipo),
+    setTemplate: (itemId: string, templateKey: string | null): Promise<void> =>
+      ipcRenderer.invoke('produtos:setTemplate', itemId, templateKey)
   },
   desempenho: {
     resumo: (period?: PeriodoDesempenho): Promise<ResumoDesempenho | null> => ipcRenderer.invoke('desempenho:resumo', period),

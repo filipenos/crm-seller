@@ -1,29 +1,45 @@
 import { app } from 'electron'
-import { join } from 'path'
-import { getAsyncDb } from '../db'
+import { readFile, rename, writeFile } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { AppSettings } from '@shared/types'
 
 function defaults(): AppSettings {
-  const docs = app?.getPath ? app.getPath('documents') : process.cwd()
+  const docs = app.getPath('documents')
   return {
     ordersRootDir: join(docs, 'CRM Seller', 'Pedidos'),
     templatesDir: join(docs, 'CRM Seller', 'Templates'),
   }
 }
 
+const settingsPath = (): string => join(app.getPath('userData'), 'folders.json')
+
 export async function getSettingsAsync(): Promise<AppSettings> {
-  const statement = await getAsyncDb().prepare('SELECT key, value FROM settings')
-  const rows = (await statement.all([])) as { key: string; value: string }[]
-  const stored = Object.fromEntries(rows.map((row) => [row.key, JSON.parse(row.value)]))
-  return { ...defaults(), ...stored }
+  let stored: unknown
+  try {
+    stored = JSON.parse(await readFile(settingsPath(), 'utf8'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return defaults()
+    throw error
+  }
+  if (!stored || typeof stored !== 'object') throw new Error('Configuração local de pastas inválida.')
+  const value = stored as Partial<AppSettings>
+  const result = { ...defaults(), ...value }
+  if (typeof result.ordersRootDir !== 'string' || typeof result.templatesDir !== 'string' ||
+    !isAbsolute(result.ordersRootDir) || !isAbsolute(result.templatesDir)) throw new Error('Configuração local de pastas inválida.')
+  return result
 }
 
 export async function updateSettingsAsync(partial: Partial<AppSettings>): Promise<AppSettings> {
-  const statement = await getAsyncDb().prepare(
-    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  )
-  for (const [key, value] of Object.entries(partial)) {
-    if (value !== undefined) await statement.run([key, JSON.stringify(value)])
+  const next = { ...await getSettingsAsync(), ...partial }
+  for (const key of ['ordersRootDir', 'templatesDir'] as const) {
+    if (typeof next[key] !== 'string' || !isAbsolute(next[key]) || next[key].trim() !== next[key]) {
+      throw new Error('Escolha uma pasta válida neste computador.')
+    }
   }
-  return getSettingsAsync()
+  const path = settingsPath()
+  const temp = `${path}.${randomUUID()}.tmp`
+  await writeFile(temp, JSON.stringify(next), { mode: 0o600 })
+  await rename(temp, path)
+  return next
 }

@@ -2,15 +2,14 @@ import { useEffect, useState } from 'react'
 import type {
   Order,
   OrderEvent,
-  StageAction,
   StatusHistoryEntry,
-  WorkflowStage
+  ProductionItem,
+  ProductionActionKind
 } from '@shared/types'
 import {
   calcularPercentualTaxas,
   calcularValorAposCupom,
-  ORDER_TAB_LABELS,
-  isWithUs
+  ORDER_TAB_LABELS
 } from '@shared/types'
 
 /** Linha do extrato; omitida quando a Shopee não mandou o valor. */
@@ -47,6 +46,7 @@ interface Props {
   onClose: () => void
   onOrderChange: (order: Order) => void
   onToast: (msg: string) => void
+  onEditArt: (orderSn: string) => void
 }
 
 export default function OrderDetail({
@@ -54,14 +54,17 @@ export default function OrderDetail({
   initialOrder,
   onClose,
   onOrderChange,
-  onToast
+  onToast,
+  onEditArt
 }: Props): React.JSX.Element {
   const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
   const [history, setHistory] = useState<StatusHistoryEntry[]>([])
   const [events, setEvents] = useState<OrderEvent[]>([])
   const [childName, setChildName] = useState(initialOrder?.childName ?? '')
   const [note, setNote] = useState(initialOrder?.note ?? '')
-  const [stages, setStages] = useState<WorkflowStage[]>([])
+  const [production, setProduction] = useState<ProductionItem[]>([])
+  const [productionBusy, setProductionBusy] = useState<string | null>(null)
+  const [productionError, setProductionError] = useState<string | null>(null)
   const [refreshingIncome, setRefreshingIncome] = useState(false)
   const [refreshingTracking, setRefreshingTracking] = useState(false)
   const load = async (): Promise<void> => {
@@ -70,17 +73,17 @@ export default function OrderDetail({
     const extras = Promise.all([
       window.api.orders.statusHistory(orderSn),
       window.api.events.byOrder(orderSn),
-      window.api.stages.list()
+      window.api.production.order(orderSn)
     ])
     const o = await window.api.orders.get(orderSn)
     setOrder(o)
     if (o) onOrderChange(o)
     setChildName(o?.childName ?? '')
     setNote(o?.note ?? '')
-    const [novoHistorico, novosEventos, novasEtapas] = await extras
+    const [novoHistorico, novosEventos, novosItens] = await extras
     setHistory(novoHistorico)
     setEvents(novosEventos)
-    setStages(novasEtapas)
+    setProduction(novosItens)
   }
 
   useEffect(() => {
@@ -117,35 +120,27 @@ export default function OrderDetail({
     onToast('Observação salva')
   }
 
-  const setStage = async (stageId: number): Promise<void> => {
-    await window.api.orders.setStage(orderSn, stageId)
-    void load()
-  }
-
-  /** Executa a ação cadastrada na etapa. */
-  const runAction = async (action: StageAction): Promise<void> => {
-    switch (action.kind) {
-      case 'CRIAR_PASTA': {
-        const r = await window.api.orders.createFolder(orderSn)
-        onToast(r.ok ? `Pasta criada: ${r.path}` : `Erro: ${r.error}`)
-        break
+  const runProductionAction = async (item: ProductionItem, kind: ProductionActionKind): Promise<void> => {
+    const key = `${item.itemId}:${item.modelId}`
+    setProductionBusy(key)
+    setProductionError(null)
+    try {
+      if (kind === 'GENERATE_ART' || kind === 'EDIT_ART') {
+        onEditArt(orderSn)
+        return
       }
-      case 'ABRIR_PASTA': {
-        const r = await window.api.orders.openFolder(orderSn)
-        if (!r.ok) onToast(`Erro: ${r.error}`)
-        break
+      if (kind === 'PRINT_ART' || kind === 'RETRY_PRINT') {
+        if (!item.templateKey) throw new Error('Vincule um tema a este produto antes de imprimir.')
+        await window.api.art.orderOpenLatest(orderSn, item.templateKey)
+        if (kind === 'RETRY_PRINT') return
       }
-      case 'AVANCAR': {
-        const next = await window.api.stages.next(order?.stageId ?? null)
-        if (next === null) onToast('Já está na última etapa')
-        else await setStage(next)
-        break
-      }
+      setProduction(await window.api.production.act(orderSn, item.itemId, item.modelId, kind))
+    } catch (error) {
+      setProductionError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setProductionBusy(null)
     }
-    void load()
   }
-
-  const currentStage = stages.find((s) => s.id === order.stageId)
 
   const useAsName = (text: string): void => {
     setChildName(text.trim())
@@ -177,42 +172,31 @@ export default function OrderDetail({
           {order.labelGeneratedAt && <div className="muted">Etiqueta gerada em {new Date(order.labelGeneratedAt).toLocaleDateString('pt-BR')}</div>}
         </section>
 
-        {isWithUs(order.tab) ? (
-          <section>
-            <h3>Etapa de produção</h3>
-            <div className="status-buttons">
-              {stages.map((s) => (
-                <button
-                  key={s.id}
-                  className={`badge-btn ${order.stageId === s.id ? 'current' : ''}`}
-                  style={s.color ? { borderLeft: `4px solid ${s.color}` } : undefined}
-                  onClick={() => setStage(s.id)}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
-            {currentStage && currentStage.actions.length > 0 && (
+        <section>
+          <h3>Produção por item</h3>
+          {production.length === 0 && <p className="muted">Nenhum item com fluxo de produção cadastrado.</p>}
+          {production.map((item) => {
+            const key = `${item.itemId}:${item.modelId}`
+            return <div className="stage-card" key={key}>
+              <strong>{item.quantity}× {item.itemName}</strong>
+              {item.modelName && <div className="muted">{item.modelName}</div>}
+              <div className="muted">{item.flowName}</div>
+              <div className="phase-badge" style={{ borderLeft: `4px solid ${item.stage.color ?? '#64748b'}` }}>{item.stage.name}</div>
               <div className="action-buttons">
-                {currentStage.actions.map((a) => (
-                  <button key={a.id} onClick={() => runAction(a)}>
-                    {a.label}
-                  </button>
-                ))}
+                {item.stage.actions.map((action) => <button key={action.id} type="button"
+                  disabled={productionBusy === key}
+                  onClick={() => void runProductionAction(item, action.kind)}>
+                  {productionBusy === key ? 'Aguarde…' : action.label}
+                </button>)}
               </div>
-            )}
-          </section>
-        ) : (
-          <section>
-            <p className="muted">
-              O pedido já saiu daqui — a produção terminou quando ele foi postado. Agora só o
-              rastreio e o pagamento mudam de estado.
-            </p>
-          </section>
-        )}
+            </div>
+          })}
+          {productionError && <p className="form-error">{productionError}</p>}
+        </section>
 
         <section>
           <h3>Personalização</h3>
+          {order.items.some((item) => item.templateKey) && <button type="button" className="order-art-button" onClick={() => onEditArt(orderSn)}>Editar arte deste pedido</button>}
           <div className="field-row">
             <input
               placeholder="Nome da criança"

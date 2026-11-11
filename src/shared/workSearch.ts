@@ -27,6 +27,7 @@ export function searchWorkOrders(agenda: AgendaTrabalho, query: string, hideDone
     }
   }
   for (const order of agenda.paraEntregar) {
+    if (hideDone) continue
     orders.set(order.orderSn, { orderSn: order.orderSn, buyerUsername: order.buyerUsername,
       buyerName: order.buyerName, childName: order.childName, itens: order.itens, origem: 'entrega', data: null,
       postarAte: order.postarAte })
