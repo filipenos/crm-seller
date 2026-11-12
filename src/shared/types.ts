@@ -319,6 +319,7 @@ export interface PeriodoRelatorio {
 export interface RelatorioDia {
   data: string
   pedidos: number
+  cancelados: number
   faturado: number
   liquido: number
   despachados: number
@@ -330,6 +331,7 @@ export interface RelatorioDia {
 export interface RelatorioGerencial {
   periodo: PeriodoRelatorio
   recorrentes: { usuario: string; pedidosPeriodo: number; pedidosTotal: number }[]
+  cancelamentos: { pedidos: number; valor: number; semExtrato: number }
   vendas: {
     pedidos: number
     brutoProdutos: number

@@ -36,6 +36,7 @@ As consultas cobrem visão do dia, agenda, relatório gerencial, pedidos, produt
 
 `sincronizar_pedidos` retorna assim que inicia a tarefa. Use `estado_sincronizacao` para acompanhar o progresso ou a falha. A sincronização usa a sessão Shopee do app; se ela cair, reconecte pelo app.
 A agenda e o trabalho atual compartilham a mesma seleção de pedidos no Turso.
+`relatorio_gerencial` retorna `cancelamentos` e `dias[].cancelados` separadamente das vendas válidas. Valores de cancelados sem extrato são estimados pelo card da Shopee e podem incluir frete.
 Se uma sincronização já estiver em andamento no app ou no MCP, uma nova chamada é recusada com `iniciado: false` e um motivo.
 
 Configuração do banco, login da Shopee, credenciais e arquivos locais não são ferramentas MCP. Operações sensíveis continuam no app.

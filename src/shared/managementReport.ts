@@ -116,7 +116,13 @@ export function reportQueries(period: PeriodoRelatorio): { sql: string; paramete
       WHERE o.tab NOT IN ('CANCELADO','NAO_PAGO')
       GROUP BY p.usuario, p.pedidos_periodo
       HAVING COUNT(o.order_sn) >= 2
-      ORDER BY p.pedidos_periodo DESC, pedidos_total DESC, p.usuario`, parameters: range }
+      ORDER BY p.pedidos_periodo DESC, pedidos_total DESC, p.usuario`, parameters: range },
+    { sql: `SELECT date(o.created_at_shopee/1000,'unixepoch','-3 hours') AS dia,
+        COUNT(*) AS pedidos, SUM(${PRODUCT_SALES_SQL}) AS valor,
+        SUM(i.valor_produtos IS NULL) AS sem_extrato
+      FROM orders o LEFT JOIN order_income i ON i.order_sn=o.order_sn
+      WHERE o.tab='CANCELADO' AND o.created_at_shopee>=? AND o.created_at_shopee<?
+      GROUP BY dia`, parameters: range }
   ]
 }
 
@@ -126,12 +132,13 @@ const money = (value: number): number => Number(value.toFixed(2))
 
 export function buildManagementReport(period: PeriodoRelatorio, results: Row[][]): RelatorioGerencial {
   validateReportPeriod(period)
-  if (results.length !== 10) throw new Error('Consulta do relatório incompleta.')
+  if (results.length !== 11) throw new Error('Consulta do relatório incompleta.')
   const days = new Map<string, RelatorioDia>()
   for (let day = period.inicio; day <= period.fim; day = addDays(day, 1)) {
-    days.set(day, { data: day, pedidos: 0, faturado: 0, liquido: 0, despachados: 0, recebimentos: 0, recebido: 0, ads: null })
+    days.set(day, { data: day, pedidos: 0, cancelados: 0, faturado: 0, liquido: 0, despachados: 0, recebimentos: 0, recebido: 0, ads: null })
   }
   const totals = { bruto: 0, cupons: 0, taxas: 0, caixas: 0, lacos: 0, semLiquido: 0, semExtrato: 0, etiquetas: 0, entregues: 0,
+    cancelados: 0, valorCancelado: 0, canceladosSemExtrato: 0,
     adsSpend: 0, adsSales: 0, adsOrders: 0, adsImpressions: 0, adsClicks: 0, syncedAt: 0, adsDays: 0 }
   for (const row of results[0]) {
     const day = days.get(String(row.dia))
@@ -163,6 +170,14 @@ export function buildManagementReport(period: PeriodoRelatorio, results: Row[][]
     totals.adsOrders += num(row, 'ads_orders'); totals.adsImpressions += num(row, 'ads_impressions')
     totals.adsClicks += num(row, 'ads_clicks'); totals.syncedAt = Math.max(totals.syncedAt, num(row, 'synced_at'))
   }
+  for (const row of results[10]) {
+    const day = days.get(String(row.dia))
+    if (!day) continue
+    day.cancelados = num(row, 'pedidos')
+    totals.cancelados += day.cancelados
+    totals.valorCancelado += num(row, 'valor')
+    totals.canceladosSemExtrato += num(row, 'sem_extrato')
+  }
   const daily = [...days.values()]
   const sum = (key: 'pedidos' | 'faturado' | 'liquido' | 'despachados' | 'recebimentos' | 'recebido'): number =>
     daily.reduce((total, day) => total + day[key], 0)
@@ -172,6 +187,7 @@ export function buildManagementReport(period: PeriodoRelatorio, results: Row[][]
   const investimento = money(totals.adsSpend)
   return {
     periodo: period,
+    cancelamentos: { pedidos: totals.cancelados, valor: money(totals.valorCancelado), semExtrato: totals.canceladosSemExtrato },
     recorrentes: results[9].map((row) => ({ usuario: String(row.usuario), pedidosPeriodo: num(row, 'pedidos_periodo'), pedidosTotal: num(row, 'pedidos_total') })),
     vendas: { pedidos: sum('pedidos'), brutoProdutos: money(totals.bruto), cupons: money(totals.cupons),
       faturado: money(sum('faturado')), liquido, semLiquido: totals.semLiquido, semExtrato: totals.semExtrato,

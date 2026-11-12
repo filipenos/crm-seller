@@ -23,9 +23,10 @@ function detailRows(days: RelatorioDia[], monthly: boolean): RelatorioDia[] {
   const grouped = new Map<string, RelatorioDia>()
   for (const day of days) {
     const key = day.data.slice(0, 7)
-    const row = grouped.get(key) ?? { data: `${key}-01`, pedidos: 0, faturado: 0, liquido: 0,
+    const row = grouped.get(key) ?? { data: `${key}-01`, pedidos: 0, cancelados: 0, faturado: 0, liquido: 0,
       despachados: 0, recebimentos: 0, recebido: 0, ads: null }
     row.pedidos += day.pedidos
+    row.cancelados += day.cancelados
     row.faturado += day.faturado
     row.liquido += day.liquido
     row.despachados += day.despachados
@@ -106,6 +107,7 @@ export default function ManagementReportPage({ onOpenBuyer }: { onOpenBuyer: (us
       <section className="report-section"><h2>Vendas feitas no período</h2>
         <div className="report-grid">
           <Kpi label="Pedidos" value={NUM.format(data.vendas.pedidos)} />
+          <Kpi label="Cancelados" value={NUM.format(data.cancelamentos.pedidos)} note="Separados das vendas válidas" />
           <Kpi label="Faturado" value={BRL.format(data.vendas.faturado)} note={data.vendas.semExtrato ? `${data.vendas.semExtrato} pedido(s) sem extrato: valor estimado` : 'Produtos após cupons, sem frete'} />
           <Kpi label="Líquido dos pedidos" value={BRL.format(data.vendas.liquido)} note={data.vendas.semLiquido ? `${data.vendas.semLiquido} pedido(s) sem líquido` : 'Antes dos custos de produção'} />
           <Kpi label="Ticket médio" value={data.vendas.pedidos ? BRL.format(data.vendas.faturado / data.vendas.pedidos) : '—'} />
@@ -115,6 +117,7 @@ export default function ManagementReportPage({ onOpenBuyer }: { onOpenBuyer: (us
         <div className="report-breakdown"><span>Produtos antes dos cupons <b>{BRL.format(data.vendas.brutoProdutos)}</b></span>
           <span>Cupons <b>−{BRL.format(data.vendas.cupons)}</b></span><span>Taxas da Shopee <b>−{BRL.format(data.vendas.taxas)}</b></span>
           {data.vendas.faturado > 0 && <span>Taxas / faturado <b>{(100 * data.vendas.taxas / data.vendas.faturado).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</b></span>}</div>
+        {data.cancelamentos.pedidos > 0 && <p className="muted small">Pedidos cancelados no período: {BRL.format(data.cancelamentos.valor)} em valor de produtos estimado. {data.cancelamentos.semExtrato > 0 && `${data.cancelamentos.semExtrato} sem extrato; nesses casos, o valor pode incluir frete.`}</p>}
       </section>
       <section className="report-section"><h2>Movimento no período</h2>
         <div className="report-grid">
@@ -156,9 +159,9 @@ export default function ManagementReportPage({ onOpenBuyer }: { onOpenBuyer: (us
         </div>
       </section>
       <section className="report-section"><h2>{monthly ? 'Resumo por mês' : 'Resumo por dia'}</h2>
-        <div className="report-table-wrap"><table className="tabela report-table"><thead><tr><th>{monthly ? 'Mês' : 'Dia'}</th><th className="num">Pedidos</th><th className="num">Faturado</th><th className="num">Líquido</th><th className="num">Despachos</th><th className="num">Recebimentos</th><th className="num">Recebido</th><th className="num">Ads</th></tr></thead>
+        <div className="report-table-wrap"><table className="tabela report-table"><thead><tr><th>{monthly ? 'Mês' : 'Dia'}</th><th className="num">Pedidos</th><th className="num">Cancelados</th><th className="num">Faturado</th><th className="num">Líquido</th><th className="num">Despachos</th><th className="num">Recebimentos</th><th className="num">Recebido</th><th className="num">Ads</th></tr></thead>
           <tbody>{rows.map((row) => <tr key={row.data}><td>{monthly ? row.data.slice(5, 7) + '/' + row.data.slice(0, 4) : dateLabel(row.data)}</td>
-            <td className="num">{NUM.format(row.pedidos)}</td><td className="num">{BRL.format(row.faturado)}</td>
+            <td className="num">{NUM.format(row.pedidos)}</td><td className="num">{NUM.format(row.cancelados)}</td><td className="num">{BRL.format(row.faturado)}</td>
             <td className="num">{BRL.format(row.liquido)}</td><td className="num">{NUM.format(row.despachados)}</td>
             <td className="num">{NUM.format(row.recebimentos)}</td><td className="num">{BRL.format(row.recebido)}</td>
             <td className="num">{row.ads === null ? '—' : BRL.format(row.ads)}</td></tr>)}</tbody></table></div>
