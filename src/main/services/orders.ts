@@ -375,11 +375,11 @@ export async function listOpenShopeeOrderIdsAsync(): Promise<string[]> {
   return rows.map((row) => row.shopee_order_id)
 }
 
-/** Só pedidos recentes sem data de etiqueta; a busca na Shopee é pontual e limitada. */
+/** O status logístico pode continuar em "aguardando" após a etiqueta ser gerada. */
 export async function listOrdersMissingLabelDateAsync(limit = 40): Promise<{ orderSn: string; orderId: string }[]> {
   const rows = (await (await getAsyncDb().prepare(
     `SELECT order_sn, shopee_order_id FROM orders
-      WHERE (tab IN ('ENVIADO', 'CONCLUIDO') OR (tab = 'A_ENVIAR' AND ready_to_post = 1))
+      WHERE tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
         AND shopee_order_id IS NOT NULL
         AND label_generated_at IS NULL AND created_at_shopee >= ?
       ORDER BY created_at_shopee DESC LIMIT ?`

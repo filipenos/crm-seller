@@ -94,6 +94,10 @@ try {
   const { listOrdersMissingLabelDateAsync } = await import('../src/main/services/orders')
   assert.ok((await listOrdersMissingLabelDateAsync()).some((order) => order.orderSn === 'READY-LABEL'))
   assert.equal((await pendingSyncPreview()).labels, 1)
+  await upsertShopeeOrderAsync({ orderSn: 'WAITING-LABEL', shopeeOrderId: '1002',
+    shopeeTab: 'A_ENVIAR', logisticsCode: 9, createdAtShopee: Date.now() - 8 * 86_400_000 })
+  assert.ok((await listOrdersMissingLabelDateAsync()).some((order) => order.orderSn === 'WAITING-LABEL'))
+  assert.equal((await pendingSyncPreview()).labels, 2)
   assert.ok(!incomeCandidates.some((order) => order.orderSn === 'NEW-PAYOUT'))
   assert.deepEqual(bow?.variacoesDetalhe.map((variation) =>
     [variation.cor, variation.quantidadePorKit, variation.kitsVendidos, variation.lacosVendidos]

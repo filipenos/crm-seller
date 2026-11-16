@@ -7,7 +7,7 @@ export async function pendingSyncPreview(): Promise<PendingSyncPreview> {
     { sql: `SELECT COUNT(DISTINCT shopee_order_id) AS n FROM orders
       WHERE tab IN ('NAO_PAGO','A_ENVIAR','ENVIADO') AND shopee_order_id IS NOT NULL` },
     { sql: `SELECT COUNT(*) AS n FROM (SELECT 1 FROM orders
-      WHERE (tab IN ('ENVIADO','CONCLUIDO') OR (tab='A_ENVIAR' AND ready_to_post=1))
+      WHERE tab IN ('A_ENVIAR','ENVIADO','CONCLUIDO')
         AND shopee_order_id IS NOT NULL
         AND label_generated_at IS NULL AND created_at_shopee >= ?
       ORDER BY created_at_shopee DESC LIMIT 40)`,
