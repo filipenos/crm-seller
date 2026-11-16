@@ -4,6 +4,9 @@ export const DEFAULT_PAINEL_OFFSETS: PainelOffsets = { vendas: 0, previstas: 0, 
 
 /** Receita dos produtos após cupons; total_amount também inclui frete pago pelo comprador. */
 export const PRODUCT_SALES_SQL = 'COALESCE(i.valor_produtos + COALESCE(i.desconto_cupons, 0), o.total_amount, 0)'
+export const INTERNAL_POSTING_DAY_SQL = `date(o.ship_by_date / 1000, 'unixepoch', '-3 hours',
+  CASE WHEN strftime('%w', o.ship_by_date / 1000, 'unixepoch', '-3 hours') = '1'
+    THEN '-2 days' ELSE '-1 day' END)`
 
 export function validatePainelOffsets(value: PainelOffsets): PainelOffsets {
   for (const offset of [value.vendas, value.previstas, value.etiquetas]) {
@@ -18,16 +21,17 @@ export const DAILY_DASHBOARD_SQL = `
     COALESCE(SUM(i.valor_recebido), 0) AS liquido,
     SUM(CASE WHEN i.valor_recebido IS NULL THEN 1 ELSE 0 END) AS sem_liquido
   FROM orders o LEFT JOIN order_income i ON i.order_sn = o.order_sn
-  WHERE o.tab NOT IN ('CANCELADO', 'NAO_PAGO') AND o.created_at_shopee >= ?1 AND o.created_at_shopee < ?2
+  WHERE o.tab NOT IN ('CANCELADO', 'NAO_PAGO') AND o.created_at_verified = 1
+    AND o.created_at_shopee >= ?1 AND o.created_at_shopee < ?2
   GROUP BY dia
   UNION ALL
-  SELECT 'previstas', date(o.ship_by_date / 1000, 'unixepoch', '-3 hours', '-1 day'),
+  SELECT 'previstas', ${INTERNAL_POSTING_DAY_SQL},
     COUNT(*), COALESCE(SUM(${PRODUCT_SALES_SQL}), 0), COALESCE(SUM(i.valor_recebido), 0),
     SUM(CASE WHEN i.valor_recebido IS NULL THEN 1 ELSE 0 END)
   FROM orders o LEFT JOIN order_income i ON i.order_sn = o.order_sn
   WHERE o.tab = 'A_ENVIAR' AND o.ready_to_post = 0 AND o.label_generated_at IS NULL
     AND o.ship_by_date >= ?3 AND o.ship_by_date < ?4
-  GROUP BY date(o.ship_by_date / 1000, 'unixepoch', '-3 hours', '-1 day')
+  GROUP BY ${INTERNAL_POSTING_DAY_SQL}
   UNION ALL
   SELECT 'etiquetas', date(o.label_generated_at / 1000, 'unixepoch', '-3 hours'),
     COUNT(*), COALESCE(SUM(${PRODUCT_SALES_SQL}), 0), COALESCE(SUM(i.valor_recebido), 0),
@@ -77,7 +81,7 @@ export function dashboardPeriodBounds(today: string, offsets: PainelOffsets = DE
   const etiquetasStart = -6 + offsets.etiquetas
   return [
     ms(shiftedDay(today, vendasStart)), ms(shiftedDay(today, vendasStart + 7)),
-    ms(shiftedDay(today, previstasStart + 1)), ms(shiftedDay(today, previstasStart + 8)),
+    ms(shiftedDay(today, previstasStart + 1)), ms(shiftedDay(today, previstasStart + 9)),
     ms(shiftedDay(today, etiquetasStart)), ms(shiftedDay(today, etiquetasStart + 7))
   ]
 }

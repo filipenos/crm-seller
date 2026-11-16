@@ -35,8 +35,11 @@ As consultas cobrem visão do dia, agenda, relatório gerencial, pedidos, produt
 | Shopee | `estado_sincronizacao`, `previa_sincronizacao_pendente`, `sincronizar_pedidos` |
 
 `sincronizar_pedidos` retorna assim que inicia a tarefa. Use `estado_sincronizacao` para acompanhar o progresso ou a falha. A sincronização usa a sessão Shopee do app; se ela cair, reconecte pelo app.
+`detalhar_pedido` também informa `postedAt`, `collectedAt` e `dispatchedAt` quando o rastreio confirma esses eventos. `shipByDate` é o prazo de postagem. `recebimento.recebidoEm` indica liberação pela Shopee após a transição financeira, não crédito confirmado no banco.
 A agenda e o trabalho atual compartilham a mesma seleção de pedidos no Turso.
-`relatorio_gerencial` retorna `cancelamentos` e `dias[].cancelados` separadamente das vendas válidas. Valores de cancelados sem extrato são estimados pelo card da Shopee e podem incluir frete.
+Na agenda, o prazo interno é um dia antes de `shipByDate`; pedidos com postagem na segunda-feira entram no sábado. Pedidos vencidos e ainda por fazer aparecem no dia atual. Cada `AgendaDia` informa `prazosPostagem` quando reúne mais de um prazo da Shopee, e os totais de laços e caixas separam itens feitos dos pendentes.
+`relatorio_gerencial` retorna `cancelamentos` e `dias[].cancelados` separadamente das vendas válidas. `datasPendentes` conta pedidos próximos ao período cuja hora de criação ainda não foi confirmada; eles não entram nas métricas por dia. O valor de cancelados sem extrato é estimado pelo card da Shopee e pode incluir frete. Em `listar_pedidos` e `detalhar_pedido`, `createdAtVerified` distingue a hora real da data estimada pelo número do pedido.
+Para abrir os pedidos de um card da Home pelo MCP, use `listar_pedidos` com `grupo` (`vendas`, `previstas` ou `etiquetas`) e `dia` (`AAAA-MM-DD`) juntos. A consulta aplica exatamente os critérios usados pelo painel diário.
 Se uma sincronização já estiver em andamento no app ou no MCP, uma nova chamada é recusada com `iniciado: false` e um motivo.
 
 Configuração do banco, login da Shopee, credenciais e arquivos locais não são ferramentas MCP. Operações sensíveis continuam no app.

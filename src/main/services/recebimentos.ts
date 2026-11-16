@@ -51,8 +51,8 @@ export function rowToRecebimento(row: RecebimentoRow): Recebimento {
 
 export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<void> {
   const db = getAsyncDb()
-  const income = await db.prepare(
-    `INSERT INTO order_income (
+  await db.batch([
+    { sql: `INSERT INTO order_income (
        order_sn, valor_produtos, valor_frete, frete_pago_comprador, custo_frete,
        subsidio_frete_shopee, desconto_cupons, taxa_comissao,
        taxa_servico, outras_taxas, valor_recebido, recebido_em, previsto_para,
@@ -67,22 +67,17 @@ export async function salvarRecebimentoAsync(extrato: ExtratoShopee): Promise<vo
        taxa_servico = excluded.taxa_servico, outras_taxas = excluded.outras_taxas,
        valor_recebido = excluded.valor_recebido, recebido_em = excluded.recebido_em,
        previsto_para = excluded.previsto_para, atualizado_em = excluded.atualizado_em,
-       raw_json = excluded.raw_json`
-  )
-  await income.run([
-    extrato.orderSn, extrato.valorProdutos, extrato.valorFrete, extrato.fretePagoComprador,
-    extrato.custoFrete, extrato.subsidioFreteShopee, extrato.descontoCupons,
-    extrato.taxaComissao, extrato.taxaServico, extrato.outrasTaxas,
-    extrato.valorRecebido, extrato.recebidoEm, extrato.previstoPara, Date.now(), extrato.rawJson
+       raw_json = excluded.raw_json`, parameters: [
+      extrato.orderSn, extrato.valorProdutos, extrato.valorFrete, extrato.fretePagoComprador,
+      extrato.custoFrete, extrato.subsidioFreteShopee, extrato.descontoCupons,
+      extrato.taxaComissao, extrato.taxaServico, extrato.outrasTaxas,
+      extrato.valorRecebido, extrato.recebidoEm, extrato.previstoPara, Date.now(), extrato.rawJson
+    ] },
+    { sql: `UPDATE orders SET created_at_shopee = COALESCE(?, created_at_shopee),
+        created_at_verified = CASE WHEN ? IS NOT NULL THEN 1 ELSE created_at_verified END,
+        escrow_amount = ?, escrow_released_at = ? WHERE order_sn = ?`,
+      parameters: [extrato.criadoEm, extrato.criadoEm, extrato.valorRecebido, extrato.recebidoEm, extrato.orderSn] }
   ])
-  if (extrato.criadoEm) {
-    const created = await db.prepare('UPDATE orders SET created_at_shopee = ? WHERE order_sn = ?')
-    await created.run([extrato.criadoEm, extrato.orderSn])
-  }
-  const escrow = await db.prepare(
-    'UPDATE orders SET escrow_amount = ?, escrow_released_at = ? WHERE order_sn = ?'
-  )
-  await escrow.run([extrato.valorRecebido, extrato.recebidoEm, extrato.orderSn])
   await recomputeDerivedAsync(extrato.orderSn)
 }
 
@@ -136,9 +131,10 @@ export async function reprocessarExtratosAsync(): Promise<{ lidos: number; corri
       updates.push({
         sql: `UPDATE orders SET
                 created_at_shopee = COALESCE(?, created_at_shopee),
+                created_at_verified = CASE WHEN ? IS NOT NULL THEN 1 ELSE created_at_verified END,
                 escrow_amount = ?, escrow_released_at = ?
               WHERE order_sn = ?`,
-        parameters: [income.criadoEm, income.valorRecebido, income.recebidoEm, row.order_sn]
+        parameters: [income.criadoEm, income.criadoEm, income.valorRecebido, income.recebidoEm, row.order_sn]
       })
     } catch (error) {
       console.warn(`[extratos] ${row.order_sn} ilegível:`, error)

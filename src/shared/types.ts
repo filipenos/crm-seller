@@ -143,11 +143,18 @@ export interface Order {
   shipByDate: number | null
   folderPath: string | null
   createdAtShopee: number | null
+  createdAtVerified: boolean
   updatedAtShopee: number | null
   syncedAt: number | null
   logisticsStatus: string | null
   deliveredAt: number | null
   labelGeneratedAt: number | null
+  /** Entrega ao ponto de postagem, conforme o rastreio. */
+  postedAt: number | null
+  /** Primeiro evento que confirma saída da nossa operação: postagem ou coleta. */
+  dispatchedAt: number | null
+  /** Coleta pela transportadora, conforme o rastreio. */
+  collectedAt: number | null
   ratingStar: number | null
   ratingComment: string | null
   ratedAt: number | null
@@ -330,6 +337,7 @@ export interface RelatorioDia {
 
 export interface RelatorioGerencial {
   periodo: PeriodoRelatorio
+  datasPendentes: { pedidos: number; cancelados: number }
   recorrentes: { usuario: string; pedidosPeriodo: number; pedidosTotal: number }[]
   cancelamentos: { pedidos: number; valor: number; semExtrato: number }
   vendas: {
@@ -388,6 +396,8 @@ export interface AgendaPedido {
   buyerName: string | null
   childName: string | null
   createdAtShopee: number | null
+  createdAtVerified: boolean
+  postarAte: number | null
   status: InternalStatus
   itens: string[]
   pendencias: string[]
@@ -399,6 +409,7 @@ export interface AgendaPedido {
 export interface AgendaDia {
   data: string
   postarAte: string
+  prazosPostagem: string[]
   pedidos: AgendaPedido[]
   pedidosLacos: number
   pedidosCaixas: number
@@ -408,6 +419,7 @@ export interface AgendaDia {
   lacosFeitos: number
   lacosFeitosPorCor: AgendaQuantidade[]
   caixasFeitas: number
+  caixasFeitasPorModelo: AgendaQuantidade[]
   lacos: AgendaQuantidade[]
   caixas: AgendaQuantidade[]
 }
@@ -780,6 +792,8 @@ export interface OrderFilters {
   /** Etapa de produção (só relevante em A_ENVIAR). */
   stageId?: number
   search?: string
+  /** Abre os pedidos de um card diário da Home com as mesmas regras do painel. */
+  dashboard?: { group: 'vendas' | 'previstas' | 'etiquetas'; day: string }
   /** Limita o volume transferido e renderizado pela listagem. */
   limit?: number
   /** Só pedidos entregues cujo pagamento ainda não foi liberado. */

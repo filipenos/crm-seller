@@ -500,6 +500,24 @@ select:focus {
   margin-bottom: 0;
 }
 
+.order-detail-fold {
+  margin-bottom: 16px;
+}
+
+.order-detail-fold > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 8px 0;
+}
+
+.order-detail-fold > .section-title-row {
+  margin-top: 8px;
+}
+
 .small-btn {
   border: 1px solid var(--border);
   background: #fff;
@@ -1139,6 +1157,8 @@ code {
 .painel-seta:disabled { opacity: 0.45; cursor: default; }
 .painel-dias { display: grid; grid-template-columns: repeat(7, minmax(140px, 1fr)); gap: 8px; overflow-x: auto; padding-bottom: 3px; }
 .painel-dia { background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 11px; min-width: 140px; }
+.painel-dia[role="button"] { cursor: pointer; }
+.painel-dia[role="button"]:hover, .painel-dia[role="button"]:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); outline: none; }
 .painel-dia.hoje { border-color: var(--accent); background: var(--accent-soft); }
 .painel-dia h3 { display: flex; justify-content: space-between; gap: 5px; margin: 0 0 12px; font-size: 13px; text-transform: capitalize; }
 .painel-dia h3 small { color: var(--accent); font-size: 11px; }

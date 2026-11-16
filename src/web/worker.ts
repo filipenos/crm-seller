@@ -49,11 +49,11 @@ async function dashboard(db: Client, url: URL): Promise<Painel> {
 
 async function monthlySeries(db: Client, metric: MetricaPainel, year: number, month: number): Promise<SerieMensal> {
   const expressions: Record<MetricaPainel, { from: string; where: string; value: string; date: string }> = {
-    pedidos: { from: 'orders', where: "tab!='CANCELADO'", value: 'COUNT(*)', date: 'created_at_shopee' },
-    vendas: { from: 'orders o LEFT JOIN order_income i ON i.order_sn=o.order_sn', where: "o.tab NOT IN ('CANCELADO','NAO_PAGO')", value: `COALESCE(SUM(${PRODUCT_SALES_SQL}),0)`, date: 'o.created_at_shopee' },
+    pedidos: { from: 'orders', where: "tab!='CANCELADO' AND created_at_verified=1", value: 'COUNT(*)', date: 'created_at_shopee' },
+    vendas: { from: 'orders o LEFT JOIN order_income i ON i.order_sn=o.order_sn', where: "o.tab NOT IN ('CANCELADO','NAO_PAGO') AND o.created_at_verified=1", value: `COALESCE(SUM(${PRODUCT_SALES_SQL}),0)`, date: 'o.created_at_shopee' },
     recebido: { from: 'order_income', where: 'recebido_em IS NOT NULL', value: 'COALESCE(SUM(valor_recebido),0)', date: 'recebido_em' },
     despachados: { from: 'order_events', where: "source='logistics' AND LOWER(description) LIKE '%postado%'", value: 'COUNT(DISTINCT order_sn)', date: 'happened_at' },
-    caixas: { from: 'order_items i JOIN orders o ON o.order_sn=i.order_sn', where: "o.tab!='CANCELADO' AND i.pecas IS NOT NULL", value: 'COALESCE(SUM(i.pecas*i.quantity),0)', date: 'o.created_at_shopee' }
+    caixas: { from: 'order_items i JOIN orders o ON o.order_sn=i.order_sn', where: "o.tab!='CANCELADO' AND o.created_at_verified=1 AND i.pecas IS NOT NULL", value: 'COALESCE(SUM(i.pecas*i.quantity),0)', date: 'o.created_at_shopee' }
   }
   const selected = expressions[metric]
   if (!selected || !Number.isInteger(year) || year < 2020 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) throw new Error('Período inválido.')
@@ -81,14 +81,14 @@ async function orders(db: Client, url: URL): Promise<{ orders: Order[]; counts: 
   args.push(limit)
   const results = await db.batch([
     { sql: `SELECT o.order_sn,o.shopee_order_id,o.shopee_status,o.internal_status,o.buyer_username,o.buyer_name,
-      o.total_amount,o.currency,o.child_name,o.note,o.tracking_number,o.ship_by_date,o.created_at_shopee,
+      o.total_amount,o.currency,o.child_name,o.note,o.tracking_number,o.ship_by_date,o.created_at_shopee,o.created_at_verified,
       o.updated_at_shopee,o.synced_at,o.logistics_status,o.tab,o.ready_to_post,o.status_description,
       o.payment_method,o.carrier,o.shipping_city,o.shopee_url_path,o.package_number,o.stage_id,
-      o.delivered_at,o.label_generated_at,o.rating_star,o.rating_comment,o.rated_at,o.escrow_amount,o.escrow_released_at,
+      o.delivered_at,o.label_generated_at,o.posted_at,o.collected_at,o.rating_star,o.rating_comment,o.rated_at,o.escrow_amount,o.escrow_released_at,
       s.name AS stage_name,s.color AS stage_color,
       i.valor_produtos,i.valor_frete,i.frete_pago_comprador,i.custo_frete,i.subsidio_frete_shopee,
       i.desconto_cupons,i.taxa_comissao,i.taxa_servico,i.outras_taxas,i.valor_recebido,i.recebido_em,i.previsto_para,
-      COALESCE((SELECT json_group_array(json_object('id',oi.id,'itemName',oi.item_name,'modelName',oi.model_name,'quantity',oi.quantity,'imageUrl',oi.image_url,'itemSku',oi.item_sku,'pecas',oi.pecas,'lacos',oi.lacos)) FROM order_items oi WHERE oi.order_sn=o.order_sn),'[]') AS items
+      COALESCE((SELECT json_group_array(json_object('id',oi.id,'templateKey',p.template_key,'itemName',oi.item_name,'modelName',oi.model_name,'quantity',oi.quantity,'imageUrl',oi.image_url,'itemSku',oi.item_sku,'pecas',oi.pecas,'lacos',oi.lacos)) FROM order_items oi LEFT JOIN products p ON p.item_id=oi.item_id WHERE oi.order_sn=o.order_sn),'[]') AS items
       FROM orders o LEFT JOIN workflow_stages s ON s.id=o.stage_id LEFT JOIN order_income i ON i.order_sn=o.order_sn
       WHERE ${conditions.join(' AND ')} ORDER BY o.created_at_shopee DESC,o.order_sn DESC LIMIT ?`, args },
     { sql: 'SELECT tab,COUNT(*) AS total FROM orders WHERE tab IS NOT NULL GROUP BY tab', args: [] },
@@ -114,13 +114,18 @@ async function orders(db: Client, url: URL): Promise<{ orders: Order[]; counts: 
       currency: row.currency === null ? null : String(row.currency), childName: row.child_name === null ? null : String(row.child_name),
       note: row.note === null ? null : String(row.note), trackingNumber: row.tracking_number === null ? null : String(row.tracking_number),
       shipByDate: row.ship_by_date === null ? null : Number(row.ship_by_date), folderPath: null,
-      createdAtShopee: row.created_at_shopee === null ? null : Number(row.created_at_shopee), updatedAtShopee: row.updated_at_shopee === null ? null : Number(row.updated_at_shopee),
+      createdAtShopee: row.created_at_shopee === null ? null : Number(row.created_at_shopee), createdAtVerified: Number(row.created_at_verified) === 1,
+      updatedAtShopee: row.updated_at_shopee === null ? null : Number(row.updated_at_shopee),
       syncedAt: row.synced_at === null ? null : Number(row.synced_at), logisticsStatus: row.logistics_status === null ? null : String(row.logistics_status),
-      deliveredAt: row.delivered_at === null ? null : Number(row.delivered_at), labelGeneratedAt: row.label_generated_at === null ? null : Number(row.label_generated_at), ratingStar: row.rating_star === null ? null : Number(row.rating_star),
+      deliveredAt: row.delivered_at === null ? null : Number(row.delivered_at), labelGeneratedAt: row.label_generated_at === null ? null : Number(row.label_generated_at),
+      postedAt: row.posted_at === null ? null : Number(row.posted_at), collectedAt: row.collected_at === null ? null : Number(row.collected_at),
+      dispatchedAt: row.posted_at === null ? row.collected_at === null ? null : Number(row.collected_at)
+        : row.collected_at === null ? Number(row.posted_at) : Math.min(Number(row.posted_at), Number(row.collected_at)),
+      ratingStar: row.rating_star === null ? null : Number(row.rating_star),
       ratingComment: row.rating_comment === null ? null : String(row.rating_comment), ratedAt: row.rated_at === null ? null : Number(row.rated_at),
       escrowAmount: row.escrow_amount === null ? null : Number(row.escrow_amount), escrowReleasedAt: row.escrow_released_at === null ? null : Number(row.escrow_released_at),
       recebimento: hasIncome ? { valorProdutos: row.valor_produtos === null ? null : Number(row.valor_produtos), valorFrete: row.valor_frete === null ? null : Number(row.valor_frete), fretePagoComprador: row.frete_pago_comprador === null ? null : Number(row.frete_pago_comprador), custoFrete: row.custo_frete === null ? null : Number(row.custo_frete), subsidioFreteShopee: row.subsidio_frete_shopee === null ? null : Number(row.subsidio_frete_shopee), descontoCupons: row.desconto_cupons === null ? null : Number(row.desconto_cupons), taxaComissao: row.taxa_comissao === null ? null : Number(row.taxa_comissao), taxaServico: row.taxa_servico === null ? null : Number(row.taxa_servico), outrasTaxas: row.outras_taxas === null ? null : Number(row.outras_taxas), totalTaxas: fees || null, valorRecebido: row.valor_recebido === null ? null : Number(row.valor_recebido), recebidoEm: row.recebido_em === null ? null : Number(row.recebido_em), previstoPara: row.previsto_para === null ? null : Number(row.previsto_para) } : null,
-      items: parsedItems.map((item) => ({ id: Number(item.id), orderSn: String(row.order_sn), itemName: String(item.itemName), modelName: item.modelName === null ? null : String(item.modelName), quantity: Number(item.quantity), imageUrl: item.imageUrl === null ? null : String(item.imageUrl), itemSku: item.itemSku === null ? null : String(item.itemSku), pecas: item.pecas == null ? null : Number(item.pecas), lacos: item.lacos == null ? null : Number(item.lacos) }))
+      items: parsedItems.map((item) => ({ id: Number(item.id), templateKey: item.templateKey == null ? null : String(item.templateKey), orderSn: String(row.order_sn), itemName: String(item.itemName), modelName: item.modelName === null ? null : String(item.modelName), quantity: Number(item.quantity), imageUrl: item.imageUrl === null ? null : String(item.imageUrl), itemSku: item.itemSku === null ? null : String(item.itemSku), pecas: item.pecas == null ? null : Number(item.pecas), lacos: item.lacos == null ? null : Number(item.lacos) }))
     }
   })
   return { orders: mapped, counts: { tabs, readyToPost: number(results[2].rows[0] as Row, 'total'), semExtrato: number(results[3].rows[0] as Row, 'total') } }

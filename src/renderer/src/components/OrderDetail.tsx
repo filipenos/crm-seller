@@ -40,6 +40,19 @@ const EVENT_ICONS: Record<OrderEvent['source'], string> = {
   status: '📋'
 }
 
+function diasEntre(inicio: number | null, fim: number | null): string {
+  if (!inicio || !fim || fim < inicio) return '—'
+  const diaLocal = (timestamp: number): number => {
+    const partes = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(timestamp)
+    const valor = (tipo: string): number => Number(partes.find((parte) => parte.type === tipo)?.value)
+    return Date.UTC(valor('year'), valor('month') - 1, valor('day'))
+  }
+  const dias = Math.round((diaLocal(fim) - diaLocal(inicio)) / 86_400_000)
+  return `${dias} ${dias === 1 ? 'dia' : 'dias'}`
+}
+
 interface Props {
   orderSn: string
   initialOrder?: Order
@@ -169,7 +182,28 @@ export default function OrderDetail({
             <div className="ready-tag">🏷️ Etiqueta gerada — pronto para o ponto de coleta</div>
           )}
           {order.logisticsStatus && <div className="muted">🚚 {order.logisticsStatus}</div>}
-          {order.labelGeneratedAt && <div className="muted">Etiqueta gerada em {new Date(order.labelGeneratedAt).toLocaleDateString('pt-BR')}</div>}
+        </section>
+
+        <section>
+          <h3>Datas do pedido</h3>
+          <table className="extrato"><tbody>
+            {([
+              ['Venda', order.createdAtVerified ? order.createdAtShopee : null],
+              ['Postar até', order.shipByDate],
+              ['Etiqueta gerada', order.labelGeneratedAt],
+              ['Postado no ponto de coleta', order.postedAt],
+              ['Despachado', order.dispatchedAt],
+              ['Coletado pela transportadora', order.collectedAt],
+              ['Entregue ao comprador', order.deliveredAt],
+              ['Liberação prevista pela Shopee', order.recebimento?.previstoPara ?? null],
+              ['Valor liberado pela Shopee', order.recebimento?.recebidoEm ?? null]
+            ] as [string, number | null][]).map(([label, at]) => <tr key={label}>
+              <td>{label}</td><td className="num">{at ? new Date(at).toLocaleString('pt-BR') : '—'}</td>
+            </tr>)}
+            <tr><td>Despacho → entrega</td><td className="num">{diasEntre(order.dispatchedAt, order.deliveredAt)}</td></tr>
+            <tr><td>Entrega → liberação pela Shopee</td><td className="num">{diasEntre(order.deliveredAt, order.recebimento?.recebidoEm ?? null)}</td></tr>
+          </tbody></table>
+          <small className="muted">A liberação pela Shopee não confirma o crédito no banco. Datas sem confirmação ficam em branco.</small>
         </section>
 
         <section>
@@ -216,9 +250,9 @@ export default function OrderDetail({
           </div>
         </section>
 
-        <section>
+        <details className="order-detail-fold" key={`payment-${orderSn}`}>
+          <summary>Recebimento</summary>
           <div className="section-title-row">
-            <h3>Recebimento</h3>
             <button
               className="small-btn"
               title="Consulta o extrato deste pedido na Shopee agora"
@@ -240,65 +274,38 @@ export default function OrderDetail({
           {!order.recebimento && (
             <p className="muted">Extrato ainda não consultado para este pedido.</p>
           )}
-        </section>
-
-        {order.recebimento && (
-          <section>
+          {order.recebimento && (
             <table className="extrato">
               <tbody>
-                <Linha
-                  rotulo="Preço original dos produtos"
-                  valor={order.recebimento.valorProdutos}
-                  sempreVisivel
-                />
+                <Linha rotulo="Preço original dos produtos" valor={order.recebimento.valorProdutos} sempreVisivel />
                 <Linha rotulo="Frete pago pelo comprador" valor={order.recebimento.fretePagoComprador} />
                 <Linha rotulo="Custo do frete" valor={order.recebimento.custoFrete} />
                 <Linha rotulo="Subsídio de frete da Shopee" valor={order.recebimento.subsidioFreteShopee} />
                 <Linha rotulo="Saldo do frete" valor={order.recebimento.valorFrete} sempreVisivel />
-                <Linha
-                  rotulo="Desconto de cupom"
-                  valor={-Math.abs(order.recebimento.descontoCupons ?? 0)}
-                  sempreVisivel
-                />
-                <Linha
-                  rotulo="Subtotal após o cupom"
-                  valor={calcularValorAposCupom(order.recebimento)}
-                  sempreVisivel
-                />
+                <Linha rotulo="Desconto de cupom" valor={-Math.abs(order.recebimento.descontoCupons ?? 0)} sempreVisivel />
+                <Linha rotulo="Subtotal após o cupom" valor={calcularValorAposCupom(order.recebimento)} sempreVisivel />
                 <Linha rotulo="Comissão" valor={order.recebimento.taxaComissao} />
                 <Linha rotulo="Taxa de serviço" valor={order.recebimento.taxaServico} />
                 <Linha rotulo="Outras taxas" valor={order.recebimento.outrasTaxas} />
-                <Linha
-                  rotulo="Total de taxas"
-                  valor={
-                    order.recebimento.totalTaxas !== null
-                      ? -order.recebimento.totalTaxas
-                      : null
-                  }
-                  sempreVisivel
-                />
+                <Linha rotulo="Total de taxas" valor={order.recebimento.totalTaxas !== null ? -order.recebimento.totalTaxas : null} sempreVisivel />
                 <tr className="extrato-total">
-                  <td>Recebido</td>
-                  <td className="num">
-                    {order.recebimento.valorRecebido != null
-                      ? `R$ ${order.recebimento.valorRecebido.toFixed(2)}`
-                      : '—'}
-                  </td>
+                  <td>{order.recebimento.recebidoEm ? 'Liberado pela Shopee' : 'Líquido previsto'}</td>
+                  <td className="num">{order.recebimento.valorRecebido != null ? `R$ ${order.recebimento.valorRecebido.toFixed(2)}` : '—'}</td>
                 </tr>
               </tbody>
             </table>
-            <small className="muted">
-              {order.recebimento.recebidoEm
-                ? `Liberado em ${new Date(order.recebimento.recebidoEm).toLocaleDateString('pt-BR')}`
-                : order.recebimento.previstoPara
-                  ? `Ainda não caiu — previsto para ${new Date(order.recebimento.previstoPara).toLocaleDateString('pt-BR')}`
-                  : 'Valor calculado pela Shopee; ainda sem data de liberação.'}
-              {calcularPercentualTaxas(order.recebimento) != null
-                ? ` · taxas somam ${calcularPercentualTaxas(order.recebimento)}% dos produtos após o cupom`
-                : ''}
-            </small>
-          </section>
-        )}
+          )}
+          {order.recebimento && <small className="muted">
+            {order.recebimento.recebidoEm
+              ? `Liberado em ${new Date(order.recebimento.recebidoEm).toLocaleDateString('pt-BR')}`
+              : order.recebimento.previstoPara
+                ? `Liberação prevista pela Shopee para ${new Date(order.recebimento.previstoPara).toLocaleDateString('pt-BR')}`
+                : 'Valor calculado pela Shopee; ainda sem data de liberação.'}
+            {calcularPercentualTaxas(order.recebimento) != null
+              ? ` · taxas somam ${calcularPercentualTaxas(order.recebimento)}% dos produtos após o cupom`
+              : ''}
+          </small>}
+        </details>
 
         <section>
           <h3>Itens</h3>
@@ -332,7 +339,7 @@ export default function OrderDetail({
             )}
             {order.escrowReleasedAt && (
               <span className="flag ok">
-                💰 Pagamento recebido
+                💰 Valor liberado pela Shopee
                 {order.escrowAmount != null ? ` (R$ ${order.escrowAmount.toFixed(2)})` : ''} em{' '}
                 {new Date(order.escrowReleasedAt).toLocaleDateString('pt-BR')}
               </span>
@@ -340,9 +347,9 @@ export default function OrderDetail({
           </div>
         </section>
 
-        <section>
+        <details className="order-detail-fold" key={`tracking-${orderSn}`}>
+          <summary>Linha do tempo Shopee</summary>
           <div className="section-title-row">
-            <h3>Linha do tempo Shopee</h3>
             <button
               className="small-btn"
               disabled={refreshingTracking}
@@ -386,7 +393,7 @@ export default function OrderDetail({
               ))}
             </ul>
           )}
-        </section>
+        </details>
 
         <section>
           <h3>Ações</h3>

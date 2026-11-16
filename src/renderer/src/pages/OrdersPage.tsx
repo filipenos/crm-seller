@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Order, OrderCounts, OrderTab } from '@shared/types'
+import type { Order, OrderCounts, OrderFilters, OrderTab } from '@shared/types'
 import { calcularPercentualTaxas, MAIN_TABS, ORDER_TAB_LABELS } from '@shared/types'
 import OrderDetail from '../components/OrderDetail'
 
@@ -13,14 +13,16 @@ function prazoApertado(shipByDate: number): boolean {
 interface Props {
   dataVersion: number
   initialBuyerUsername?: string | null
+  initialDashboard?: OrderFilters['dashboard'] | null
   onEditArt: (orderSn: string) => void
 }
 
-export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditArt }: Props): React.JSX.Element {
+export default function OrdersPage({ dataVersion, initialBuyerUsername, initialDashboard, onEditArt }: Props): React.JSX.Element {
   const [orders, setOrders] = useState<Order[]>([])
   // Entra direto no que precisa de trabalho hoje, não na base inteira.
-  const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>(initialBuyerUsername ? 'TODOS' : 'A_ENVIAR')
+  const [tabFilter, setTabFilter] = useState<OrderTab | 'TODOS'>(initialBuyerUsername || (initialDashboard && initialDashboard.group !== 'previstas') ? 'TODOS' : 'A_ENVIAR')
   const [buyerUsername, setBuyerUsername] = useState(initialBuyerUsername ?? null)
+  const [dashboard, setDashboard] = useState<OrderFilters['dashboard'] | null>(initialDashboard ?? null)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [counts, setCounts] = useState<OrderCounts | null>(null)
@@ -39,7 +41,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditAr
     setOrders([])
     setLoading(true)
     void window.api.orders
-      .list({ tab: tabFilter, buyerUsername: buyerUsername ?? undefined, search: debouncedSearch, limit })
+      .list({ tab: tabFilter, buyerUsername: buyerUsername ?? undefined, dashboard: dashboard ?? undefined, search: debouncedSearch, limit })
       .then((nextOrders) => {
         if (current) setOrders(nextOrders)
       })
@@ -49,7 +51,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditAr
     return () => {
       current = false
     }
-  }, [tabFilter, buyerUsername, debouncedSearch, limit, dataVersion])
+  }, [tabFilter, buyerUsername, dashboard, debouncedSearch, limit, dataVersion])
 
   useEffect(() => {
     void window.api.orders.tabCounts().then(setCounts)
@@ -58,7 +60,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditAr
   const refresh = (): void => {
     setLoading(true)
     void window.api.orders
-      .list({ tab: tabFilter, buyerUsername: buyerUsername ?? undefined, search: debouncedSearch, limit })
+      .list({ tab: tabFilter, buyerUsername: buyerUsername ?? undefined, dashboard: dashboard ?? undefined, search: debouncedSearch, limit })
       .then(setOrders)
       .finally(() => setLoading(false))
     void window.api.orders.tabCounts().then(setCounts)
@@ -107,6 +109,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditAr
         />
       </header>
       {buyerUsername && <div className="orders-buyer-filter">Pedidos de <b>{buyerUsername}</b><button type="button" onClick={() => { setBuyerUsername(null); setTabFilter('A_ENVIAR'); setLimit(PAGE_SIZE) }}>Limpar filtro</button></div>}
+      {dashboard && <div className="orders-buyer-filter">Pedidos de <b>{new Date(`${dashboard.day}T12:00:00-03:00`).toLocaleDateString('pt-BR')}</b> · {dashboard.group === 'vendas' ? 'Vendas recentes' : dashboard.group === 'previstas' ? 'Postar até' : 'Etiquetas geradas'}<button type="button" onClick={() => { setDashboard(null); setTabFilter('A_ENVIAR'); setLimit(PAGE_SIZE) }}>Limpar filtro</button></div>}
 
       <div className="status-tabs">
         <button
@@ -136,8 +139,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditAr
         <div className="empty loading-indicator">Carregando pedidos…</div>
       ) : orders.length === 0 ? (
         <div className="empty">
-          Nenhum pedido ainda. Conecte a Shopee em <b>Configurações</b> e clique em{' '}
-          <b>Sincronizar</b>.
+          {dashboard ? 'Nenhum pedido corresponde ao card e aos filtros selecionados.' : <>Nenhum pedido ainda. Conecte a Shopee em <b>Configurações</b> e clique em <b>Sincronizar</b>.</>}
         </div>
       ) : (
         <>
@@ -165,6 +167,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditAr
                     {o.createdAtShopee
                       ? new Date(o.createdAtShopee).toLocaleDateString('pt-BR')
                       : '—'}
+                    {o.createdAtShopee && !o.createdAtVerified ? ' · data estimada' : ''}
                     {o.buyerUsername ? ` · ${o.buyerUsername}` : ''}
                   </small>
                 </td>
@@ -212,7 +215,7 @@ export default function OrdersPage({ dataVersion, initialBuyerUsername, onEditAr
                       ) : null}
                       {!o.recebimento.recebidoEm && o.recebimento.previstoPara ? (
                         <div>
-                          <span className="previsto" title="Valor calculado; ainda não caiu na conta">
+                          <span className="previsto" title="Valor calculado; liberação pela Shopee ainda não confirmada">
                             previsto {new Date(o.recebimento.previstoPara).toLocaleDateString('pt-BR')}
                           </span>
                         </div>

@@ -67,12 +67,14 @@ export function reportQueries(period: PeriodoRelatorio): { sql: string; paramete
         SUM(i.valor_produtos IS NULL) AS sem_extrato,
         SUM(ABS(COALESCE(i.taxa_comissao,0))+ABS(COALESCE(i.taxa_servico,0))+ABS(COALESCE(i.outras_taxas,0))) AS taxas
       FROM orders o LEFT JOIN order_income i ON i.order_sn=o.order_sn
-      WHERE o.tab NOT IN ('CANCELADO','NAO_PAGO') AND o.created_at_shopee>=? AND o.created_at_shopee<?
+      WHERE o.tab NOT IN ('CANCELADO','NAO_PAGO') AND o.created_at_verified=1
+        AND o.created_at_shopee>=? AND o.created_at_shopee<?
       GROUP BY dia`, parameters: range },
     { sql: `SELECT date(o.created_at_shopee/1000,'unixepoch','-3 hours') AS dia,
         SUM(COALESCE(oi.pecas,0)*oi.quantity) AS caixas, SUM(COALESCE(oi.lacos,0)*oi.quantity) AS lacos
       FROM order_items oi JOIN orders o ON o.order_sn=oi.order_sn
-      WHERE o.tab NOT IN ('CANCELADO','NAO_PAGO') AND o.created_at_shopee>=? AND o.created_at_shopee<?
+      WHERE o.tab NOT IN ('CANCELADO','NAO_PAGO') AND o.created_at_verified=1
+        AND o.created_at_shopee>=? AND o.created_at_shopee<?
       GROUP BY dia`, parameters: range },
     { sql: `SELECT date(label_generated_at/1000,'unixepoch','-3 hours') AS dia, COUNT(*) AS etiquetas
       FROM orders WHERE tab NOT IN ('CANCELADO','NAO_PAGO') AND label_generated_at>=? AND label_generated_at<?
@@ -102,13 +104,13 @@ export function reportQueries(period: PeriodoRelatorio): { sql: string; paramete
           AND e.source='logistics' AND (LOWER(e.description) LIKE '%postado%' OR LOWER(e.description) LIKE '%coletado%'))) AS sem_postagem,
         SUM(o.tab='CONCLUIDO' AND o.delivered_at IS NULL) AS sem_entrega
       FROM orders o WHERE o.tab IN ('ENVIADO','CONCLUIDO')
-        AND o.created_at_shopee>=? AND o.created_at_shopee<?`, parameters: range },
+        AND o.created_at_verified=1 AND o.created_at_shopee>=? AND o.created_at_shopee<?`, parameters: range },
     { sql: `WITH periodo AS (
         SELECT buyer_username AS usuario, COUNT(*) AS pedidos_periodo
         FROM orders
         WHERE tab NOT IN ('CANCELADO','NAO_PAGO')
           AND buyer_username IS NOT NULL AND TRIM(buyer_username) <> ''
-          AND created_at_shopee>=? AND created_at_shopee<?
+          AND created_at_verified=1 AND created_at_shopee>=? AND created_at_shopee<?
         GROUP BY buyer_username
       )
       SELECT p.usuario, p.pedidos_periodo, COUNT(o.order_sn) AS pedidos_total
@@ -121,8 +123,13 @@ export function reportQueries(period: PeriodoRelatorio): { sql: string; paramete
         COUNT(*) AS pedidos, SUM(${PRODUCT_SALES_SQL}) AS valor,
         SUM(i.valor_produtos IS NULL) AS sem_extrato
       FROM orders o LEFT JOIN order_income i ON i.order_sn=o.order_sn
-      WHERE o.tab='CANCELADO' AND o.created_at_shopee>=? AND o.created_at_shopee<?
-      GROUP BY dia`, parameters: range }
+      WHERE o.tab='CANCELADO' AND o.created_at_verified=1
+        AND o.created_at_shopee>=? AND o.created_at_shopee<?
+      GROUP BY dia`, parameters: range },
+    { sql: `SELECT COUNT(*) AS pedidos, SUM(tab='CANCELADO') AS cancelados
+      FROM orders WHERE tab!='NAO_PAGO' AND created_at_verified=0
+        AND created_at_shopee>=? AND created_at_shopee<?`,
+      parameters: [start, end + 86_400_000] }
   ]
 }
 
@@ -132,7 +139,7 @@ const money = (value: number): number => Number(value.toFixed(2))
 
 export function buildManagementReport(period: PeriodoRelatorio, results: Row[][]): RelatorioGerencial {
   validateReportPeriod(period)
-  if (results.length !== 11) throw new Error('Consulta do relatório incompleta.')
+  if (results.length !== 12) throw new Error('Consulta do relatório incompleta.')
   const days = new Map<string, RelatorioDia>()
   for (let day = period.inicio; day <= period.fim; day = addDays(day, 1)) {
     days.set(day, { data: day, pedidos: 0, cancelados: 0, faturado: 0, liquido: 0, despachados: 0, recebimentos: 0, recebido: 0, ads: null })
@@ -187,6 +194,7 @@ export function buildManagementReport(period: PeriodoRelatorio, results: Row[][]
   const investimento = money(totals.adsSpend)
   return {
     periodo: period,
+    datasPendentes: { pedidos: num(results[11][0], 'pedidos'), cancelados: num(results[11][0], 'cancelados') },
     cancelamentos: { pedidos: totals.cancelados, valor: money(totals.valorCancelado), semExtrato: totals.canceladosSemExtrato },
     recorrentes: results[9].map((row) => ({ usuario: String(row.usuario), pedidosPeriodo: num(row, 'pedidos_periodo'), pedidosTotal: num(row, 'pedidos_total') })),
     vendas: { pedidos: sum('pedidos'), brutoProdutos: money(totals.bruto), cupons: money(totals.cupons),

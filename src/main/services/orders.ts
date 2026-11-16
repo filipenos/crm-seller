@@ -11,6 +11,7 @@ import type {
   StatusHistoryEntry
 } from '@shared/types'
 import { INTERNAL_STATUSES, ORDER_TABS } from '@shared/types'
+import { INTERNAL_POSTING_DAY_SQL } from '@shared/dashboardDays'
 import { deriveTab, isReadyToPost } from './tabs'
 import { rowToRecebimento } from './recebimentos'
 
@@ -29,6 +30,7 @@ interface OrderRow {
   ship_by_date: number | null
   folder_path: string | null
   created_at_shopee: number | null
+  created_at_verified: number
   updated_at_shopee: number | null
   synced_at: number | null
   logistics_status: string | null
@@ -47,6 +49,8 @@ interface OrderRow {
   stage_color: string | null
   delivered_at: number | null
   label_generated_at: number | null
+  posted_at: number | null
+  collected_at: number | null
   rating_star: number | null
   rating_comment: string | null
   rated_at: number | null
@@ -59,11 +63,12 @@ interface OrderRow {
 const ORDER_VIEW_COLUMNS = `
   o.order_sn, o.shopee_order_id, o.shopee_status, o.internal_status,
   o.buyer_username, o.buyer_name, o.total_amount, o.currency, o.child_name,
-  o.note, o.tracking_number, o.ship_by_date, o.folder_path, o.created_at_shopee,
+  o.note, o.tracking_number, o.ship_by_date, o.folder_path, o.created_at_shopee, o.created_at_verified,
   o.updated_at_shopee, o.synced_at, o.logistics_status, o.logistics_code, o.tab,
   o.ready_to_post, o.status_description, o.payment_method, o.carrier,
   o.shipping_city, o.shopee_url_path, o.package_number, o.logistics_phase,
-  o.stage_id, o.delivered_at, o.label_generated_at, o.rating_star, o.rating_comment, o.rated_at,
+  o.stage_id, o.delivered_at, o.label_generated_at, o.posted_at, o.collected_at,
+  o.rating_star, o.rating_comment, o.rated_at,
   o.escrow_amount, o.escrow_released_at,
   s.name AS stage_name, s.color AS stage_color`
 
@@ -103,11 +108,16 @@ function rowToOrder(row: OrderRow, items: OrderItem[], recebimento: Recebimento 
     shipByDate: row.ship_by_date,
     folderPath: row.folder_path,
     createdAtShopee: row.created_at_shopee,
+    createdAtVerified: row.created_at_verified === 1,
     updatedAtShopee: row.updated_at_shopee,
     syncedAt: row.synced_at,
     logisticsStatus: row.logistics_status,
     deliveredAt: row.delivered_at,
     labelGeneratedAt: row.label_generated_at,
+    postedAt: row.posted_at,
+    dispatchedAt: row.posted_at !== null && row.collected_at !== null
+      ? Math.min(row.posted_at, row.collected_at) : row.posted_at ?? row.collected_at,
+    collectedAt: row.collected_at,
     ratingStar: row.rating_star,
     ratingComment: row.rating_comment,
     ratedAt: row.rated_at,
@@ -250,6 +260,28 @@ function montaBusca(termo: string): { sql: string; params: unknown[] } {
 export async function listOrdersAsync(filters: OrderFilters = {}): Promise<Order[]> {
   const conditions: string[] = []
   const params: unknown[] = []
+  if (filters.dashboard) {
+    const { group, day } = filters.dashboard
+    if (!['vendas', 'previstas', 'etiquetas'].includes(group) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+        Number.isNaN(Date.parse(`${day}T00:00:00Z`)) ||
+        new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) !== day) {
+      throw new Error('Data ou tipo do painel inválido.')
+    }
+    const start = Date.parse(`${day}T00:00:00-03:00`)
+    const end = start + 86_400_000
+    if (group === 'vendas') {
+      conditions.push("o.tab NOT IN ('CANCELADO','NAO_PAGO') AND o.created_at_verified = 1 AND o.created_at_shopee >= ? AND o.created_at_shopee < ?")
+      params.push(start, end)
+    } else if (group === 'etiquetas') {
+      conditions.push("o.tab NOT IN ('CANCELADO','NAO_PAGO') AND o.label_generated_at >= ? AND o.label_generated_at < ?")
+      params.push(start, end)
+    } else {
+      conditions.push(`o.tab = 'A_ENVIAR' AND o.ready_to_post = 0 AND o.label_generated_at IS NULL
+        AND ${INTERNAL_POSTING_DAY_SQL} = ?`)
+      params.push(day)
+    }
+  }
   if (filters.buyerUsername) {
     conditions.push('o.buyer_username = ?')
     params.push(filters.buyerUsername)
@@ -544,15 +576,17 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
         order_sn, shopee_order_id, shopee_status, internal_status, buyer_username, buyer_name,
         total_amount, currency, tracking_number, ship_by_date, logistics_code,
         status_description, payment_method, carrier, shipping_city, shopee_url_path,
-        package_number, created_at_shopee, updated_at_shopee, synced_at, raw_json
-      ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        package_number, created_at_shopee, created_at_verified, updated_at_shopee, synced_at, raw_json
+      ) VALUES (?, ?, ?, 'NOVO', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.orderSn, input.shopeeOrderId ?? null, input.shopeeStatus ?? null,
         input.buyerUsername ?? null, input.buyerName ?? null, input.totalAmount ?? null,
         input.currency ?? null, input.trackingNumber ?? null, input.shipByDate ?? null,
         input.logisticsCode ?? null, input.statusDescription ?? null, input.paymentMethod ?? null,
         input.carrier ?? null, input.shippingCity ?? null, input.shopeeUrlPath ?? null,
-        input.packageNumber ?? null, input.createdAtShopee ?? null, input.updatedAtShopee ?? null,
+        input.packageNumber ?? null, input.createdAtShopee ?? null,
+        input.createdAtShopee != null && input.createdAtEstimated === false ? 1 : 0,
+        input.updatedAtShopee ?? null,
         now, input.rawJson ?? null
       ]
     )
@@ -573,6 +607,7 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
         package_number = COALESCE(?, package_number),
         created_at_shopee = CASE WHEN ? = 1 AND created_at_shopee IS NOT NULL
           THEN created_at_shopee ELSE COALESCE(?, created_at_shopee) END,
+        created_at_verified = CASE WHEN ? = 1 THEN 1 ELSE created_at_verified END,
         updated_at_shopee = COALESCE(?, updated_at_shopee), synced_at = ?,
         raw_json = COALESCE(?, raw_json) WHERE order_sn = ?`,
       [
@@ -582,6 +617,7 @@ export async function upsertShopeeOrderAsync(input: UpsertOrderInput): Promise<b
         input.statusDescription ?? null, input.paymentMethod ?? null, input.carrier ?? null,
         input.shippingCity ?? null, input.shopeeUrlPath ?? null, input.packageNumber ?? null,
         input.createdAtEstimated ? 1 : 0, input.createdAtShopee ?? null,
+        input.createdAtShopee != null && input.createdAtEstimated === false ? 1 : 0,
         input.updatedAtShopee ?? null, now,
         input.rawJson ?? null, input.orderSn
       ]

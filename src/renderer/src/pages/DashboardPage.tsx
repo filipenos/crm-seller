@@ -3,7 +3,8 @@ import type { DiaPainel, Painel, PainelOffsets } from '@shared/types'
 import { dashboardDates, DEFAULT_PAINEL_OFFSETS } from '@shared/dashboardDays'
 import { api } from '@renderer/api'
 
-interface Props { dataVersion?: number }
+type DayGroup = 'vendas' | 'previstas' | 'etiquetas'
+interface Props { dataVersion?: number; onOpenDay: (group: DayGroup, day: string) => void }
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const DAY = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })
@@ -13,9 +14,10 @@ function formatDate(day: string): string {
   return DATE.format(new Date(`${day}T12:00:00-03:00`))
 }
 
-function FaixaDias({ titulo, descricao, dias, hoje, avisoPrazo, offset, loading, onNavigate }: {
+function FaixaDias({ titulo, descricao, dias, hoje, avisoPrazo, offset, loading, onNavigate, onOpenDay }: {
   titulo: string; descricao: string; dias: DiaPainel[]; hoje: string; avisoPrazo?: boolean
   offset: number; loading: boolean; onNavigate: (direction: number) => void
+  onOpenDay: (day: string) => void
 }): React.JSX.Element {
   const pedidos = dias.reduce((sum, dia) => sum + dia.pedidos, 0)
   const total = dias.reduce((sum, dia) => sum + dia.total, 0)
@@ -26,7 +28,7 @@ function FaixaDias({ titulo, descricao, dias, hoje, avisoPrazo, offset, loading,
       <div><h2>{titulo}</h2><p className="muted">{descricao}</p>
         {avisoPrazo && <div className="work-tip">Prazo interno: 1 dia antes da Shopee
           <span className="work-tip-icon" tabIndex={0} aria-label="Como calculamos o prazo interno">ⓘ
-            <span role="tooltip">Esta faixa usa “Postar até” da Shopee menos um dia. A agenda antecipa o prazo para a produção não depender do último dia permitido.</span>
+            <span role="tooltip">Esta faixa antecipa “Postar até” em um dia. Se o prazo é segunda-feira, o trabalho aparece no sábado.</span>
           </span>
         </div>}
       </div>
@@ -39,7 +41,10 @@ function FaixaDias({ titulo, descricao, dias, hoje, avisoPrazo, offset, loading,
     <div className="painel-navegacao" aria-busy={loading}>
       <button type="button" className="painel-seta" aria-label={`Voltar um dia: ${titulo}`} disabled={loading || offset <= -3650} onClick={() => onNavigate(-1)}>‹</button>
       <div className="painel-dias">
-      {dias.map((dia) => <article className={`painel-dia ${dia.data === hoje ? 'hoje' : ''}`} key={dia.data}>
+      {dias.map((dia) => <article className={`painel-dia ${dia.data === hoje ? 'hoje' : ''}`} key={dia.data}
+        role="button" tabIndex={loading ? -1 : 0} aria-label={`Ver ${dia.pedidos} pedidos de ${formatDate(dia.data)} em ${titulo}`}
+        onClick={() => { if (!loading) onOpenDay(dia.data) }}
+        onKeyDown={(event) => { if (!loading && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpenDay(dia.data) } }}>
         <h3>{DAY.format(new Date(`${dia.data}T12:00:00-03:00`))}{dia.data === hoje && <small>Hoje</small>}</h3>
         <div className="painel-dia-pedidos"><strong>{dia.pedidos}</strong> {dia.pedidos === 1 ? 'pedido' : 'pedidos'}</div>
         <dl>
@@ -55,7 +60,7 @@ function FaixaDias({ titulo, descricao, dias, hoje, avisoPrazo, offset, loading,
   </section>
 }
 
-export default function DashboardPage({ dataVersion = 0 }: Props): React.JSX.Element {
+export default function DashboardPage({ dataVersion = 0, onOpenDay }: Props): React.JSX.Element {
   const [painel, setPainel] = useState<Painel | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [diaAtual, setDiaAtual] = useState(0)
@@ -92,12 +97,12 @@ export default function DashboardPage({ dataVersion = 0 }: Props): React.JSX.Ele
     <header className="page-header"><h1>Início</h1><span className="muted">7 dias por faixa</span></header>
     {erro && <div className="aviso">Não foi possível atualizar o período: {erro}</div>}
     <FaixaDias titulo="Vendas recentes" descricao="Pedidos feitos no período" dias={painel.vendasRecentes} hoje={hoje}
-      offset={visibleOffsets.vendas} loading={loading} onNavigate={(direction) => navigate('vendas', direction)} />
+      offset={visibleOffsets.vendas} loading={loading} onNavigate={(direction) => navigate('vendas', direction)} onOpenDay={(day) => onOpenDay('vendas', day)} />
     <FaixaDias titulo="Postar até" descricao="Pedidos a enviar pelo prazo interno de postagem" dias={painel.postagensPrevistas} hoje={hoje} avisoPrazo
-      offset={visibleOffsets.previstas} loading={loading} onNavigate={(direction) => navigate('previstas', direction)} />
+      offset={visibleOffsets.previstas} loading={loading} onNavigate={(direction) => navigate('previstas', direction)} onOpenDay={(day) => onOpenDay('previstas', day)} />
     {painel.semPrazoPostagem > 0 && <p className="painel-observacao">{painel.semPrazoPostagem} pedidos a enviar estão sem prazo de postagem informado pela Shopee.</p>}
     <FaixaDias titulo="Ganhos dos pedidos etiquetados" descricao="Pedidos cuja etiqueta foi gerada no período" dias={painel.etiquetasRecentes} hoje={hoje}
-      offset={visibleOffsets.etiquetas} loading={loading} onNavigate={(direction) => navigate('etiquetas', direction)} />
+      offset={visibleOffsets.etiquetas} loading={loading} onNavigate={(direction) => navigate('etiquetas', direction)} onOpenDay={(day) => onOpenDay('etiquetas', day)} />
     <p className="muted small">Faturado considera os produtos após cupons, sem o frete pago pelo comprador. Líquido é o valor calculado pela Shopee após cupons, frete e taxas, antes dos custos de produção.</p>
   </div>
 }

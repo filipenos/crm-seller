@@ -961,20 +961,25 @@ export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | n
   const outras =
     taxasTotal !== null ? Number((taxasTotal - (comissao ?? 0) - (servico ?? 0)).toFixed(2)) : null
 
-  // ATENÇÃO: `released_time` guarda a data **prevista** enquanto o pagamento
-  // não sai (o próprio `release_time_transify_key` fala em "estimate"), e a
-  // prevista vem sempre 09:00 redondo. Tratar qualquer valor > 0 como pago
-  // colocava pedido não pago na aba Concluído.
-  // A primeira transição do escrow é o nascimento do pedido, com hora.
+  // `released_time` é previsão até haver transição financeira 14→11. Uma
+  // previsão vencida, sozinha, não comprova liberação do valor pela Shopee.
+  // A transição 0→1 do escrow é o nascimento do pedido, com hora.
   const transicoes = Array.isArray(data.tracking_info_list)
     ? (data.tracking_info_list as AnyObj[])
+        .filter((t) => pickNumber(t, ['old_status']) === 0 && pickNumber(t, ['new_status']) === 1)
         .map((t) => pickNumber(t, ['ctime']))
         .filter((t): t is number => t !== null && t > 0)
     : []
   const criadoEm = transicoes.length > 0 ? toMs(Math.min(...transicoes)) : null
 
   const released = toMs(pickNumber(data.order_info as AnyObj, ['released_time']))
-  const jaCaiu = released !== null && released > 0 && released <= Date.now()
+  const liberacoes = Array.isArray(data.tracking_info_list)
+    ? (data.tracking_info_list as AnyObj[])
+        .filter((t) => pickNumber(t, ['old_status']) === 14 && pickNumber(t, ['new_status']) === 11)
+        .map((t) => pickNumber(t, ['ctime']))
+        .filter((t): t is number => t !== null && t > 0)
+    : []
+  const liberadoEm = liberacoes.length > 0 ? toMs(Math.min(...liberacoes)) : null
 
   return {
     orderSn: pickString(data.order_info as AnyObj, ['order_sn']) ?? orderSn,
@@ -988,8 +993,8 @@ export function parseOrderIncome(data: AnyObj, orderSn: string): OrderIncome | n
     taxaServico: servico,
     outrasTaxas: outras === 0 ? null : outras,
     valorRecebido: total,
-    recebidoEm: jaCaiu ? released : null,
-    previstoPara: released !== null && released > 0 && !jaCaiu ? released : null,
+    recebidoEm: liberadoEm,
+    previstoPara: liberadoEm === null ? released : null,
     criadoEm,
     rawJson: JSON.stringify(data)
   }

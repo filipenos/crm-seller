@@ -722,6 +722,44 @@ const migrations: string[] = [
     selected_at INTEGER NOT NULL
   );
   CREATE INDEX idx_current_work_selected ON current_work_orders(selected_at);
+  `,
+  // 32 — distinguir a hora confirmada pela Shopee da data deduzida do número.
+  `
+  ALTER TABLE orders ADD COLUMN created_at_verified INTEGER NOT NULL DEFAULT 0;
+  UPDATE orders SET created_at_verified = 1
+    WHERE EXISTS (
+      SELECT 1 FROM order_income i
+      JOIN json_each(i.raw_json, '$.tracking_info_list') event
+      WHERE i.order_sn = orders.order_sn
+        AND json_extract(event.value, '$.old_status') = 0
+        AND json_extract(event.value, '$.new_status') = 1
+        AND json_extract(event.value, '$.ctime') * 1000 = orders.created_at_shopee
+    );
+  CREATE INDEX idx_orders_sale_date_verified ON orders(created_at_verified, created_at_shopee);
+  `,
+  // 33 — marcos distintos do rastreio; prazo de postagem continua em ship_by_date.
+  `
+  ALTER TABLE orders ADD COLUMN posted_at INTEGER;
+  ALTER TABLE orders ADD COLUMN collected_at INTEGER;
+  UPDATE orders SET posted_at = (
+    SELECT MIN(e.happened_at) FROM order_events e
+    WHERE e.order_sn = orders.order_sn AND e.source = 'logistics'
+      AND LOWER(e.description) LIKE '%postado%'
+  );
+  UPDATE orders SET collected_at = (
+    SELECT MIN(e.happened_at) FROM order_events e
+    WHERE e.order_sn = orders.order_sn AND e.source = 'logistics'
+      AND LOWER(e.description) LIKE '%coletado%'
+  );
+  UPDATE order_income SET previsto_para = recebido_em, recebido_em = NULL
+  WHERE recebido_em IS NOT NULL AND raw_json IS NOT NULL AND json_valid(raw_json)
+    AND NOT EXISTS (
+      SELECT 1 FROM json_each(order_income.raw_json, '$.tracking_info_list') e
+      WHERE json_extract(e.value, '$.old_status') = 14
+        AND json_extract(e.value, '$.new_status') = 11
+    );
+  UPDATE orders SET escrow_released_at = NULL
+  WHERE order_sn IN (SELECT order_sn FROM order_income WHERE recebido_em IS NULL);
   `
 ]
 

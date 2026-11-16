@@ -31,8 +31,10 @@ try {
     ['D', 'ENVIADO', at('2026-11-01'), 30, null, null],
     ['E', 'ENVIADO', at('2026-11-01'), 20, at('2026-11-07'), at('2026-11-07')]
   ] as const) {
-    await db.execute({ sql: 'INSERT INTO orders (order_sn,tab,created_at_shopee,total_amount,label_generated_at,delivered_at) VALUES (?,?,?,?,?,?)', args: [sn, tab, created, total, label, delivered] })
+    await db.execute({ sql: 'INSERT INTO orders (order_sn,tab,created_at_shopee,created_at_verified,total_amount,label_generated_at,delivered_at) VALUES (?,?,?,1,?,?,?)', args: [sn, tab, created, total, label, delivered] })
   }
+  await db.execute({ sql: "INSERT INTO orders (order_sn,tab,created_at_shopee,total_amount) VALUES ('UNVERIFIED','CONCLUIDO',?,25)", args: [at('2026-11-09')] })
+  await db.execute({ sql: "INSERT INTO orders (order_sn,tab,created_at_shopee,total_amount) VALUES ('CANCELLED-UNVERIFIED','CANCELADO',?,30)", args: [at('2026-11-09')] })
   await db.execute({ sql: "UPDATE orders SET buyer_username='cliente_retorno' WHERE order_sn IN ('A','B','C','D')", args: [] })
   await db.execute({ sql: "UPDATE orders SET buyer_username='cliente_unico' WHERE order_sn='E'", args: [] })
   for (const [sn, products, coupon, net, received] of [
@@ -54,6 +56,7 @@ try {
   const report = await read()
   assert.deepEqual(report.vendas, { pedidos: 2, brutoProdutos: 150, cupons: 5, faturado: 145, liquido: 105, semLiquido: 0, semExtrato: 0, taxas: 0, caixas: 5, lacos: 40 })
   assert.deepEqual(report.cancelamentos, { pedidos: 1, valor: 99, semExtrato: 1 })
+  assert.deepEqual(report.datasPendentes, { pedidos: 2, cancelados: 1 })
   assert.equal(report.dias[1].cancelados, 1)
   assert.equal(report.dias[2].cancelados, 0)
   assert.deepEqual(report.recorrentes, [{ usuario: 'cliente_retorno', pedidosPeriodo: 2, pedidosTotal: 3 }])

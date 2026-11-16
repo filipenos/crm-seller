@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { ProgressoLote, ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
+import type { OrderFilters, ProgressoLote, ShopeeConnectionStatus, SyncResult, UpdateStatus } from '@shared/types'
 import DashboardPage from './pages/DashboardPage'
 import WorkPage from './pages/WorkPage'
 import OrdersPage from './pages/OrdersPage'
@@ -26,6 +26,7 @@ export default function App(): React.JSX.Element {
   } | null>(null)
   const [page, setPage] = useState<Page>('home')
   const [ordersBuyer, setOrdersBuyer] = useState<string | null>(null)
+  const [ordersDashboard, setOrdersDashboard] = useState<OrderFilters['dashboard'] | null>(null)
   const [artOrderSn, setArtOrderSn] = useState<string | null>(null)
   const [artReturnPage, setArtReturnPage] = useState<'orders' | 'work'>('orders')
   const [status, setStatus] = useState<ShopeeConnectionStatus | null>(null)
@@ -131,7 +132,7 @@ export default function App(): React.JSX.Element {
           <button className={page === 'work' ? 'active' : ''} onClick={() => setPage('work')}>
             Meu trabalho
           </button>
-          <button className={page === 'orders' ? 'active' : ''} onClick={() => { setOrdersBuyer(null); setPage('orders') }}>
+          <button className={page === 'orders' ? 'active' : ''} onClick={() => { setOrdersBuyer(null); setOrdersDashboard(null); setPage('orders') }}>
             Pedidos
           </button>
           <button className={page === 'produtos' ? 'active' : ''} onClick={() => setPage('produtos')}>
@@ -202,14 +203,18 @@ export default function App(): React.JSX.Element {
         )}
         {/* Fica aqui e não na listagem: a sincronização roda em qualquer página. */}
         {page !== 'orders' && <BarraProgresso />}
-        {page === 'home' && <DashboardPage dataVersion={dataVersion} />}
+        {page === 'home' && <DashboardPage dataVersion={dataVersion} onOpenDay={(group, day) => {
+          setOrdersBuyer(null)
+          setOrdersDashboard({ group, day })
+          setPage('orders')
+        }} />}
         {page === 'work' && <WorkPage dataVersion={dataVersion} onEditArt={(orderSn) => { setArtOrderSn(orderSn); setArtReturnPage('work'); setPage('art') }} />}
         {page === 'orders' && (syncActive
           ? <OrdersSyncPage progress={syncProgress} starting={syncStarting} />
-          : <OrdersPage dataVersion={dataVersion} initialBuyerUsername={ordersBuyer} onEditArt={(orderSn) => { setArtOrderSn(orderSn); setArtReturnPage('orders'); setPage('art') }} />)}
+          : <OrdersPage dataVersion={dataVersion} initialBuyerUsername={ordersBuyer} initialDashboard={ordersDashboard} onEditArt={(orderSn) => { setArtOrderSn(orderSn); setArtReturnPage('orders'); setPage('art') }} />)}
         {page === 'produtos' && <ProdutosPage dataVersion={dataVersion} />}
         {page === 'performance' && <PerformancePage />}
-        {page === 'report' && <ManagementReportPage onOpenBuyer={(username) => { setOrdersBuyer(username); setPage('orders') }} />}
+        {page === 'report' && <ManagementReportPage onOpenBuyer={(username) => { setOrdersDashboard(null); setOrdersBuyer(username); setPage('orders') }} />}
         {page === 'producao' && <ProducaoPage dataVersion={dataVersion} />}
         {page === 'art' && <ArtEditorPage orderSn={artOrderSn} onBack={artOrderSn ? () => { setArtOrderSn(null); setPage(artReturnPage) } : undefined} />}
         {page === 'activity' && (

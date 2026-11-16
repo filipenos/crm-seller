@@ -28,12 +28,17 @@ function trackingWrites(
   const latest = checkpoints.reduce<TrackingCheckpoint | null>(
     (current, item) => !current || item.happenedAt > current.happenedAt ? item : current, null)
   const delivered = checkpoints.find((item) => /entregue|delivered|entrega realizada/i.test(item.description))
+  const posted = checkpoints.filter((item) => /postado/i.test(item.description))
+    .reduce<TrackingCheckpoint | null>((first, item) => !first || item.happenedAt < first.happenedAt ? item : first, null)
+  const collected = checkpoints.filter((item) => /coletado/i.test(item.description))
+    .reduce<TrackingCheckpoint | null>((first, item) => !first || item.happenedAt < first.happenedAt ? item : first, null)
   const label = checkpoints.find((item) => item.description.trim().toLocaleLowerCase('pt-BR') === 'pedido em preparação')
-  if (latest || label || fallbackLabel) {
+  if (latest || label || fallbackLabel || posted || collected) {
     writes.push({ sql: `UPDATE orders SET logistics_status=COALESCE(?,logistics_status),
-      delivered_at=COALESCE(?,delivered_at), label_generated_at=COALESCE(label_generated_at,?)
+      delivered_at=COALESCE(?,delivered_at), label_generated_at=COALESCE(label_generated_at,?),
+      posted_at=COALESCE(posted_at,?), collected_at=COALESCE(collected_at,?)
       WHERE order_sn=?`, parameters: [latest?.description ?? null, delivered?.happenedAt ?? null,
-      label?.happenedAt ?? fallbackLabel, orderSn] })
+      label?.happenedAt ?? fallbackLabel, posted?.happenedAt ?? null, collected?.happenedAt ?? null, orderSn] })
   }
   for (const item of checkpoints) {
     const key = createHash('sha1').update(`${orderSn}|logistics|${item.happenedAt}|${item.description}`).digest('hex')

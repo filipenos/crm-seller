@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createClient } from '@libsql/client'
-import { migrationStatements } from '../src/main/db/migrations'
+import { MIGRATION_COUNT, migrationStatements } from '../src/main/db/migrations'
 import { buildDailyDashboard, dashboardDates, dashboardPeriodBounds, DEFAULT_PAINEL_OFFSETS, DAILY_DASHBOARD_SQL, type DailyDashboardRow } from '../src/shared/dashboardDays'
 
 const directory = await mkdtemp(join(tmpdir(), 'crm-dashboard-'))
@@ -49,16 +49,22 @@ try {
   const actualCreatedAt = Date.parse('2026-11-08T14:00:00-03:00')
   await db.execute({
     sql: 'INSERT INTO order_income (order_sn, valor_recebido, atualizado_em, raw_json) VALUES (?, ?, ?, ?)',
-    args: ['sale-estimated-today', 28, Date.now(), JSON.stringify({ tracking_info_list: [{ ctime: actualCreatedAt / 1000 }] })]
+    args: ['sale-estimated-today', 28, Date.now(), JSON.stringify({ tracking_info_list: [{ old_status: 0, new_status: 1, ctime: actualCreatedAt / 1000 }] })]
   })
   const previousMonthCreatedAt = Date.parse('2026-10-31T15:00:00-03:00')
   await db.execute({
     sql: 'INSERT INTO order_income (order_sn, valor_recebido, atualizado_em, raw_json) VALUES (?, ?, ?, ?)',
-    args: ['sale-estimated-month', 14, Date.now(), JSON.stringify({ tracking_info_list: [{ ctime: previousMonthCreatedAt / 1000 }] })]
+    args: ['sale-estimated-month', 14, Date.now(), JSON.stringify({ tracking_info_list: [{ old_status: 0, new_status: 1, ctime: previousMonthCreatedAt / 1000 }] })]
   })
   for (const sql of migrationStatements(25)) await db.execute(sql)
+  for (let index = 26; index < MIGRATION_COUNT; index++) {
+    for (const sql of migrationStatements(index)) await db.execute(sql)
+  }
   assert.equal((await db.execute("SELECT created_at_shopee AS value FROM orders WHERE order_sn='sale-estimated-today'")).rows[0]?.value, actualCreatedAt)
   assert.equal((await db.execute("SELECT created_at_shopee AS value FROM orders WHERE order_sn='sale-estimated-month'")).rows[0]?.value, previousMonthCreatedAt)
+  assert.equal((await db.execute("SELECT created_at_verified AS value FROM orders WHERE order_sn='sale-estimated-today'")).rows[0]?.value, 1)
+  await db.execute("UPDATE orders SET created_at_verified=1 WHERE order_sn NOT IN ('cancelled')")
+  await db.execute({ sql: "INSERT INTO orders (order_sn,tab,created_at_shopee,total_amount) VALUES ('unverified-sale','ENVIADO',?,25)", args: [at('2026-11-09')] })
   const { today } = dashboardDates(at('2026-11-09'))
   const rows = (await db.execute({ sql: DAILY_DASHBOARD_SQL, args: dashboardPeriodBounds(today) })).rows as unknown as DailyDashboardRow[]
   const panel = buildDailyDashboard(rows, today)
@@ -96,6 +102,12 @@ try {
   assert.deepEqual(afterLabels.postagensPrevistas[0], panel.postagensPrevistas[0])
   assert.equal(afterLabels.etiquetasRecentes[6].pedidos, 2)
   assert.equal(afterLabels.semPrazoPostagem, 1)
+  await db.execute({ sql: `INSERT INTO orders (order_sn,tab,ship_by_date,total_amount)
+    VALUES ('post-monday','A_ENVIAR',?,20)`, args: [at('2026-11-16')] })
+  const saturday = '2026-11-14'
+  const weekendRows = (await db.execute({ sql: DAILY_DASHBOARD_SQL,
+    args: dashboardPeriodBounds(saturday) })).rows as unknown as DailyDashboardRow[]
+  assert.equal(buildDailyDashboard(weekendRows, saturday).postagensPrevistas[0].pedidos, 1)
   assert.throws(() => dashboardPeriodBounds(today, { ...DEFAULT_PAINEL_OFFSETS, vendas: 3651 }), /inválido/)
   console.log('Painel diário validado.')
 } finally {

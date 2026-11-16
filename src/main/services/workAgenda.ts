@@ -1,6 +1,7 @@
 import { getAsyncDb } from '../db'
 import { dashboardDates } from '@shared/dashboardDays'
 import { inferProductKind, parseBowVariation } from '@shared/productVariation'
+import { internalPostingDay } from '@shared/productionDeadline'
 import type { AgendaDia, AgendaPedido, AgendaQuantidade, AgendaTrabalho, InternalStatus, ProductKind, TrabalhoAtualPedido } from '@shared/types'
 
 interface OrderItemRow {
@@ -9,6 +10,7 @@ interface OrderItemRow {
   buyer_name: string | null
   child_name: string | null
   created_at_shopee: number | null
+  created_at_verified: number
   ship_by_date: number
   internal_status: InternalStatus
   tab: string
@@ -60,9 +62,9 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
   if (!Number.isInteger(days) || days < 1 || days > 10) throw new Error('Escolha de 1 a 10 dias.')
   const { today: hoje } = dashboardDates()
   const lower = midnight(addDays(hoje, 1))
-  const upper = midnight(addDays(hoje, days + 1))
+  const upper = midnight(addDays(hoje, days + 2))
   const [rawItems, rawBoxes, rawCounts, rawToDeliver, rawSelected] = await getAsyncDb().queryBatch([
-    { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.created_at_shopee, o.ship_by_date, o.internal_status,
+    { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.created_at_shopee, o.created_at_verified, o.ship_by_date, o.internal_status,
         o.tab, o.label_generated_at, o.ready_to_post,
         i.item_name, i.model_name, i.quantity, i.pecas, i.lacos, p.kind,
         ps.code AS production_stage
@@ -71,18 +73,22 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
       LEFT JOIN order_item_work w ON w.order_sn = i.order_sn
         AND w.item_id = COALESCE(i.item_id, '') AND w.model_id = COALESCE(i.model_id, '')
       LEFT JOIN production_stages ps ON ps.id = w.stage_id
-      WHERE o.tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
-        AND o.ship_by_date >= ? AND o.ship_by_date < ?
-      ORDER BY o.ship_by_date, o.created_at_shopee IS NULL, o.created_at_shopee, o.order_sn, i.id`, parameters: [lower, upper] },
+      WHERE (o.tab IN ('A_ENVIAR', 'ENVIADO', 'CONCLUIDO')
+          AND o.ship_by_date >= ? AND o.ship_by_date < ?)
+        OR (o.tab = 'A_ENVIAR' AND o.label_generated_at IS NULL AND o.ready_to_post = 0
+          AND o.ship_by_date < ?)
+      ORDER BY o.ship_by_date, o.created_at_shopee IS NULL, o.created_at_shopee, o.order_sn, i.id`, parameters: [lower, upper, lower] },
     { sql: `SELECT box.name, part.quantity
       FROM composition_items kit
       JOIN composition_parts part ON part.parent_item_id = kit.id
       JOIN composition_items box ON box.id = part.child_item_id AND box.kind = 'CAIXA'
       WHERE kit.slug = 'kit-caixas' ORDER BY part.position, box.id` },
     { sql: `SELECT
-        SUM(CASE WHEN ship_by_date < ? THEN 1 ELSE 0 END) AS atrasados,
+        SUM(CASE WHEN date(ship_by_date / 1000, 'unixepoch', '-3 hours',
+          CASE WHEN strftime('%w', ship_by_date / 1000, 'unixepoch', '-3 hours') = '1'
+            THEN '-2 days' ELSE '-1 day' END) < ? THEN 1 ELSE 0 END) AS atrasados,
         SUM(CASE WHEN ship_by_date IS NULL THEN 1 ELSE 0 END) AS sem_prazo
-      FROM orders WHERE tab = 'A_ENVIAR' AND label_generated_at IS NULL AND ready_to_post = 0`, parameters: [lower] },
+      FROM orders WHERE tab = 'A_ENVIAR' AND label_generated_at IS NULL AND ready_to_post = 0`, parameters: [hoje] },
     { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.label_generated_at, o.ship_by_date,
         i.item_name, i.model_name, i.quantity
       FROM orders o LEFT JOIN order_items i ON i.order_sn = o.order_sn
@@ -91,7 +97,7 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
           WHERE e.order_sn = o.order_sn AND e.source = 'logistics'
             AND (LOWER(e.description) LIKE '%postado%' OR LOWER(e.description) LIKE '%coletado%'))
       ORDER BY o.ship_by_date IS NULL, o.ship_by_date, o.created_at_shopee, o.order_sn, i.id` },
-    { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.created_at_shopee, o.ship_by_date,
+    { sql: `SELECT o.order_sn, o.buyer_username, o.buyer_name, o.child_name, o.created_at_shopee, o.created_at_verified, o.ship_by_date,
         o.internal_status, o.tab, o.label_generated_at, o.ready_to_post,
         i.item_name, i.model_name, i.quantity, i.pecas, i.lacos, p.kind,
         ps.code AS production_stage
@@ -108,6 +114,7 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
   const baseBoxes = boxRows.reduce((total, box) => total + (box.quantity ?? 0), 0)
   const byDay = new Map<string, {
     orders: Map<string, AgendaPedido>
+    deadlines: Set<string>
     bowOrders: Set<string>
     boxOrders: Set<string>
     doneOrders: Set<string>
@@ -116,24 +123,27 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     bows: Map<string, number>
     doneBowsByColor: Map<string, number>
     boxes: Map<string, number>
+    doneBoxesByModel: Map<string, number>
     doneBows: number
     doneBoxes: number
   }>()
   for (let offset = 0; offset < days; offset++) {
     byDay.set(addDays(hoje, offset), {
-      orders: new Map(), bowOrders: new Set(), boxOrders: new Set(), doneOrders: new Set(), doneBowOrders: new Set(), doneBoxOrders: new Set(), bows: new Map(), doneBowsByColor: new Map(), boxes: new Map(), doneBows: 0, doneBoxes: 0
+      orders: new Map(), deadlines: new Set(), bowOrders: new Set(), boxOrders: new Set(), doneOrders: new Set(), doneBowOrders: new Set(), doneBoxOrders: new Set(), bows: new Map(), doneBowsByColor: new Map(), boxes: new Map(), doneBoxesByModel: new Map(), doneBows: 0, doneBoxes: 0
     })
   }
 
   for (const row of rawItems as OrderItemRow[]) {
     const shipDay = new Date(row.ship_by_date - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const day = byDay.get(addDays(shipDay, -1))
+    const internalDay = internalPostingDay(shipDay)
+    const day = byDay.get(internalDay < hoje ? hoje : internalDay)
     if (!day) continue
+    day.deadlines.add(shipDay)
     const embalado = row.production_stage === 'PACKED'
     const feito = embalado || row.label_generated_at !== null || row.ready_to_post === 1 || row.tab !== 'A_ENVIAR'
     let order = day.orders.get(row.order_sn)
     if (!order) {
-      order = { orderSn: row.order_sn, buyerUsername: row.buyer_username, buyerName: row.buyer_name, childName: row.child_name, createdAtShopee: row.created_at_shopee, status: row.internal_status, itens: [], pendencias: [], embalado, feito, producao: [] }
+      order = { orderSn: row.order_sn, buyerUsername: row.buyer_username, buyerName: row.buyer_name, childName: row.child_name, createdAtShopee: row.created_at_shopee, createdAtVerified: row.created_at_verified === 1, postarAte: row.ship_by_date, status: row.internal_status, itens: [], pendencias: [], embalado, feito, producao: [] }
       day.orders.set(row.order_sn, order)
     } else {
       order.feito = order.feito && feito
@@ -156,7 +166,6 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     order.producao.push({ tipo: kind, cor: bowColor, feito })
     if (kind === 'LACOS') {
       day.bowOrders.add(row.order_sn)
-      if (feito) day.doneBowOrders.add(row.order_sn)
       const perKit = row.lacos ?? parseBowVariation(row.model_name)?.size ?? null
       const color = bowColor
       if (perKit === null || perKit <= 0 || !color) {
@@ -169,7 +178,6 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
       } else add(day.bows, color, amount * perKit)
     } else if (kind === 'CAIXAS') {
       day.boxOrders.add(row.order_sn)
-      if (feito) day.doneBoxOrders.add(row.order_sn)
       const total = row.pecas ?? piecesFromVariation(row.model_name)
       if (!total || baseBoxes <= 0 || boxRows.some((box) => box.quantity === null)) {
         order.pendencias.push(`Composição ou quantidade de caixas pendente: ${row.item_name}`)
@@ -182,7 +190,10 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
       }
       for (const box of boxRows) {
         const count = multiplier * (box.quantity ?? 0)
-        if (feito) day.doneBoxes += count
+        if (feito) {
+          day.doneBoxes += count
+          add(day.doneBoxesByModel, box.name, count)
+        }
         else add(day.boxes, box.name, count)
       }
     } else {
@@ -191,12 +202,19 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
   }
 
   for (const day of byDay.values()) {
-    for (const order of day.orders.values()) if (order.feito) day.doneOrders.add(order.orderSn)
+    for (const order of day.orders.values()) {
+      if (order.feito) day.doneOrders.add(order.orderSn)
+      for (const [kind, doneSet] of [['LACOS', day.doneBowOrders], ['CAIXAS', day.doneBoxOrders]] as const) {
+        const items = order.producao.filter((item) => item.tipo === kind)
+        if (items.length && items.every((item) => item.feito)) doneSet.add(order.orderSn)
+      }
+    }
   }
 
   const dias: AgendaDia[] = [...byDay].map(([data, item]) => ({
     data,
-    postarAte: addDays(data, 1),
+    postarAte: [...item.deadlines].sort()[0] ?? addDays(data, 1),
+    prazosPostagem: [...item.deadlines].sort(),
     pedidos: [...item.orders.values()],
     pedidosLacos: item.bowOrders.size,
     pedidosCaixas: item.boxOrders.size,
@@ -206,6 +224,7 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
     lacosFeitos: item.doneBows,
     lacosFeitosPorCor: quantities(item.doneBowsByColor),
     caixasFeitas: item.doneBoxes,
+    caixasFeitasPorModelo: quantities(item.doneBoxesByModel),
     lacos: quantities(item.bows),
     caixas: quantities(item.boxes)
   }))
@@ -228,9 +247,9 @@ export async function workAgenda(days: number): Promise<AgendaTrabalho> {
       const shipDay = row.ship_by_date === null ? null : new Date(row.ship_by_date - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
       order = {
         orderSn: row.order_sn, buyerUsername: row.buyer_username, buyerName: row.buyer_name,
-        childName: row.child_name, createdAtShopee: row.created_at_shopee, status: row.internal_status,
+        childName: row.child_name, createdAtShopee: row.created_at_shopee, createdAtVerified: row.created_at_verified === 1, status: row.internal_status,
         itens: [], pendencias: [], embalado, feito: embalado, producao: [],
-        prazoInterno: shipDay ? addDays(shipDay, -1) : null, postarAte: row.ship_by_date
+        prazoInterno: shipDay ? internalPostingDay(shipDay) : null, postarAte: row.ship_by_date
       }
       currentOrders.set(row.order_sn, order)
     } else {

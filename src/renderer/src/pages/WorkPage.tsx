@@ -30,10 +30,13 @@ function orderLabel(orderSn: string, buyerUsername: string | null): string {
   return buyerUsername ? `${orderSn} (${buyerUsername})` : orderSn
 }
 
-function summarize(days: AgendaDia[], key: 'lacos' | 'caixas'): AgendaQuantidade[] {
+function summarize(days: AgendaDia[], key: 'lacos' | 'caixas', hideDone: boolean): AgendaQuantidade[] {
   const values = new Map<string, number>()
   for (const day of days) {
     for (const item of day[key]) values.set(item.nome, (values.get(item.nome) ?? 0) + item.quantidade)
+    if (!hideDone) for (const item of key === 'lacos' ? day.lacosFeitosPorCor : day.caixasFeitasPorModelo) {
+      values.set(item.nome, (values.get(item.nome) ?? 0) + item.quantidade)
+    }
   }
   return [...values].map(([nome, quantidade]) => ({ nome, quantidade }))
     .sort((a, b) => b.quantidade - a.quantidade || a.nome.localeCompare(b.nome, 'pt-BR'))
@@ -83,7 +86,7 @@ export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.E
         if (!selected) return { ...current, selecionados: current.selecionados.filter((order) => !changedIds.includes(order.orderSn)) }
         const additions: TrabalhoAtualPedido[] = current.dias.flatMap((day) => day.pedidos
           .filter((order) => changedIds.includes(order.orderSn))
-          .map((order) => ({ ...order, prazoInterno: day.data, postarAte: Date.parse(`${day.postarAte}T12:00:00-03:00`) })))
+          .map((order) => ({ ...order, prazoInterno: day.data })))
         return { ...current, selecionados: [...current.selecionados, ...additions]
           .sort((a, b) => (a.prazoInterno ?? '9999').localeCompare(b.prazoInterno ?? '9999') || (a.createdAtShopee ?? Infinity) - (b.createdAtShopee ?? Infinity)) }
       })
@@ -117,8 +120,8 @@ export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.E
     return () => { active = false }
   }, [days, dataVersion, refresh, dayTick])
 
-  const bows = useMemo(() => summarize(agenda?.dias ?? [], 'lacos'), [agenda])
-  const boxes = useMemo(() => summarize(agenda?.dias ?? [], 'caixas'), [agenda])
+  const bows = useMemo(() => summarize(agenda?.dias ?? [], 'lacos', hideDone), [agenda, hideDone])
+  const boxes = useMemo(() => summarize(agenda?.dias ?? [], 'caixas', hideDone), [agenda, hideDone])
   const orders = agenda?.dias.reduce((sum, day) => sum + day.pedidos.length, 0) ?? 0
   const doneOrders = agenda?.dias.reduce((sum, day) => sum + day.pedidosFeitos, 0) ?? 0
   const todayWork = agenda?.dias[0]
@@ -140,7 +143,7 @@ export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.E
     <div className="work-search"><label htmlFor="work-search">Pesquisar pedidos</label><div><input id="work-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ID, usuário, criança, produto ou variação" /><span className="muted">Agenda dos próximos {days} dias e pedidos etiquetados para entregar</span></div></div>
     <div className="work-tip">Prazo interno: 1 dia antes da Shopee
       <span className="work-tip-icon" tabIndex={0} aria-label="Como calculamos o prazo interno">ⓘ
-        <span role="tooltip">A agenda usa “Postar até” da Shopee menos um dia para antecipar a produção. O prazo original aparece em cada dia.</span>
+        <span role="tooltip">A agenda antecipa “Postar até” em um dia. Quando o prazo é segunda-feira, o trabalho entra no sábado. Pedidos vencidos e ainda pendentes aparecem em hoje.</span>
       </span>
     </div>
     {loading && <div className="empty loading-indicator">Carregando agenda…</div>}
@@ -177,8 +180,8 @@ export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.E
       </div>
       <div className="work-stats">
         <div><small>{hideDone ? 'Pedidos por fazer' : 'Pedidos no período'}</small><strong>{hideDone ? orders - doneOrders : orders}</strong>{!hideDone && <span>{doneOrders} feitos · {orders - doneOrders} por fazer</span>}</div>
-        <div><small>Laços necessários</small><strong>{total(bows).toLocaleString('pt-BR')}</strong><span>{bows.length} cores</span></div>
-        <div><small>Caixas necessárias</small><strong>{total(boxes).toLocaleString('pt-BR')}</strong><span>{boxes.length} modelos</span></div>
+        <div><small>{hideDone ? 'Laços por fazer' : 'Laços no período'}</small><strong>{total(bows).toLocaleString('pt-BR')}</strong><span>{bows.length} cores</span></div>
+        <div><small>{hideDone ? 'Caixas por fazer' : 'Caixas no período'}</small><strong>{total(boxes).toLocaleString('pt-BR')}</strong><span>{boxes.length} modelos</span></div>
       </div>
       <div className="work-section-head"><h2>Agenda de produção</h2><span>{displayDate(agenda.hoje)} a {displayDate(agenda.dias.at(-1)?.data ?? agenda.hoje)}</span></div>
       <div className="work-days">{agenda.dias.filter((day) => !hideDone || Object.keys(dayFilters[day.data] ?? {}).length > 0 || day.pedidos.length > day.pedidosFeitos).map((day) => {
@@ -189,11 +192,11 @@ export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.E
         return <article className={`work-day ${day.data === agenda.hoje ? 'today' : ''}`} key={day.data}>
           <div className="work-day-head"><h3>{day.data === agenda.hoje ? 'Hoje' : displayDay(day.data)}</h3>
             <span>{hideDone ? pedidosLabel(visibleOrders.length) + ' por fazer' : `${pedidosLabel(day.pedidos.length)} · ${day.pedidosFeitos} feitos · ${day.pedidos.length - day.pedidosFeitos} por fazer`}</span>
-            <span>Shopee: postar até {displayDate(day.postarAte)}</span>
+            <span>Shopee: postar até {day.prazosPostagem.length ? day.prazosPostagem.map(displayDate).join(' e ') : displayDate(day.postarAte)}</span>
             {day.pedidos.some((order) => !order.feito && !agenda.selecionados.some((selected) => selected.orderSn === order.orderSn)) && <button type="button" className="work-select-button" disabled={selectionBusy} onClick={() => void selectWork(day.pedidos.filter((order) => !order.feito).map((order) => order.orderSn), true)}>Adicionar dia inteiro</button>}
           </div>
           <div className="work-day-group"><button type="button" className={`work-filter-button ${filter.tipo === 'LACOS' && !filter.cor ? 'active' : ''}`} onClick={() => changeDayFilter(day.data, { tipo: 'LACOS', cor: undefined })}>Laços · {pedidosLabel(hideDone ? day.pedidosLacos - day.pedidosLacosFeitos : day.pedidosLacos)} · {hideDone ? total(day.lacos) : total(day.lacos) + day.lacosFeitos} laços</button>{!hideDone && <span>{day.pedidosLacosFeitos} pedidos e {day.lacosFeitos} laços feitos · {total(day.lacos)} laços por fazer</span>}<div className="work-filter-colors">{colors.length ? colors.map((color) => { const quantity = workColorQuantity(day, color, filter, hideDone); return <button type="button" className={`work-filter-button ${filter.cor === color ? 'active' : ''}`} key={color} onClick={() => changeDayFilter(day.data, { tipo: 'LACOS', cor: color })}>{color} {quantity === null ? '· qtd. não identificada' : quantity.toLocaleString('pt-BR')}</button> }) : <span>Nenhum laço neste dia</span>}</div></div>
-          <div className="work-day-group"><button type="button" className={`work-filter-button ${filter.tipo === 'CAIXAS' ? 'active' : ''}`} onClick={() => changeDayFilter(day.data, { tipo: 'CAIXAS', cor: undefined })}>Caixas · {pedidosLabel(hideDone ? day.pedidosCaixas - day.pedidosCaixasFeitos : day.pedidosCaixas)} · {hideDone ? total(day.caixas) : total(day.caixas) + day.caixasFeitas} caixas</button>{!hideDone && <span>{day.pedidosCaixasFeitos} pedidos e {day.caixasFeitas} caixas feitas · {total(day.caixas)} caixas por fazer</span>}<span>{day.caixas.length ? day.caixas.map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhuma caixa pendente'}</span></div>
+          <div className="work-day-group"><button type="button" className={`work-filter-button ${filter.tipo === 'CAIXAS' ? 'active' : ''}`} onClick={() => changeDayFilter(day.data, { tipo: 'CAIXAS', cor: undefined })}>Caixas · {pedidosLabel(hideDone ? day.pedidosCaixas - day.pedidosCaixasFeitos : day.pedidosCaixas)} · {hideDone ? total(day.caixas) : total(day.caixas) + day.caixasFeitas} caixas</button>{!hideDone && <span>{day.pedidosCaixasFeitos} pedidos e {day.caixasFeitas} caixas feitas · {total(day.caixas)} caixas por fazer</span>}<span>{(hideDone ? day.caixas : [...day.caixas, ...day.caixasFeitasPorModelo]).length ? summarize([day], 'caixas', hideDone).map((item) => `${item.nome} ${item.quantidade}`).join(' · ') : 'Nenhuma caixa neste dia'}</span></div>
           <div className="work-day-filters"><span>Mostrar:</span>{(['todos', 'fazer', 'feitos'] as const).map((situacao) => <button type="button" key={situacao} className={`work-filter-button ${(filter.situacao ?? (hideDone ? 'fazer' : 'todos')) === situacao ? 'active' : ''}`} onClick={() => changeDayFilter(day.data, { situacao })}>{situacao === 'todos' ? 'Todos' : situacao === 'fazer' ? 'A fazer' : 'Feitos'}</button>)}{Object.keys(filter).length > 0 && <button type="button" className="work-filter-clear" onClick={() => { setDayFilters((current) => { const next = { ...current }; delete next[day.data]; return next }); setExpanded(day.data) }}>Limpar filtro</button>}</div>
           {pending > 0 && <div className="work-pending">{pending} pedido(s) precisam de dados para calcular a produção</div>}
           <button className="work-expand" type="button" aria-expanded={expanded === day.data}
@@ -202,7 +205,7 @@ export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.E
           </button>
           {expanded === day.data && <div className="work-orders">{visibleOrders.length === 0 && <p className="muted">Nenhum pedido corresponde ao filtro deste dia.</p>}{visibleOrders.map((order) =>
             <div className="work-agenda-order" key={order.orderSn}><button type="button" onClick={() => setSelected(order.orderSn)}>
-              <span className="mono">{orderLabel(order.orderSn, order.buyerUsername)}</span><small>Entrada: {order.createdAtShopee ? new Date(order.createdAtShopee).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : 'não informada'} · {order.feito ? 'trabalho feito' : 'produção pendente'}</small>
+              <span className="mono">{orderLabel(order.orderSn, order.buyerUsername)}</span><small>Entrada: {order.createdAtShopee && order.createdAtVerified ? new Date(order.createdAtShopee).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : 'data ainda não confirmada'} · {order.feito ? 'trabalho feito' : 'produção pendente'}</small>
               {order.itens.map((item, index) => <small key={index}>{item}</small>)}
               {order.pendencias.map((item, index) => <small className="work-pending" key={index}>{item}</small>)}
             </button>{!order.feito && <button type="button" className="work-select-button" disabled={selectionBusy} onClick={() => void selectWork([order.orderSn], !agenda.selecionados.some((selected) => selected.orderSn === order.orderSn))}>{agenda.selecionados.some((selected) => selected.orderSn === order.orderSn) ? 'Remover do trabalho' : 'Adicionar ao trabalho'}</button>}</div>)}
@@ -211,7 +214,7 @@ export default function WorkPage({ dataVersion, onEditArt }: Props): React.JSX.E
       })}</div>
       {hideDone && agenda.dias.every((day) => day.pedidos.length === day.pedidosFeitos) && <div className="empty">Nenhum pedido por fazer neste período.</div>}
       <div className="work-summaries"><Summary title="Laços por cor" items={bows} /><Summary title="Caixas por modelo" items={boxes} /></div>
-      <p className="muted small">“Feito” significa etiqueta gerada, mesmo que a postagem ainda esteja pendente. As listas por cor e modelo mostram o que falta fazer, sem descontar estoque ou lotes já produzidos.</p>
+      <p className="muted small">“Feito” significa etiqueta gerada, mesmo que a postagem ainda esteja pendente. Os totais seguem o filtro “Ocultar já feitos”, sem descontar estoque ou lotes já produzidos.</p>
     </>}
     {toast && <div className="toast">{toast}</div>}
     {selected && <OrderDetail orderSn={selected} onClose={() => setSelected(null)}

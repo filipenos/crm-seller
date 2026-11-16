@@ -31,9 +31,14 @@ try {
   await client.execute({ sql: 'UPDATE orders SET created_at_shopee = ? WHERE order_sn = ?', args: [realCreatedAt, orderSn] })
   await upsertShopeeOrderAsync({ orderSn, createdAtShopee: approximateCreatedAt, createdAtEstimated: true })
   assert.equal((await client.execute({ sql: 'SELECT created_at_shopee AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, realCreatedAt)
+  assert.equal((await client.execute({ sql: 'SELECT created_at_verified AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, 0)
   const correctedCreatedAt = realCreatedAt + 60_000
   await upsertShopeeOrderAsync({ orderSn, createdAtShopee: correctedCreatedAt, createdAtEstimated: false })
   assert.equal((await client.execute({ sql: 'SELECT created_at_shopee AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, correctedCreatedAt)
+  assert.equal((await client.execute({ sql: 'SELECT created_at_verified AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, 1)
+  await upsertShopeeOrderAsync({ orderSn, createdAtShopee: approximateCreatedAt, createdAtEstimated: true })
+  assert.equal((await client.execute({ sql: 'SELECT created_at_shopee AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, correctedCreatedAt)
+  assert.equal((await client.execute({ sql: 'SELECT created_at_verified AS value FROM orders WHERE order_sn = ?', args: [orderSn] })).rows[0]?.value, 1)
 
   assert.equal(await upsertShopeeOrderAsync({
     orderSn, shopeeStatus: 'Entregue', shopeeTab: 'CONCLUIDO', items
@@ -101,13 +106,41 @@ try {
   const { parseOrderIncome } = await import('../src/main/services/shopee/client')
   const { salvarRecebimentoAsync } = await import('../src/main/services/recebimentos')
   const income = parseOrderIncome({ order_info: { order_sn: 'TEST-DATE' },
-    tracking_info_list: [{ ctime: Math.floor(actualSaleTime / 1000) }] }, 'TEST-DATE')
+    tracking_info_list: [
+      { old_status: 1, new_status: 2, ctime: Math.floor((actualSaleTime - 60_000) / 1000) },
+      { old_status: 0, new_status: 1, ctime: Math.floor(actualSaleTime / 1000) }
+    ] }, 'TEST-DATE')
   assert.equal(income?.criadoEm, actualSaleTime)
+  assert.equal(parseOrderIncome({ order_info: { order_sn: 'TEST-DATE' },
+    tracking_info_list: [{ old_status: 1, new_status: 2, ctime: Math.floor(actualSaleTime / 1000) }] }, 'TEST-DATE')?.criadoEm, null)
+  const forecastOnly = parseOrderIncome({ order_info: { order_sn: 'TEST-DATE', released_time: Math.floor((actualSaleTime - 60_000) / 1000) },
+    tracking_info_list: [] }, 'TEST-DATE')
+  assert.equal(forecastOnly?.recebidoEm, null)
+  assert.equal(forecastOnly?.previstoPara, actualSaleTime - 60_000)
+  const releasedIncome = parseOrderIncome({ order_info: { order_sn: 'TEST-DATE', released_time: Math.floor(actualSaleTime / 1000) },
+    tracking_info_list: [{ old_status: 14, new_status: 11, ctime: Math.floor(actualSaleTime / 1000) }] }, 'TEST-DATE')
+  assert.equal(releasedIncome?.recebidoEm, actualSaleTime)
+  assert.equal(releasedIncome?.previstoPara, null)
   await salvarRecebimentoAsync(income!)
   const correctedDay = (await client.execute(
     "SELECT date(created_at_shopee/1000,'unixepoch','-3 hours') AS dia FROM orders WHERE order_sn='TEST-DATE'"
   )).rows[0]?.dia
   assert.equal(correctedDay, '2026-11-10')
+  assert.equal((await client.execute("SELECT created_at_verified AS value FROM orders WHERE order_sn='TEST-DATE'")).rows[0]?.value, 1)
+  const { listOrdersAsync } = await import('../src/main/services/orders')
+  const cardDay = '2026-11-14'
+  const cardTime = Date.parse(`${cardDay}T12:00:00-03:00`)
+  await upsertShopeeOrderAsync({ orderSn: 'CARD-SALE', shopeeTab: 'ENVIADO', createdAtShopee: cardTime, createdAtEstimated: false })
+  await upsertShopeeOrderAsync({ orderSn: 'CARD-CANCEL', shopeeTab: 'CANCELADO', createdAtShopee: cardTime, createdAtEstimated: false })
+  await upsertShopeeOrderAsync({ orderSn: 'CARD-SUNDAY', shopeeTab: 'A_ENVIAR', shipByDate: Date.parse('2026-11-15T12:00:00-03:00') })
+  await upsertShopeeOrderAsync({ orderSn: 'CARD-MONDAY', shopeeTab: 'A_ENVIAR', shipByDate: Date.parse('2026-11-16T12:00:00-03:00') })
+  await upsertShopeeOrderAsync({ orderSn: 'CARD-LABEL', shopeeTab: 'ENVIADO' })
+  await client.execute({ sql: 'UPDATE orders SET label_generated_at=? WHERE order_sn=?', args: [cardTime, 'CARD-LABEL'] })
+  assert.deepEqual((await listOrdersAsync({ dashboard: { group: 'vendas', day: cardDay }, tab: 'TODOS' })).map((order) => order.orderSn), ['CARD-SALE'])
+  assert.deepEqual((await listOrdersAsync({ dashboard: { group: 'previstas', day: cardDay }, tab: 'A_ENVIAR' })).map((order) => order.orderSn).sort(), ['CARD-MONDAY', 'CARD-SUNDAY'])
+  assert.deepEqual((await listOrdersAsync({ dashboard: { group: 'previstas', day: '2026-11-15' }, tab: 'A_ENVIAR' })).map((order) => order.orderSn), [])
+  assert.deepEqual((await listOrdersAsync({ dashboard: { group: 'etiquetas', day: cardDay }, tab: 'TODOS' })).map((order) => order.orderSn), ['CARD-LABEL'])
+  await assert.rejects(() => listOrdersAsync({ dashboard: { group: 'vendas', day: '2026-02-30' } }), /inválido/)
   client.close()
   console.log('Atualização de pedidos validada.')
 } finally {

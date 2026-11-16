@@ -114,7 +114,7 @@ async function changedOrders(orders: NormalizedShopeeOrder[]): Promise<Normalize
 async function syncEstimatedSaleDates(
   orders: NormalizedShopeeOrder[], shouldCancel: () => boolean
 ): Promise<{ checked: number; corrected: number; failed: number }> {
-  const estimated = new Map(orders.filter((order) => order.createdAtEstimated && order.shopeeOrderId)
+  const estimated = new Map(orders.filter((order) => order.shopeeOrderId)
     .map((order) => [order.orderSn, order.shopeeOrderId!] as const))
   if (estimated.size === 0) return { checked: 0, corrected: 0, failed: 0 }
   const candidates: { order_sn: string }[] = []
@@ -122,9 +122,8 @@ async function syncEstimatedSaleDates(
   for (let start = 0; start < sns.length; start += 100) {
     const part = sns.slice(start, start + 100)
     const rows = await (await getAsyncDb().prepare(`SELECT o.order_sn FROM orders o
-      LEFT JOIN order_income i ON i.order_sn=o.order_sn
       WHERE o.order_sn IN (${part.map(() => '?').join(',')})
-        AND o.tab NOT IN ('CANCELADO','NAO_PAGO') AND i.order_sn IS NULL`)).all(part) as { order_sn: string }[]
+        AND o.created_at_verified = 0`)).all(part) as { order_sn: string }[]
     candidates.push(...rows)
   }
   if (candidates.length === 0) return { checked: 0, corrected: 0, failed: 0 }
@@ -196,6 +195,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean; pendingOnly?: bo
         onOrder: opts.todasAsPaginas ? async (order) => {
           if (lote.cancelar) return
           const isNew = await upsertShopeeOrderAsync(order)
+          if (order.createdAtEstimated) ordersWithEstimatedDates.push(order)
           touchedOrders.add(order.orderSn)
           result.ordersUpserted++
           if (isNew) {
@@ -237,7 +237,7 @@ export async function syncAll(opts: { todasAsPaginas?: boolean; pendingOnly?: bo
       errors.push(String(err instanceof Error ? err.message : err))
     }
 
-    if (!opts.todasAsPaginas && !lote.cancelar) {
+    if (!lote.cancelar) {
       try {
         const dates = await syncEstimatedSaleDates(ordersWithEstimatedDates, () => lote.cancelar)
         if (dates.failed > 0) errors.push(`datas das vendas: ${dates.failed} pedidos sem hora confirmada`)

@@ -104,6 +104,11 @@ export default function ManagementReportPage({ onOpenBuyer }: { onOpenBuyer: (us
     {loading && <div className="empty loading-indicator">Carregando relatório…</div>}
     {!loading && data && <>
       <p className="report-range">{dateLabel(data.periodo.inicio)} a {dateLabel(data.periodo.fim)}</p>
+      {data.datasPendentes.pedidos > 0 && <p className="report-coverage">
+        {data.datasPendentes.pedidos} pedido(s) com data de venda ainda não confirmada perto deste período
+        {data.datasPendentes.cancelados > 0 ? `, incluindo ${data.datasPendentes.cancelados} cancelado(s)` : ''}.
+        A data disponível é estimada pelo número do pedido; eles não entram nos totais por dia até obtermos a hora real.
+      </p>}
       <section className="report-section"><h2>Vendas feitas no período</h2>
         <div className="report-grid">
           <Kpi label="Pedidos" value={NUM.format(data.vendas.pedidos)} />
